@@ -13,6 +13,7 @@ pub enum Command {
     Run(RunConfig),
     Send(SendConfig),
     LoopbackTest(LoopbackConfig),
+    Interactive(InteractiveConfig),
 }
 
 /// Runtime configuration for the serial reader.
@@ -41,6 +42,15 @@ pub struct LoopbackConfig {
     pub loopback_timeout: Duration,
 }
 
+/// Runtime configuration for interactive serial terminal mode.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InteractiveConfig {
+    pub port: String,
+    pub baud_rate: u32,
+    pub read_timeout: Duration,
+    pub append_newline: bool,
+}
+
 /// Parses CLI arguments into a command.
 ///
 /// - `args`: raw process arguments without the executable name.
@@ -58,6 +68,7 @@ where
         "run" => parse_run_args(args),
         "send" => parse_send_args(args),
         "loopback-test" => parse_loopback_args(args),
+        "interactive" => parse_interactive_args(args),
         _ => Err(AppError::Usage(usage())),
     }
 }
@@ -65,7 +76,7 @@ where
 /// Returns CLI usage text.
 pub fn usage() -> String {
     format!(
-        "Usage:\n  eadai ports\n  eadai run --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>]\n  eadai send --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n  eadai loopback-test --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--loopback-timeout-ms <ms>] [--no-newline]\n\nDefaults:\n  baud = {DEFAULT_BAUD_RATE}\n  retry-ms = {DEFAULT_RETRY_DELAY_MS}\n  read-timeout-ms = {DEFAULT_READ_TIMEOUT_MS}\n  loopback-timeout-ms = {DEFAULT_LOOPBACK_TIMEOUT_MS}\n"
+        "Usage:\n  eadai ports\n  eadai run --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>]\n  eadai send --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n  eadai loopback-test --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--loopback-timeout-ms <ms>] [--no-newline]\n  eadai interactive --port <name> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n\nDefaults:\n  baud = {DEFAULT_BAUD_RATE}\n  retry-ms = {DEFAULT_RETRY_DELAY_MS}\n  read-timeout-ms = {DEFAULT_READ_TIMEOUT_MS}\n  loopback-timeout-ms = {DEFAULT_LOOPBACK_TIMEOUT_MS}\n"
     )
 }
 
@@ -134,6 +145,61 @@ where
     let collected: Vec<String> = args.into_iter().collect();
     let send = parse_send_config(&collected)?;
     Ok(Command::Send(send))
+}
+
+fn parse_interactive_args<I>(args: I) -> Result<Command, AppError>
+where
+    I: IntoIterator<Item = String>,
+{
+    let collected: Vec<String> = args.into_iter().collect();
+    let mut port = None;
+    let mut baud_rate = DEFAULT_BAUD_RATE;
+    let mut read_timeout_ms = DEFAULT_READ_TIMEOUT_MS;
+    let mut append_newline = true;
+    let mut index = 0;
+
+    while index < collected.len() {
+        match collected[index].as_str() {
+            "--port" => {
+                port = Some(next_value(&collected, &mut index, "--port")?);
+            }
+            "--baud" => {
+                baud_rate = parse_number(&next_value(&collected, &mut index, "--baud")?, "--baud")?;
+            }
+            "--read-timeout-ms" => {
+                read_timeout_ms = parse_number(
+                    &next_value(&collected, &mut index, "--read-timeout-ms")?,
+                    "--read-timeout-ms",
+                )?;
+            }
+            "--no-newline" => {
+                append_newline = false;
+            }
+            _ => {
+                return Err(AppError::Usage(format!(
+                    "Unknown flag: {}\n\n{}",
+                    collected[index],
+                    usage()
+                )));
+            }
+        }
+
+        index += 1;
+    }
+
+    let Some(port) = port else {
+        return Err(AppError::Usage(format!(
+            "Missing required flag: --port\n\n{}",
+            usage()
+        )));
+    };
+
+    Ok(Command::Interactive(InteractiveConfig {
+        port,
+        baud_rate,
+        read_timeout: Duration::from_millis(read_timeout_ms),
+        append_newline,
+    }))
 }
 
 fn parse_loopback_args<I>(args: I) -> Result<Command, AppError>

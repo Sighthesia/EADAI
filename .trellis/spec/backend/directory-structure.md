@@ -6,49 +6,52 @@
 
 ## Overview
 
-<!--
-Document your project's backend directory structure here.
-
-Questions to answer:
-- How are modules/packages organized?
-- Where does business logic live?
-- Where are API endpoints defined?
-- How are utilities and helpers organized?
--->
-
-(To be filled by the team)
+The backend is currently a single Rust binary crate with one executable entry point at `src/main.rs`.
+There are no established service, database, API, or utility submodules yet, so new backend code should start small and be split only when a clear boundary appears.
 
 ---
 
 ## Directory Layout
 
 ```
-<!-- Replace with your actual structure -->
-src/
-├── ...
-└── ...
+.
+├── README.md
+├── ROADMAP.md
+├── src/
+│   └── main.rs
+└── .trellis/
+    ├── spec/backend/
+    └── scripts/
 ```
 
 ---
 
 ## Module Organization
 
-<!-- How should new features/modules be organized? -->
-
-(To be filled by the team)
+There is no formal backend module layout yet.
+Keep the entrypoint in `src/main.rs` until the backend grows enough to justify extraction into focused Rust modules.
+Use one module per responsibility when splitting code, and prefer short, purpose-built files over broad utility dumping grounds.
 
 ---
 
 ## Naming Conventions
 
-<!-- File and folder naming rules -->
-
-(To be filled by the team)
+Use Rust standard naming: `snake_case` for files and modules, `CamelCase` for types, and descriptive function names.
+Keep directory names lowercase and descriptive.
+Documented project scaffolding uses kebab-case for Trellis task folders, such as `.trellis/tasks/00-bootstrap-guidelines/`.
 
 ---
 
 ## Examples
 
-<!-- Link to well-organized modules as examples -->
+Current examples:
 
-(To be filled by the team)
+- `src/main.rs` for the binary entry point
+- `.trellis/spec/backend/index.md` for backend documentation structure
+- `.trellis/scripts/create_bootstrap.py` for project bootstrap automation
+
+Anti-patterns:
+
+- Adding unrelated logic directly into `src/main.rs` once the file starts growing
+- Creating vague catch-all folders like `utils/` before a real use case exists
+- Introducing nested module trees before there is a stable backend boundary

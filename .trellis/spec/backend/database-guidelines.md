@@ -6,46 +6,39 @@
 
 ## Overview
 
-<!--
-Document your project's database conventions here.
-
-Questions to answer:
-- What ORM/query library do you use?
-- How are migrations managed?
-- What are the naming conventions for tables/columns?
-- How do you handle transactions?
--->
-
-(To be filled by the team)
+There is no database layer in the current codebase.
+`src/main.rs` does not depend on an ORM, query builder, or migration tool, and no schema files exist yet.
+When persistence is added, document the chosen library and migration workflow here before introducing application data models.
 
 ---
 
 ## Query Patterns
 
-<!-- How should queries be written? Batch operations? -->
-
-(To be filled by the team)
+No query patterns are defined yet because the project does not currently query a database.
+Avoid inventing a persistence abstraction until there is an actual storage use case.
 
 ---
 
 ## Migrations
 
-<!-- How to create and run migrations -->
-
-(To be filled by the team)
+No migration workflow exists yet.
+If a database is introduced, record the exact command used to create, apply, and roll back migrations, plus where migration files live.
 
 ---
 
 ## Naming Conventions
 
-<!-- Table names, column names, index names -->
-
-(To be filled by the team)
+No table or column naming conventions exist yet.
+When persistence is added, keep names explicit and consistent with the selected Rust data model and schema tooling.
 
 ---
 
 ## Common Mistakes
 
-<!-- Database-related mistakes your team has made -->
+Database-related anti-patterns to avoid:
+
+- Adding persistence dependencies before the data model is stable
+- Hard-coding schema assumptions in `main.rs`
+- Mixing storage code into unrelated runtime setup
 
 (To be filled by the team)

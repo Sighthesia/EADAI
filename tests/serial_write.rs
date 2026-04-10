@@ -1,5 +1,7 @@
-use eadai::cli::{LoopbackConfig, SendConfig};
-use eadai::serial::{LineFramer, payload_bytes, read_expected_line, write_payload};
+use eadai::cli::{Command, LoopbackConfig, SendConfig, parse_args};
+use eadai::serial::{
+    LineFramer, payload_bytes, payload_bytes_for_text, read_expected_line, write_payload,
+};
 use std::io::{Cursor, Read, Result as IoResult, Write};
 use std::time::Duration;
 
@@ -14,6 +16,11 @@ fn appends_newline_to_default_payload() {
     };
 
     assert_eq!(payload_bytes(&config), b"ping:42\n");
+}
+
+#[test]
+fn appends_newline_for_interactive_text() {
+    assert_eq!(payload_bytes_for_text("ping", true), b"ping\n");
 }
 
 #[test]
@@ -64,6 +71,28 @@ fn reads_expected_echo_from_loopback_like_stream() {
     .unwrap();
 
     assert_eq!(echoed.text, "temp:42");
+}
+
+#[test]
+fn parses_interactive_command_flags() {
+    let command = parse_args([
+        "interactive".to_string(),
+        "--port".to_string(),
+        "/dev/ttyACM0".to_string(),
+        "--baud".to_string(),
+        "9600".to_string(),
+        "--no-newline".to_string(),
+    ])
+    .unwrap();
+
+    match command {
+        Command::Interactive(config) => {
+            assert_eq!(config.port, "/dev/ttyACM0");
+            assert_eq!(config.baud_rate, 9600);
+            assert!(!config.append_newline);
+        }
+        _ => panic!("expected interactive command"),
+    }
 }
 
 struct FakeLoopback {

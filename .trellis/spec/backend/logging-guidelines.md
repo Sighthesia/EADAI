@@ -6,46 +6,33 @@
 
 ## Overview
 
-<!--
-Document your project's logging conventions here.
-
-Questions to answer:
-- What logging library do you use?
-- What are the log levels and when to use each?
-- What should be logged?
-- What should NOT be logged (PII, secrets)?
--->
-
-(To be filled by the team)
+The current codebase does not yet use a logging crate.
+`src/main.rs` only prints the default Rust greeting, so there is no structured logging format, level policy, or redaction rule in place yet.
+When logging is introduced, keep it structured and consistent across runtime components.
 
 ---
 
 ## Log Levels
 
-<!-- When to use each level: debug, info, warn, error -->
-
-(To be filled by the team)
+No project-specific log levels are defined yet.
+Use the standard meaning of `debug`, `info`, `warn`, and `error` once a logger is added.
 
 ---
 
 ## Structured Logging
 
-<!-- Log format, required fields -->
-
-(To be filled by the team)
+No structured log format is defined yet.
+When the backend grows, prefer key/value fields that make device state, channel identifiers, and request context searchable.
 
 ---
 
 ## What to Log
 
-<!-- Important events to log -->
-
-(To be filled by the team)
+Log only the events that help explain runtime behavior, such as startup, device connection changes, parsing failures, and command execution outcomes.
 
 ---
 
 ## What NOT to Log
 
-<!-- Sensitive data, PII, secrets -->
-
-(To be filled by the team)
+Do not log secrets, credentials, raw private data, or any payload that is not needed for debugging.
+Avoid dumping large binary blobs or unbounded serial traffic into logs.

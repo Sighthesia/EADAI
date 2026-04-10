@@ -1,9 +1,10 @@
 use eadai::app::App;
 use eadai::bus::{BusSubscription, MessageBus};
-use eadai::cli::{Command, LoopbackConfig, SendConfig, parse_args};
+use eadai::cli::{Command, InteractiveConfig, LoopbackConfig, SendConfig, parse_args};
 use eadai::error::AppError;
 use eadai::message::MessageKind;
 use eadai::serial::{self, LineFramer};
+use std::io::{self, BufRead};
 
 fn main() {
     if let Err(error) = run() {
@@ -31,6 +32,7 @@ fn run() -> Result<(), AppError> {
         }
         Command::Send(config) => send_once(&config),
         Command::LoopbackTest(config) => run_loopback_test(&config),
+        Command::Interactive(config) => run_interactive(&config),
     }
 }
 
@@ -76,6 +78,53 @@ fn run_loopback_test(config: &LoopbackConfig) -> Result<(), AppError> {
         String::from_utf8_lossy(&payload),
         echoed.text
     );
+    Ok(())
+}
+
+fn run_interactive(config: &InteractiveConfig) -> Result<(), AppError> {
+    let mut write_port = serial::open_interactive_port(config)?;
+    let mut read_port = write_port.try_clone()?;
+    let port_name = config.port.clone();
+
+    let _reader = std::thread::spawn(move || -> Result<(), AppError> {
+        let mut framer = LineFramer::new();
+
+        loop {
+            serial::pump_port(&mut *read_port, &mut framer, |line| {
+                println!(
+                    "[rx] port={} bytes={} text={}",
+                    port_name,
+                    line.raw.len(),
+                    line.text
+                );
+            })?;
+        }
+    });
+
+    println!(
+        "[interactive] connected to {} at {} baud",
+        config.port, config.baud_rate
+    );
+    println!("[interactive] type one line per command, use /quit to exit");
+
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        if line == "/quit" {
+            break;
+        }
+
+        let payload = serial::payload_bytes_for_text(&line, config.append_newline);
+        serial::write_payload(&mut *write_port, &payload)?;
+        println!(
+            "[tx] port={} bytes={} text={}",
+            config.port,
+            payload.len(),
+            line
+        );
+    }
+
+    drop(write_port);
     Ok(())
 }
 

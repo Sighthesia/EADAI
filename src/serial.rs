@@ -1,4 +1,4 @@
-use crate::cli::{RunConfig, SendConfig};
+use crate::cli::{InteractiveConfig, RunConfig, SendConfig};
 use crate::error::AppError;
 use crate::message::LinePayload;
 use std::io::{ErrorKind, Read, Write};
@@ -30,13 +30,28 @@ pub fn open_send_port(config: &SendConfig) -> Result<Box<dyn serialport::SerialP
     Ok(port)
 }
 
+/// Opens a serial port for interactive terminal mode.
+pub fn open_interactive_port(
+    config: &InteractiveConfig,
+) -> Result<Box<dyn serialport::SerialPort>, AppError> {
+    let port = serialport::new(&config.port, config.baud_rate)
+        .timeout(config.read_timeout)
+        .open()?;
+    Ok(port)
+}
+
 /// Converts send config into bytes to write.
 pub fn payload_bytes(config: &SendConfig) -> Vec<u8> {
-    let mut payload = config.payload.as_bytes().to_vec();
-    if config.append_newline {
-        payload.push(b'\n');
+    payload_bytes_for_text(&config.payload, config.append_newline)
+}
+
+/// Converts free-form terminal text into bytes to write.
+pub fn payload_bytes_for_text(payload: &str, append_newline: bool) -> Vec<u8> {
+    let mut bytes = payload.as_bytes().to_vec();
+    if append_newline {
+        bytes.push(b'\n');
     }
-    payload
+    bytes
 }
 
 /// Writes payload bytes to the serial port and flushes the stream.
