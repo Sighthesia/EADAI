@@ -1,5 +1,5 @@
 ## 1. 项目概述 (Overview)
-本项目是一款开源的、下一代嵌入式综合调试工作站。有别于传统的面向人类开发的串口助手（如 SSCOM、VOFA+），NexusTerm 的核心设计理念是 **“AI 与人协同工作 (Human-AI Teaming)”**。它不仅提供极致性能的数据可视化界面，还内置了标准的 MCP Server，作为大语言模型（Coding Agent）与底层物理硬件交互的“桥梁”和“眼睛”。
+EADAI (Embbeded Analyzer Design for AI) 是一款开源的、下一代嵌入式综合调试工作站。有别于传统的面向人类开发的串口助手（如 SSCOM、VOFA+），NexusTerm 的核心设计理念是 **“AI 与人协同工作 (Human-AI Teaming)”**。它不仅提供极致性能的数据可视化界面，还内置了标准的 MCP Server，作为大语言模型（Coding Agent）与底层物理硬件交互的“桥梁”和“眼睛”。
 
 ### 1.1 核心价值
 * **AI 赋能**：允许 AI Agent 直接读取硬件状态、下发指令、甚至获取波形图快照进行多模态视觉调参（如 PID 波形分析）。
