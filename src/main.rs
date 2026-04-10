@@ -2,7 +2,7 @@ use eadai::app::App;
 use eadai::bus::{BusSubscription, MessageBus};
 use eadai::cli::{Command, InteractiveConfig, LoopbackConfig, SendConfig, parse_args};
 use eadai::error::AppError;
-use eadai::message::MessageKind;
+use eadai::message::{LineDirection, MessageKind};
 use eadai::serial::{self, LineFramer};
 use std::io::{self, BufRead};
 
@@ -143,18 +143,23 @@ fn print_messages(subscription: BusSubscription) {
                     reason,
                 );
             }
-            MessageKind::Line(payload) => {
+            MessageKind::Line(line) => {
                 let parser_name = message
                     .parser
                     .parser_name
                     .unwrap_or_else(|| "raw".to_string());
+                let direction = match line.direction {
+                    LineDirection::Rx => "rx",
+                    LineDirection::Tx => "tx",
+                };
                 println!(
-                    "[line] port={} bytes={} parser={} fields={:?} text={}",
+                    "[line] dir={} port={} bytes={} parser={} fields={:?} text={}",
+                    direction,
                     message.source.port,
-                    payload.raw.len(),
+                    line.payload.raw.len(),
                     parser_name,
                     message.parser.fields,
-                    payload.text
+                    line.payload.text
                 );
             }
         }

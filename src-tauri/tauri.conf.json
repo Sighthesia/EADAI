@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "EADAI",
+  "version": "0.1.0",
+  "identifier": "com.sighthesia.eadai",
+  "build": {
+    "beforeDevCommand": "npm --prefix ui run dev -- --host 127.0.0.1 --port 1420",
+    "beforeBuildCommand": "npm --prefix ui run build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "EADAI",
+        "width": 1600,
+        "height": 1000,
+        "minWidth": 1100,
+        "minHeight": 760,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

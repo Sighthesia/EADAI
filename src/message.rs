@@ -55,6 +55,20 @@ pub struct LinePayload {
     pub raw: Vec<u8>,
 }
 
+/// Direction of one serial line event.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LineDirection {
+    Rx,
+    Tx,
+}
+
+/// Serial line event with explicit direction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineEvent {
+    pub direction: LineDirection,
+    pub payload: LinePayload,
+}
+
 /// Parser placeholder metadata reserved for the next pipeline stage.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ParserMeta {
@@ -66,7 +80,7 @@ pub struct ParserMeta {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MessageKind {
     Connection(ConnectionEvent),
-    Line(LinePayload),
+    Line(LineEvent),
 }
 
 /// Envelope broadcast to downstream consumers.
@@ -109,14 +123,31 @@ impl BusMessage {
     /// Creates a line payload message.
     ///
     /// - `source`: transport metadata.
+    /// - `direction`: whether this line was received or transmitted.
     /// - `payload`: line payload without trailing newline bytes.
-    pub fn line(source: &MessageSource, payload: LinePayload) -> Self {
+    pub fn line(source: &MessageSource, direction: LineDirection, payload: LinePayload) -> Self {
         Self {
             timestamp: SystemTime::now(),
             source: source.clone(),
-            kind: MessageKind::Line(payload),
+            kind: MessageKind::Line(LineEvent { direction, payload }),
             parser: ParserMeta::default(),
         }
+    }
+
+    /// Creates a received line payload message.
+    ///
+    /// - `source`: transport metadata.
+    /// - `payload`: line payload without trailing newline bytes.
+    pub fn rx_line(source: &MessageSource, payload: LinePayload) -> Self {
+        Self::line(source, LineDirection::Rx, payload)
+    }
+
+    /// Creates a transmitted line payload message.
+    ///
+    /// - `source`: transport metadata.
+    /// - `payload`: line payload without trailing newline bytes.
+    pub fn tx_line(source: &MessageSource, payload: LinePayload) -> Self {
+        Self::line(source, LineDirection::Tx, payload)
     }
 
     /// Replaces parser metadata on an existing message.

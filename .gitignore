@@ -1,2 +1,6 @@
 /target
 .ace-tool/
+src-tauri/gen/
+src-tauri/target/
+ui/dist/
+ui/node_modules/
