@@ -3,4 +3,13 @@ name = "EADAI"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "eadai"
+path = "src/lib.rs"
+
+[[bin]]
+name = "eadai"
+path = "src/main.rs"
+
 [dependencies]
+serialport = "4.8.1"
