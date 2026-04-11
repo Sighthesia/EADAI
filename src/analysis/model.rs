@@ -1,4 +1,6 @@
-#[derive(Clone, Debug, PartialEq)]
+use serde::Serialize;
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AnalysisFrame {
     pub channel_id: String,
     pub window_ms: u64,
@@ -18,14 +20,14 @@ pub struct AnalysisFrame {
     pub trigger_hits: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum TriggerSeverity {
     Info,
     Warning,
     Critical,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TriggerEvent {
     pub channel_id: String,
     pub rule_id: String,

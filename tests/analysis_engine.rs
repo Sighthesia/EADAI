@@ -28,9 +28,11 @@ fn pulse_stream_produces_waveform_metrics_and_edge_trigger() {
     assert_approx(frame.period_ms.expect("period"), 500.0, 60.0);
     assert_approx(frame.duty_cycle.expect("duty"), 40.0, 8.0);
     assert!(frame.edge_count >= 6);
-    assert!(fired_rules
-        .iter()
-        .any(|(rule_id, _)| rule_id == "pulse-edge-burst"));
+    assert!(
+        fired_rules
+            .iter()
+            .any(|(rule_id, _)| rule_id == "pulse-edge-burst")
+    );
 }
 
 #[test]
@@ -59,10 +61,12 @@ fn noisy_stream_produces_rms_trigger_without_edge_metrics() {
     assert!(frame.duty_cycle.is_none());
     assert!(frame.edge_count == 0);
     assert!(frame.rms_value.expect("rms") > 0.48);
-    assert!(fired
-        .iter()
-        .any(|(rule_id, severity)| rule_id == "vibration-rms-high"
-            && *severity == TriggerSeverity::Warning));
+    assert!(
+        fired
+            .iter()
+            .any(|(rule_id, severity)| rule_id == "vibration-rms-high"
+                && *severity == TriggerSeverity::Warning)
+    );
 }
 
 #[test]

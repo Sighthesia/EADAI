@@ -1,14 +1,15 @@
 use crate::analysis::{AnalysisFrame, TriggerEvent};
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum TransportKind {
     Serial,
     Fake,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct MessageSource {
     pub transport: TransportKind,
     pub port: String,
@@ -33,7 +34,7 @@ impl MessageSource {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum ConnectionState {
     Idle,
     Connecting,
@@ -42,7 +43,7 @@ pub enum ConnectionState {
     Stopped,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ConnectionEvent {
     pub state: ConnectionState,
     pub reason: Option<String>,
@@ -50,25 +51,25 @@ pub struct ConnectionEvent {
     pub retry_delay_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LinePayload {
     pub text: String,
     pub raw: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum LineDirection {
     Rx,
     Tx,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LineEvent {
     pub direction: LineDirection,
     pub payload: LinePayload,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum ParserStatus {
     #[default]
     Unparsed,
@@ -76,7 +77,7 @@ pub enum ParserStatus {
     Malformed,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct ParserMeta {
     pub parser_name: Option<String>,
     pub status: ParserStatus,

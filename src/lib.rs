@@ -1,9 +1,13 @@
+pub mod ai_adapter;
+pub mod ai_contract;
 pub mod analysis;
 pub mod app;
 pub mod bus;
 pub mod cli;
 pub mod error;
+pub mod fake_session;
 pub mod key_value_parser;
+pub mod mcp_server;
 pub mod measurement_parser;
 pub mod message;
 pub mod parser;

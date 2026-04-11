@@ -7,9 +7,9 @@ use crate::parser;
 use crate::serial::{self, LineFramer};
 use std::cmp::min;
 use std::io::ErrorKind;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

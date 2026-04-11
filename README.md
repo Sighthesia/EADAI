@@ -29,3 +29,60 @@
 - Tests: `cargo test`
 - List ports: `cargo run -- ports`
 - Reader loop: `cargo run -- run --port <device> --baud 115200`
+
+### MCP server
+
+- Server binary: `eadai-mcp`
+- Build it once: `cargo build --bin eadai-mcp`
+- Run against the fake telemetry stream: `cargo run --bin eadai-mcp -- --fake-profile telemetry-lab`
+- Run against a real serial device: `cargo run --bin eadai-mcp -- --port <device> --baud 115200`
+- The MCP server uses stdio, so point clients at the built binary when possible. That avoids Cargo's startup noise and keeps the protocol stream clean.
+
+### Claude Desktop config
+
+Claude Desktop reads `claude_desktop_config.json` and launches the MCP server as a local process.
+
+macOS:
+
+`~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Example:
+
+```json
+{
+  "mcpServers": {
+    "eadai-fake": {
+      "command": "/home/you/projects/EADAI/target/debug/eadai-mcp",
+      "args": ["--fake-profile", "telemetry-lab"]
+    },
+    "eadai-serial": {
+      "command": "/home/you/projects/EADAI/target/debug/eadai-mcp",
+      "args": ["--port", "/dev/ttyUSB0", "--baud", "115200"]
+    }
+  }
+}
+```
+
+After editing the file, fully quit and reopen Claude Desktop.
+
+### Codex config
+
+Codex reads MCP servers from `~/.codex/config.toml` or a project-scoped `.codex/config.toml`.
+
+Example:
+
+```toml
+[mcp_servers.eadai-fake]
+command = "target/debug/eadai-mcp"
+args = ["--fake-profile", "telemetry-lab"]
+cwd = "/home/you/projects/EADAI"
+enabled = true
+
+[mcp_servers.eadai-serial]
+command = "target/debug/eadai-mcp"
+args = ["--port", "/dev/ttyUSB0", "--baud", "115200"]
+cwd = "/home/you/projects/EADAI"
+enabled = true
+```
+
+After editing the file, start a new Codex session or reload MCP settings.
