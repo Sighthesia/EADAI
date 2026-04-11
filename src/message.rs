@@ -69,11 +69,55 @@ pub struct LineEvent {
     pub payload: LinePayload,
 }
 
-/// Parser placeholder metadata reserved for the next pipeline stage.
+/// Parser outcome attached to each line message.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ParserStatus {
+    #[default]
+    Unparsed,
+    Parsed,
+    Malformed,
+}
+
+/// Parser metadata reserved for downstream protocol consumers.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ParserMeta {
     pub parser_name: Option<String>,
+    pub status: ParserStatus,
     pub fields: BTreeMap<String, String>,
+}
+
+impl ParserMeta {
+    /// Creates parsed metadata.
+    ///
+    /// - `parser_name`: parser identifier.
+    /// - `fields`: normalized parser output.
+    pub fn parsed(parser_name: impl Into<String>, fields: BTreeMap<String, String>) -> Self {
+        Self {
+            parser_name: Some(parser_name.into()),
+            status: ParserStatus::Parsed,
+            fields,
+        }
+    }
+
+    /// Creates malformed metadata with a normalized reason.
+    ///
+    /// - `parser_name`: parser identifier when available.
+    /// - `reason`: normalized failure reason.
+    pub fn malformed(parser_name: Option<&str>, reason: impl Into<String>) -> Self {
+        let mut fields = BTreeMap::new();
+        fields.insert("error".to_string(), reason.into());
+
+        Self {
+            parser_name: parser_name.map(str::to_string),
+            status: ParserStatus::Malformed,
+            fields,
+        }
+    }
+
+    /// Creates unparsed metadata.
+    pub fn unparsed() -> Self {
+        Self::default()
+    }
 }
 
 /// Top-level message payload variants.

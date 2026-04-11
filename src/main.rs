@@ -92,10 +92,11 @@ fn run_interactive(config: &InteractiveConfig) -> Result<(), AppError> {
         loop {
             serial::pump_port(&mut *read_port, &mut framer, |line| {
                 println!(
-                    "[rx] port={} bytes={} text={}",
+                    "[rx] port={} bytes={} frame_status={:?} text={}",
                     port_name,
-                    line.raw.len(),
-                    line.text
+                    line.payload.raw.len(),
+                    line.status,
+                    line.payload.text
                 );
             })?;
         }
@@ -153,11 +154,12 @@ fn print_messages(subscription: BusSubscription) {
                     LineDirection::Tx => "tx",
                 };
                 println!(
-                    "[line] dir={} port={} bytes={} parser={} fields={:?} text={}",
+                    "[line] dir={} port={} bytes={} parser={} parse_status={:?} fields={:?} text={}",
                     direction,
                     message.source.port,
                     line.payload.raw.len(),
                     parser_name,
+                    message.parser.status,
                     message.parser.fields,
                     line.payload.text
                 );

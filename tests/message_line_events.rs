@@ -1,6 +1,8 @@
 use eadai::message::{
     BusMessage, ConnectionState, LineDirection, LinePayload, MessageKind, MessageSource,
+    ParserMeta, ParserStatus,
 };
+use std::collections::BTreeMap;
 
 #[test]
 fn creates_received_line_messages() {
@@ -51,4 +53,27 @@ fn creates_transmitted_line_messages() {
         }
         _ => panic!("expected line message"),
     }
+}
+
+#[test]
+fn preserves_parser_metadata_on_line_messages() {
+    let source = MessageSource::serial("/dev/ttyUSB0", 115_200);
+    let mut fields = BTreeMap::new();
+    fields.insert("channel_id".to_string(), "temp".to_string());
+
+    let message = BusMessage::rx_line(
+        &source,
+        LinePayload {
+            text: "temp:42".to_string(),
+            raw: b"temp:42".to_vec(),
+        },
+    )
+    .with_parser(ParserMeta::parsed("measurements", fields));
+
+    assert_eq!(message.parser.status, ParserStatus::Parsed);
+    assert_eq!(message.parser.parser_name.as_deref(), Some("measurements"));
+    assert_eq!(
+        message.parser.fields.get("channel_id").map(String::as_str),
+        Some("temp")
+    );
 }

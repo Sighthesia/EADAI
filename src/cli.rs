@@ -5,6 +5,15 @@ pub const DEFAULT_BAUD_RATE: u32 = 115_200;
 pub const DEFAULT_RETRY_DELAY_MS: u64 = 1_000;
 pub const DEFAULT_READ_TIMEOUT_MS: u64 = 50;
 pub const DEFAULT_LOOPBACK_TIMEOUT_MS: u64 = 1_000;
+pub const DEFAULT_MAX_FRAME_BYTES: usize = 4_096;
+
+/// Parser selection for the runtime reader.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParserKind {
+    Auto,
+    KeyValue,
+    Measurements,
+}
 
 /// CLI commands supported by the MVP binary.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +32,8 @@ pub struct RunConfig {
     pub baud_rate: u32,
     pub retry_delay: Duration,
     pub read_timeout: Duration,
+    pub parser: ParserKind,
+    pub max_frame_bytes: usize,
 }
 
 /// Runtime configuration for one-shot serial writes.
@@ -76,7 +87,7 @@ where
 /// Returns CLI usage text.
 pub fn usage() -> String {
     format!(
-        "Usage:\n  eadai ports\n  eadai run --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>]\n  eadai send --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n  eadai loopback-test --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--loopback-timeout-ms <ms>] [--no-newline]\n  eadai interactive --port <name> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n\nDefaults:\n  baud = {DEFAULT_BAUD_RATE}\n  retry-ms = {DEFAULT_RETRY_DELAY_MS}\n  read-timeout-ms = {DEFAULT_READ_TIMEOUT_MS}\n  loopback-timeout-ms = {DEFAULT_LOOPBACK_TIMEOUT_MS}\n"
+        "Usage:\n  eadai ports\n  eadai run --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>] [--parser <auto|key_value|measurements>] [--max-frame-bytes <bytes>]\n  eadai send --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n  eadai loopback-test --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--loopback-timeout-ms <ms>] [--no-newline]\n  eadai interactive --port <name> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n\nDefaults:\n  baud = {DEFAULT_BAUD_RATE}\n  retry-ms = {DEFAULT_RETRY_DELAY_MS}\n  read-timeout-ms = {DEFAULT_READ_TIMEOUT_MS}\n  loopback-timeout-ms = {DEFAULT_LOOPBACK_TIMEOUT_MS}\n  parser = auto\n  max-frame-bytes = {DEFAULT_MAX_FRAME_BYTES}\n"
     )
 }
 
@@ -88,6 +99,8 @@ where
     let mut baud_rate = DEFAULT_BAUD_RATE;
     let mut retry_ms = DEFAULT_RETRY_DELAY_MS;
     let mut read_timeout_ms = DEFAULT_READ_TIMEOUT_MS;
+    let mut parser = ParserKind::Auto;
+    let mut max_frame_bytes = DEFAULT_MAX_FRAME_BYTES;
     let collected: Vec<String> = args.into_iter().collect();
     let mut index = 0;
 
@@ -109,6 +122,15 @@ where
                 read_timeout_ms = parse_number(
                     &next_value(&collected, &mut index, "--read-timeout-ms")?,
                     "--read-timeout-ms",
+                )?;
+            }
+            "--parser" => {
+                parser = parse_parser_kind(&next_value(&collected, &mut index, "--parser")?)?;
+            }
+            "--max-frame-bytes" => {
+                max_frame_bytes = parse_number(
+                    &next_value(&collected, &mut index, "--max-frame-bytes")?,
+                    "--max-frame-bytes",
                 )?;
             }
             _ => {
@@ -135,6 +157,8 @@ where
         baud_rate,
         retry_delay: Duration::from_millis(retry_ms),
         read_timeout: Duration::from_millis(read_timeout_ms),
+        parser,
+        max_frame_bytes,
     }))
 }
 
@@ -312,4 +336,16 @@ where
             usage()
         ))
     })
+}
+
+fn parse_parser_kind(value: &str) -> Result<ParserKind, AppError> {
+    match value {
+        "auto" => Ok(ParserKind::Auto),
+        "key_value" => Ok(ParserKind::KeyValue),
+        "measurements" => Ok(ParserKind::Measurements),
+        _ => Err(AppError::Usage(format!(
+            "Invalid parser value: {value}. Expected auto, key_value, or measurements\n\n{}",
+            usage()
+        ))),
+    }
 }

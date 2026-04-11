@@ -1,6 +1,9 @@
-use eadai::cli::{Command, LoopbackConfig, SendConfig, parse_args};
+use eadai::cli::{Command, LoopbackConfig, ParserKind, SendConfig, parse_args};
+use eadai::message::{LinePayload, ParserStatus};
+use eadai::parser;
 use eadai::serial::{
-    LineFramer, payload_bytes, payload_bytes_for_text, read_expected_line, write_payload,
+    FrameStatus, FramedLine, LineFramer, payload_bytes, payload_bytes_for_text, read_expected_line,
+    write_payload,
 };
 use std::io::{Cursor, Read, Result as IoResult, Write};
 use std::time::Duration;
@@ -74,6 +77,17 @@ fn reads_expected_echo_from_loopback_like_stream() {
 }
 
 #[test]
+fn ignores_overflowed_frames_when_matching_loopback_echo() {
+    let mut stream = FakeLoopback::new(b"abcdef".to_vec());
+    let mut framer = LineFramer::with_max_buffer(4);
+
+    let error = read_expected_line(&mut stream, &mut framer, "abcdef", Duration::from_millis(5))
+        .unwrap_err();
+
+    assert!(error.to_string().contains("loopback timeout"));
+}
+
+#[test]
 fn parses_interactive_command_flags() {
     let command = parse_args([
         "interactive".to_string(),
@@ -93,6 +107,47 @@ fn parses_interactive_command_flags() {
         }
         _ => panic!("expected interactive command"),
     }
+}
+
+#[test]
+fn parses_run_command_parser_flags() {
+    let command = parse_args([
+        "run".to_string(),
+        "--port".to_string(),
+        "/dev/ttyUSB0".to_string(),
+        "--parser".to_string(),
+        "measurements".to_string(),
+        "--max-frame-bytes".to_string(),
+        "8192".to_string(),
+    ])
+    .unwrap();
+
+    match command {
+        Command::Run(config) => {
+            assert_eq!(config.port, "/dev/ttyUSB0");
+            assert_eq!(config.parser, ParserKind::Measurements);
+            assert_eq!(config.max_frame_bytes, 8192);
+        }
+        _ => panic!("expected run command"),
+    }
+}
+
+#[test]
+fn auto_parser_keeps_legacy_key_value_semantics() {
+    let parsed = parser::parse_framed_line(
+        ParserKind::Auto,
+        &FramedLine {
+            payload: LinePayload {
+                text: "temp: 42".to_string(),
+                raw: b"temp: 42".to_vec(),
+            },
+            status: FrameStatus::Complete,
+        },
+    );
+
+    assert_eq!(parsed.parser_name.as_deref(), Some("key_value"));
+    assert_eq!(parsed.status, ParserStatus::Parsed);
+    assert_eq!(parsed.fields.get("value").map(String::as_str), Some("42"));
 }
 
 struct FakeLoopback {

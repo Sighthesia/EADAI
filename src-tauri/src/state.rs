@@ -1,10 +1,10 @@
 use crate::model::{
-    ConnectRequest, SendRequest, SessionSnapshot, UiBusEvent, UiConnectionState,
-    apply_connection_snapshot,
+    apply_connection_snapshot, ConnectRequest, SendRequest, SessionSnapshot, UiBusEvent,
+    UiConnectionState,
 };
 use eadai::app::{App, RuntimeCommandHandle, StopSignal};
 use eadai::bus::BusSubscription;
-use eadai::cli::RunConfig;
+use eadai::cli::{ParserKind, RunConfig};
 use eadai::serial;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
@@ -63,6 +63,8 @@ impl DesktopState {
             baud_rate: request.baud_rate,
             retry_delay: Duration::from_millis(request.retry_ms),
             read_timeout: Duration::from_millis(request.read_timeout_ms),
+            parser: ParserKind::Auto,
+            max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
         };
         let app = App::new(config, bus);
         let stop_signal = app.stop_signal();

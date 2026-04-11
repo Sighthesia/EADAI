@@ -1,8 +1,8 @@
 use crate::bus::MessageBus;
 use crate::cli::RunConfig;
 use crate::error::AppError;
-use crate::key_value_parser;
 use crate::message::{BusMessage, ConnectionState, LinePayload, MessageSource};
+use crate::parser;
 use crate::serial::{self, LineFramer};
 use std::cmp::min;
 use std::io::ErrorKind;
@@ -170,7 +170,7 @@ impl App {
                         None,
                     ));
 
-                    let mut framer = LineFramer::new();
+                    let mut framer = LineFramer::with_max_buffer(self.config.max_frame_bytes);
 
                     loop {
                         if self.stop_signal.is_requested() {
@@ -188,9 +188,10 @@ impl App {
                         }
 
                         if let Err(error) = serial::pump_port(&mut *port, &mut framer, |line| {
-                            let parser = key_value_parser::parse_line(&line.text);
-                            self.bus
-                                .publish(BusMessage::rx_line(&source, line).with_parser(parser));
+                            let parser = parser::parse_framed_line(self.config.parser, &line);
+                            self.bus.publish(
+                                BusMessage::rx_line(&source, line.payload).with_parser(parser),
+                            );
                         }) {
                             self.publish_retry(&source, attempt, error.to_string(), &reconnect);
                             break;

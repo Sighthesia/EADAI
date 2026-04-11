@@ -6,6 +6,20 @@ use std::time::{Duration, Instant};
 
 const READ_BUFFER_SIZE: usize = 1024;
 
+/// Framing status for one emitted line payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameStatus {
+    Complete,
+    Overflow,
+}
+
+/// One framed line produced by the serial framer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FramedLine {
+    pub payload: LinePayload,
+    pub status: FrameStatus,
+}
+
 /// Enumerates available serial ports.
 pub fn list_ports() -> Result<Vec<String>, AppError> {
     let ports = serialport::available_ports()?;
@@ -79,8 +93,11 @@ where
     loop {
         let mut matched = None;
         pump_port(port, framer, |line| {
-            if matched.is_none() && line.text == expected {
-                matched = Some(line);
+            if matched.is_none()
+                && line.status == FrameStatus::Complete
+                && line.payload.text == expected
+            {
+                matched = Some(line.payload);
             }
         })?;
 
@@ -109,7 +126,7 @@ pub fn pump_port<T, F>(
 ) -> Result<(), AppError>
 where
     T: Read + ?Sized,
-    F: FnMut(LinePayload),
+    F: FnMut(FramedLine),
 {
     let mut buffer = [0_u8; READ_BUFFER_SIZE];
 
@@ -127,9 +144,16 @@ where
 }
 
 /// Stateful line framer for line-oriented protocols.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct LineFramer {
     buffer: Vec<u8>,
+    max_buffer_bytes: usize,
+}
+
+impl Default for LineFramer {
+    fn default() -> Self {
+        Self::with_max_buffer(crate::cli::DEFAULT_MAX_FRAME_BYTES)
+    }
 }
 
 impl LineFramer {
@@ -138,10 +162,20 @@ impl LineFramer {
         Self::default()
     }
 
+    /// Creates an empty line framer with a bounded internal buffer.
+    ///
+    /// - `max_buffer_bytes`: maximum buffered bytes allowed without a newline.
+    pub fn with_max_buffer(max_buffer_bytes: usize) -> Self {
+        Self {
+            buffer: Vec::new(),
+            max_buffer_bytes: max_buffer_bytes.max(1),
+        }
+    }
+
     /// Pushes bytes into the framer and returns completed lines.
     ///
     /// - `chunk`: raw bytes read from serial.
-    pub fn push(&mut self, chunk: &[u8]) -> Vec<LinePayload> {
+    pub fn push(&mut self, chunk: &[u8]) -> Vec<FramedLine> {
         self.buffer.extend_from_slice(chunk);
         let mut lines = Vec::new();
 
@@ -155,8 +189,18 @@ impl LineFramer {
                 raw.pop();
             }
 
-            let text = String::from_utf8_lossy(&raw).into_owned();
-            lines.push(LinePayload { text, raw });
+            lines.push(FramedLine {
+                payload: build_payload(raw),
+                status: FrameStatus::Complete,
+            });
+        }
+
+        if self.buffer.len() > self.max_buffer_bytes {
+            let raw = std::mem::take(&mut self.buffer);
+            lines.push(FramedLine {
+                payload: build_payload(raw),
+                status: FrameStatus::Overflow,
+            });
         }
 
         lines
@@ -166,4 +210,9 @@ impl LineFramer {
     pub fn buffered_len(&self) -> usize {
         self.buffer.len()
     }
+}
+
+fn build_payload(raw: Vec<u8>) -> LinePayload {
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    LinePayload { text, raw }
 }
