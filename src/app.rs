@@ -1,3 +1,4 @@
+use crate::analysis::AnalysisEngine;
 use crate::bus::MessageBus;
 use crate::cli::RunConfig;
 use crate::error::AppError;
@@ -6,11 +7,11 @@ use crate::parser;
 use crate::serial::{self, LineFramer};
 use std::cmp::min;
 use std::io::ErrorKind;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const RETRY_SLEEP_SLICE_MS: u64 = 100;
 
@@ -18,16 +19,12 @@ enum RuntimeCommand {
     Send { payload: Vec<u8> },
 }
 
-/// Queue handle for runtime serial writes.
 #[derive(Clone, Debug)]
 pub struct RuntimeCommandHandle {
     sender: Sender<RuntimeCommand>,
 }
 
 impl RuntimeCommandHandle {
-    /// Queues payload bytes to be written by the runtime thread.
-    ///
-    /// - `payload`: payload bytes, with or without trailing newline.
     pub fn send_payload(&self, payload: Vec<u8>) -> Result<(), AppError> {
         self.sender
             .send(RuntimeCommand::Send { payload })
@@ -40,25 +37,21 @@ impl RuntimeCommandHandle {
     }
 }
 
-/// Cloneable stop handle for future UI or signal integration.
 #[derive(Clone, Debug, Default)]
 pub struct StopSignal {
     requested: Arc<AtomicBool>,
 }
 
 impl StopSignal {
-    /// Requests the running app to stop.
     pub fn request_stop(&self) {
         self.requested.store(true, Ordering::SeqCst);
     }
 
-    /// Returns whether stop has been requested.
     pub fn is_requested(&self) -> bool {
         self.requested.load(Ordering::SeqCst)
     }
 }
 
-/// Minimal reconnect controller for serial runtime loops.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReconnectController {
     attempt: u32,
@@ -66,9 +59,6 @@ pub struct ReconnectController {
 }
 
 impl ReconnectController {
-    /// Creates a new reconnect controller.
-    ///
-    /// - `retry_delay`: delay used before reconnecting.
     pub fn new(retry_delay: Duration) -> Self {
         Self {
             attempt: 0,
@@ -76,24 +66,20 @@ impl ReconnectController {
         }
     }
 
-    /// Starts a new connect attempt and returns its ordinal number.
     pub fn start_attempt(&mut self) -> u32 {
         self.attempt += 1;
         self.attempt
     }
 
-    /// Resets the attempt counter after a successful connection.
     pub fn reset(&mut self) {
         self.attempt = 0;
     }
 
-    /// Returns the configured retry delay in milliseconds.
     pub fn retry_delay_ms(&self) -> u64 {
         self.retry_delay.as_millis() as u64
     }
 }
 
-/// Runtime app that supervises serial connection lifecycle.
 pub struct App {
     config: RunConfig,
     bus: MessageBus,
@@ -103,10 +89,6 @@ pub struct App {
 }
 
 impl App {
-    /// Creates a new runtime app.
-    ///
-    /// - `config`: serial runtime configuration.
-    /// - `bus`: broadcast bus for downstream consumers.
     pub fn new(config: RunConfig, bus: MessageBus) -> Self {
         let (command_tx, command_rx) = mpsc::channel();
 
@@ -119,19 +101,16 @@ impl App {
         }
     }
 
-    /// Returns a stop handle that can terminate the run loop.
     pub fn stop_signal(&self) -> StopSignal {
         self.stop_signal.clone()
     }
 
-    /// Returns a command handle that can queue outbound payloads.
     pub fn command_handle(&self) -> RuntimeCommandHandle {
         RuntimeCommandHandle {
             sender: self.command_tx.clone(),
         }
     }
 
-    /// Runs the reconnecting serial ingestion loop.
     pub fn run(&self) -> Result<(), AppError> {
         let source = MessageSource::serial(self.config.port.clone(), self.config.baud_rate);
         self.bus.publish(BusMessage::connection(
@@ -170,6 +149,7 @@ impl App {
                         None,
                     ));
 
+                    let mut analysis = AnalysisEngine::new();
                     let mut framer = LineFramer::with_max_buffer(self.config.max_frame_bytes);
 
                     loop {
@@ -189,8 +169,12 @@ impl App {
 
                         if let Err(error) = serial::pump_port(&mut *port, &mut framer, |line| {
                             let parser = parser::parse_framed_line(self.config.parser, &line);
-                            self.bus.publish(
-                                BusMessage::rx_line(&source, line.payload).with_parser(parser),
+                            publish_rx_with_analysis(
+                                &self.bus,
+                                &source,
+                                &mut analysis,
+                                line.payload,
+                                parser,
                             );
                         }) {
                             self.publish_retry(&source, attempt, error.to_string(), &reconnect);
@@ -251,6 +235,36 @@ impl App {
             }
         }
     }
+}
+
+fn publish_rx_with_analysis(
+    bus: &MessageBus,
+    source: &MessageSource,
+    analysis: &mut AnalysisEngine,
+    payload: LinePayload,
+    parser: crate::message::ParserMeta,
+) {
+    let line_message = BusMessage::rx_line(source, payload).with_parser(parser.clone());
+    let analysis_messages = analysis.ingest_line(
+        source,
+        &crate::message::LineDirection::Rx,
+        &parser,
+        timestamp_ms(line_message.timestamp),
+    );
+    bus.publish(line_message);
+
+    if let Some(messages) = analysis_messages {
+        for message in messages {
+            bus.publish(message);
+        }
+    }
+}
+
+fn timestamp_ms(timestamp: SystemTime) -> u64 {
+    timestamp
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn outbound_payload(payload: &[u8]) -> LinePayload {

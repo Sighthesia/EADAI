@@ -1,3 +1,4 @@
+use eadai::analysis::{AnalysisFrame, TriggerEvent, TriggerSeverity};
 use eadai::message::{
     BusMessage, ConnectionEvent, ConnectionState, LineDirection, MessageKind, MessageSource,
     ParserMeta, TransportKind,
@@ -68,6 +69,14 @@ pub enum UiLineDirection {
     Tx,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UiTriggerSeverity {
+    Info,
+    Warning,
+    Critical,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiSource {
@@ -101,6 +110,38 @@ pub struct UiLinePayload {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiAnalysisPayload {
+    pub channel_id: String,
+    pub window_ms: u64,
+    pub sample_count: usize,
+    pub frequency_hz: Option<f64>,
+    pub period_ms: Option<f64>,
+    pub duty_cycle: Option<f64>,
+    pub min_value: Option<f64>,
+    pub max_value: Option<f64>,
+    pub mean_value: Option<f64>,
+    pub rms_value: Option<f64>,
+    pub edge_count: usize,
+    pub rising_edge_count: usize,
+    pub falling_edge_count: usize,
+    pub trend: Option<f64>,
+    pub change_rate: Option<f64>,
+    pub trigger_hits: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiTriggerPayload {
+    pub channel_id: String,
+    pub rule_id: String,
+    pub severity: UiTriggerSeverity,
+    pub fired_at_ms: u64,
+    pub reason: String,
+    pub snapshot: Option<UiAnalysisPayload>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum UiBusEvent {
     Connection {
@@ -113,6 +154,16 @@ pub enum UiBusEvent {
         source: UiSource,
         line: UiLinePayload,
         parser: UiParserMeta,
+    },
+    Analysis {
+        timestamp_ms: u64,
+        source: UiSource,
+        analysis: UiAnalysisPayload,
+    },
+    Trigger {
+        timestamp_ms: u64,
+        source: UiSource,
+        trigger: UiTriggerPayload,
     },
 }
 
@@ -158,6 +209,16 @@ impl From<LineDirection> for UiLineDirection {
     }
 }
 
+impl From<TriggerSeverity> for UiTriggerSeverity {
+    fn from(value: TriggerSeverity) -> Self {
+        match value {
+            TriggerSeverity::Info => Self::Info,
+            TriggerSeverity::Warning => Self::Warning,
+            TriggerSeverity::Critical => Self::Critical,
+        }
+    }
+}
+
 impl From<MessageSource> for UiSource {
     fn from(value: MessageSource) -> Self {
         Self {
@@ -192,12 +253,54 @@ impl From<ConnectionEvent> for UiConnectionPayload {
     }
 }
 
+impl From<AnalysisFrame> for UiAnalysisPayload {
+    fn from(value: AnalysisFrame) -> Self {
+        Self {
+            channel_id: value.channel_id,
+            window_ms: value.window_ms,
+            sample_count: value.sample_count,
+            frequency_hz: value.frequency_hz,
+            period_ms: value.period_ms,
+            duty_cycle: value.duty_cycle,
+            min_value: value.min_value,
+            max_value: value.max_value,
+            mean_value: value.mean_value,
+            rms_value: value.rms_value,
+            edge_count: value.edge_count,
+            rising_edge_count: value.rising_edge_count,
+            falling_edge_count: value.falling_edge_count,
+            trend: value.trend,
+            change_rate: value.change_rate,
+            trigger_hits: value.trigger_hits,
+        }
+    }
+}
+
+impl From<TriggerEvent> for UiTriggerPayload {
+    fn from(value: TriggerEvent) -> Self {
+        Self {
+            channel_id: value.channel_id,
+            rule_id: value.rule_id,
+            severity: value.severity.into(),
+            fired_at_ms: value.fired_at_ms,
+            reason: value.reason,
+            snapshot: value.snapshot.map(Into::into),
+        }
+    }
+}
+
 impl From<BusMessage> for UiBusEvent {
     fn from(value: BusMessage) -> Self {
-        let timestamp_ms = timestamp_ms(value.timestamp);
-        let source = UiSource::from(value.source);
+        let BusMessage {
+            timestamp,
+            source,
+            kind,
+            parser,
+        } = value;
+        let timestamp_ms = timestamp_ms(timestamp);
+        let source = UiSource::from(source);
 
-        match value.kind {
+        match kind {
             MessageKind::Connection(connection) => Self::Connection {
                 timestamp_ms,
                 source,
@@ -211,7 +314,17 @@ impl From<BusMessage> for UiBusEvent {
                     raw_length: line.payload.raw.len(),
                     text: line.payload.text,
                 },
-                parser: value.parser.into(),
+                parser: parser.into(),
+            },
+            MessageKind::Analysis(frame) => Self::Analysis {
+                timestamp_ms,
+                source,
+                analysis: frame.into(),
+            },
+            MessageKind::Trigger(trigger) => Self::Trigger {
+                timestamp_ms,
+                source,
+                trigger: trigger.into(),
             },
         }
     }
@@ -239,6 +352,8 @@ fn timestamp_ms(timestamp: SystemTime) -> u64 {
 fn normalize_parser_key(key: &str) -> String {
     match key {
         "channel_id" => "channelId".to_string(),
+        "numeric_value" => "numericValue".to_string(),
+        "field_count" => "fieldCount".to_string(),
         other => other.to_string(),
     }
 }

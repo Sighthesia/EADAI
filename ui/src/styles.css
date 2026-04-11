@@ -390,3 +390,41 @@ button {
     padding-bottom: 10px;
   }
 }
+
+
+.variable-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.variable-subline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.metric-chip,
+.trigger-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  border: 1px solid #2a3240;
+  background: #11161e;
+  color: #9ba8b7;
+}
+
+.trigger-pill-info {
+  color: #82d3ff;
+}
+
+.trigger-pill-warning {
+  color: #ffd580;
+}
+
+.trigger-pill-critical {
+  color: #ff9b9b;
+}

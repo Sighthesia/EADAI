@@ -164,6 +164,23 @@ fn print_messages(subscription: BusSubscription) {
                     line.payload.text
                 );
             }
+            MessageKind::Analysis(frame) => {
+                println!(
+                    "[analysis] channel={} samples={} freq={:?} duty={:?} rms={:?} triggers={:?}",
+                    frame.channel_id,
+                    frame.sample_count,
+                    frame.frequency_hz,
+                    frame.duty_cycle,
+                    frame.rms_value,
+                    frame.trigger_hits
+                );
+            }
+            MessageKind::Trigger(trigger) => {
+                println!(
+                    "[trigger] channel={} rule={} severity={:?} reason={}",
+                    trigger.channel_id, trigger.rule_id, trigger.severity, trigger.reason
+                );
+            }
         }
     }
 }

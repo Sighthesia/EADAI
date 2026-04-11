@@ -1,6 +1,7 @@
 export type UiConnectionState = 'idle' | 'connecting' | 'connected' | 'waitingRetry' | 'stopped'
 export type UiLineDirection = 'rx' | 'tx'
 export type UiTransportKind = 'serial' | 'fake'
+export type UiTriggerSeverity = 'info' | 'warning' | 'critical'
 export type SourceKind = 'serial' | 'fake'
 
 export interface ConnectRequest {
@@ -49,6 +50,34 @@ export interface UiLinePayload {
   rawLength: number
 }
 
+export interface UiAnalysisPayload {
+  channelId: string
+  windowMs: number
+  sampleCount: number
+  frequencyHz?: number | null
+  periodMs?: number | null
+  dutyCycle?: number | null
+  minValue?: number | null
+  maxValue?: number | null
+  meanValue?: number | null
+  rmsValue?: number | null
+  edgeCount: number
+  risingEdgeCount: number
+  fallingEdgeCount: number
+  trend?: number | null
+  changeRate?: number | null
+  triggerHits: string[]
+}
+
+export interface UiTriggerPayload {
+  channelId: string
+  ruleId: string
+  severity: UiTriggerSeverity
+  firedAtMs: number
+  reason: string
+  snapshot?: UiAnalysisPayload | null
+}
+
 export type SerialBusEvent =
   | {
       kind: 'connection'
@@ -62,6 +91,18 @@ export type SerialBusEvent =
       source: UiSource
       line: UiLinePayload
       parser: UiParserMeta
+    }
+  | {
+      kind: 'analysis'
+      timestampMs: number
+      source: UiSource
+      analysis: UiAnalysisPayload
+    }
+  | {
+      kind: 'trigger'
+      timestampMs: number
+      source: UiSource
+      trigger: UiTriggerPayload
     }
 
 export interface ConsoleEntry {
@@ -86,6 +127,9 @@ export interface VariableEntry {
   sampleCount: number
   updatedAtMs: number
   points: SamplePoint[]
+  analysis?: UiAnalysisPayload | null
+  latestTrigger?: UiTriggerPayload | null
+  triggerCount: number
 }
 
 export interface AppStatus {

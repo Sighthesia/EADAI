@@ -1,3 +1,4 @@
+use eadai::analysis::AnalysisEngine;
 use eadai::bus::MessageBus;
 use eadai::cli::ParserKind;
 use eadai::message::{BusMessage, ConnectionState, LinePayload, MessageSource};
@@ -60,6 +61,7 @@ pub fn spawn(config: FakeSessionConfig, bus: MessageBus) -> (FakeSessionHandle, 
 
     let worker = thread::spawn(move || {
         let source = MessageSource::fake(config.port, config.baud_rate);
+        let mut analysis = AnalysisEngine::new();
         bus.publish(BusMessage::connection(
             &source,
             ConnectionState::Idle,
@@ -108,6 +110,8 @@ pub fn spawn(config: FakeSessionConfig, bus: MessageBus) -> (FakeSessionHandle, 
                         publish_rx(
                             &bus,
                             &source,
+                            &mut analysis,
+                            started_at.elapsed().as_millis() as u64,
                             &format!("command_ack=1 command_len={}", outbound.raw.len()),
                         );
                     }
@@ -118,7 +122,13 @@ pub fn spawn(config: FakeSessionConfig, bus: MessageBus) -> (FakeSessionHandle, 
 
             if Instant::now() >= next_emit_at {
                 for line in profile_lines(&config.profile, sample_index, started_at.elapsed()) {
-                    publish_rx(&bus, &source, &line);
+                    publish_rx(
+                        &bus,
+                        &source,
+                        &mut analysis,
+                        started_at.elapsed().as_millis() as u64,
+                        &line,
+                    );
                 }
 
                 sample_index += 1;
@@ -132,7 +142,13 @@ pub fn spawn(config: FakeSessionConfig, bus: MessageBus) -> (FakeSessionHandle, 
     (handle, worker)
 }
 
-fn publish_rx(bus: &MessageBus, source: &MessageSource, text: &str) {
+fn publish_rx(
+    bus: &MessageBus,
+    source: &MessageSource,
+    analysis: &mut AnalysisEngine,
+    timestamp_ms: u64,
+    text: &str,
+) {
     let payload = LinePayload {
         text: text.to_string(),
         raw: payload_bytes_for_text(text, false),
@@ -144,7 +160,19 @@ fn publish_rx(bus: &MessageBus, source: &MessageSource, text: &str) {
             status: FrameStatus::Complete,
         },
     );
+    let analysis_messages = analysis.ingest_line(
+        source,
+        &eadai::message::LineDirection::Rx,
+        &parser,
+        timestamp_ms,
+    );
     bus.publish(BusMessage::rx_line(source, payload).with_parser(parser));
+
+    if let Some(messages) = analysis_messages {
+        for message in messages {
+            bus.publish(message);
+        }
+    }
 }
 
 fn line_payload_from_bytes(payload: &[u8]) -> LinePayload {
@@ -176,6 +204,8 @@ fn telemetry_lab_lines(sample_index: u64, elapsed: Duration) -> Vec<String> {
     let humidity = 46.0 + (phase * 0.23).sin() * 5.5;
     let torque_nm = 18.0 + (phase * 0.8).sin() * 2.7;
     let power_w = voltage * (current_ma / 1000.0);
+    let pulse_signal = if sample_index % 5 < 2 { 1 } else { 0 };
+    let pwm_signal = if sample_index % 10 < 7 { 1 } else { 0 };
     let timestamp = elapsed.as_millis();
 
     vec![
@@ -188,6 +218,8 @@ fn telemetry_lab_lines(sample_index: u64, elapsed: Duration) -> Vec<String> {
         format!("timestamp={timestamp} humidity_pct={humidity:.1}"),
         format!("timestamp={timestamp} torque_nm={torque_nm:.2}"),
         format!("timestamp={timestamp} power_w={power_w:.2}"),
+        format!("timestamp={timestamp} pulse_signal={pulse_signal}"),
+        format!("timestamp={timestamp} pwm_signal={pwm_signal}"),
     ]
 }
 
@@ -201,6 +233,7 @@ fn noisy_monitor_lines(sample_index: u64, elapsed: Duration) -> Vec<String> {
     let vibration = 0.18 + (phase * 3.1).sin().abs() * 0.4;
     let humidity = 51.0 + (phase * 0.35).cos() * 7.5;
     let flow_lpm = 9.4 + (phase * 0.9).sin() * 1.9;
+    let pwm_signal = if sample_index % 10 < 8 { 1 } else { 0 };
     let timestamp = elapsed.as_millis();
 
     let mut lines = vec![
@@ -212,6 +245,7 @@ fn noisy_monitor_lines(sample_index: u64, elapsed: Duration) -> Vec<String> {
         format!("timestamp={timestamp} vibration_g={vibration:.3}"),
         format!("timestamp={timestamp} humidity_pct={humidity:.1}"),
         format!("timestamp={timestamp} flow_lpm={flow_lpm:.2}"),
+        format!("timestamp={timestamp} pwm_signal={pwm_signal}"),
     ];
 
     if sample_index.is_multiple_of(5) {

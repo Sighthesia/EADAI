@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer telemetry analysis contract across Rust, Tauri, and React"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep backend analysis logic in focused modules"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Require small modules and tests for non-trivial stateful analysis"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Define explicit analysis and trigger error boundaries"}

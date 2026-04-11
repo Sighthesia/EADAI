@@ -7,11 +7,13 @@ import {
   sendSerial,
 } from '../lib/tauri'
 import type {
-    AppStatus,
-    ConnectRequest,
+  AppStatus,
+  ConnectRequest,
   ConsoleEntry,
   SerialBusEvent,
   SessionSnapshot,
+  UiAnalysisPayload,
+  UiTriggerPayload,
   VariableEntry,
 } from '../types'
 
@@ -200,24 +202,70 @@ export const useAppStore = create<AppStore>((set, get) => ({
           continue
         }
 
-        consoleEntries = [...consoleEntries, asConsoleEntry(event)].slice(-MAX_CONSOLE_ENTRIES)
-        consoleChanged = true
+        if (event.kind === 'line') {
+          consoleEntries = [...consoleEntries, asConsoleEntry(event)].slice(-MAX_CONSOLE_ENTRIES)
+          consoleChanged = true
 
-        const channelId = event.parser.fields.channelId
-        const rawValue = event.parser.fields.value
-        if (event.line.direction !== 'rx' || !channelId || !rawValue) {
+          const channelId = event.parser.fields.channelId
+          const rawValue = event.parser.fields.value
+          if (event.line.direction !== 'rx' || !channelId || !rawValue) {
+            continue
+          }
+
+          const sampleTimestampMs = parseSampleTimestampMs(event.parser.fields.timestamp, event.timestampMs)
+          const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
+          const numericRaw = event.parser.fields.numericValue ?? rawValue
+          const numericValue = Number(numericRaw)
+          const nextPoints = Number.isFinite(numericValue)
+            ? [...previous.points, { timestampMs: sampleTimestampMs, value: numericValue }].slice(-MAX_SAMPLES_PER_CHANNEL)
+            : previous.points
+
+          if (!variablesChanged) {
+            variables = { ...variables }
+            variablesChanged = true
+          }
+
+          variables[channelId] = {
+            ...previous,
+            name: channelId,
+            currentValue: rawValue,
+            previousValue: previous.numericValue,
+            numericValue: Number.isFinite(numericValue) ? numericValue : previous.numericValue,
+            parserName: event.parser.parserName,
+            sampleCount: previous.sampleCount + 1,
+            updatedAtMs: event.timestampMs,
+            points: nextPoints,
+          }
+
+          const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
+          if (nextSelectedChannels !== selectedChannels) {
+            selectedChannels = nextSelectedChannels
+            selectedChannelsChanged = true
+          }
           continue
         }
 
-        const sampleTimestampMs = parseSampleTimestampMs(event.parser.fields.timestamp, event.timestampMs)
-        const previous = variables[channelId]
-        const numericValue = Number(rawValue)
-        const trend = computeTrend(previous?.numericValue, numericValue)
-        const points = Number.isFinite(numericValue)
-          ? [...(previous?.points ?? []), { timestampMs: sampleTimestampMs, value: numericValue }].slice(
-              -MAX_SAMPLES_PER_CHANNEL,
-            )
-          : previous?.points ?? []
+        if (event.kind === 'analysis') {
+          const channelId = event.analysis.channelId
+          const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
+
+          if (!variablesChanged) {
+            variables = { ...variables }
+            variablesChanged = true
+          }
+
+          variables[channelId] = applyAnalysis(previous, event.analysis, event.timestampMs)
+
+          const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
+          if (nextSelectedChannels !== selectedChannels) {
+            selectedChannels = nextSelectedChannels
+            selectedChannelsChanged = true
+          }
+          continue
+        }
+
+        const channelId = event.trigger.channelId
+        const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
 
         if (!variablesChanged) {
           variables = { ...variables }
@@ -225,15 +273,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
 
         variables[channelId] = {
-          name: channelId,
-          currentValue: rawValue,
-          previousValue: previous?.numericValue,
-          numericValue: Number.isFinite(numericValue) ? numericValue : previous?.numericValue,
-          trend,
-          parserName: event.parser.parserName,
-          sampleCount: (previous?.sampleCount ?? 0) + 1,
+          ...previous,
+          latestTrigger: event.trigger,
+          triggerCount: previous.triggerCount + 1,
           updatedAtMs: event.timestampMs,
-          points,
         }
 
         const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
@@ -241,6 +284,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
           selectedChannels = nextSelectedChannels
           selectedChannelsChanged = true
         }
+
+        status = {
+          tone: severityTone(event.trigger.severity),
+          message: triggerMessage(event.trigger),
+        }
+        statusChanged = true
       }
 
       const nextState: Partial<AppStore> = {}
@@ -280,6 +329,30 @@ const asConsoleEntry = (event: Extract<SerialBusEvent, { kind: 'line' }>): Conso
   timestampMs: event.timestampMs,
 })
 
+const createVariableEntry = (channelId: string, updatedAtMs: number): VariableEntry => ({
+  name: channelId,
+  currentValue: '—',
+  trend: 'flat',
+  parserName: null,
+  sampleCount: 0,
+  updatedAtMs,
+  points: [],
+  analysis: null,
+  latestTrigger: null,
+  triggerCount: 0,
+})
+
+const applyAnalysis = (
+  variable: VariableEntry,
+  analysis: UiAnalysisPayload,
+  updatedAtMs: number,
+): VariableEntry => ({
+  ...variable,
+  analysis,
+  trend: trendFromDelta(analysis.trend),
+  updatedAtMs,
+})
+
 const autoSelectChannels = (selectedChannels: string[], channelId: string) => {
   if (selectedChannels.includes(channelId)) {
     return selectedChannels
@@ -290,14 +363,14 @@ const autoSelectChannels = (selectedChannels: string[], channelId: string) => {
   return [...selectedChannels, channelId]
 }
 
-const computeTrend = (previousValue: number | undefined, numericValue: number) => {
-  if (!Number.isFinite(numericValue) || previousValue === undefined) {
+const trendFromDelta = (delta: number | null | undefined) => {
+  if (delta === undefined || delta === null) {
     return 'flat' as const
   }
-  if (numericValue > previousValue) {
+  if (delta > 0) {
     return 'up' as const
   }
-  if (numericValue < previousValue) {
+  if (delta < 0) {
     return 'down' as const
   }
   return 'flat' as const
@@ -335,6 +408,20 @@ const connectionMessage = (event: Extract<SerialBusEvent, { kind: 'connection' }
       return `Session is ${event.connection.state}.`
   }
 }
+
+const severityTone = (severity: UiTriggerPayload['severity']): AppStatus['tone'] => {
+  switch (severity) {
+    case 'critical':
+      return 'danger'
+    case 'warning':
+      return 'warning'
+    case 'info':
+      return 'neutral'
+  }
+}
+
+const triggerMessage = (trigger: UiTriggerPayload) =>
+  `Trigger ${trigger.ruleId} on ${trigger.channelId}: ${trigger.reason}`
 
 const fakePortLabel = (profile: string) => `fake://${profile}`
 
