@@ -1,11 +1,15 @@
 export type UiConnectionState = 'idle' | 'connecting' | 'connected' | 'waitingRetry' | 'stopped'
 export type UiLineDirection = 'rx' | 'tx'
+export type UiTransportKind = 'serial' | 'fake'
+export type SourceKind = 'serial' | 'fake'
 
 export interface ConnectRequest {
   port: string
   baudRate: number
   retryMs: number
   readTimeoutMs: number
+  sourceKind: SourceKind
+  fakeProfile?: string | null
 }
 
 export interface SendRequest {
@@ -15,13 +19,14 @@ export interface SendRequest {
 
 export interface SessionSnapshot {
   isRunning: boolean
+  transport?: UiTransportKind | null
   port?: string | null
   baudRate?: number | null
   connectionState?: UiConnectionState | null
 }
 
 export interface UiSource {
-  transport: 'serial'
+  transport: UiTransportKind
   port: string
   baudRate: number
 }

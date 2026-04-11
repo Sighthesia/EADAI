@@ -7,8 +7,8 @@ import {
   sendSerial,
 } from '../lib/tauri'
 import type {
-  AppStatus,
-  ConnectRequest,
+    AppStatus,
+    ConnectRequest,
   ConsoleEntry,
   SerialBusEvent,
   SessionSnapshot,
@@ -16,8 +16,9 @@ import type {
 } from '../types'
 
 const MAX_CONSOLE_ENTRIES = 400
-const MAX_SAMPLES_PER_CHANNEL = 480
+const MAX_SAMPLES_PER_CHANNEL = 960
 const CHANNEL_COLORS = ['#4FC3F7', '#C792EA', '#F78C6C', '#A5E075', '#E6C07B', '#82AAFF']
+const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
 
 type AppStore = {
   ports: string[]
@@ -38,13 +39,14 @@ type AppStore = {
   disconnect: () => Promise<void>
   send: () => Promise<void>
   ingestEvent: (event: SerialBusEvent) => void
+  ingestEvents: (events: SerialBusEvent[]) => void
   toggleChannel: (channel: string) => void
   colorForChannel: (channel: string) => string
 }
 
 const defaultStatus = (): AppStatus => ({
   tone: 'neutral',
-  message: 'Ready. Select a serial port and start a session.',
+  message: 'Ready. Fake stream will autostart for UI debugging.',
 })
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -55,6 +57,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     baudRate: 115200,
     retryMs: 1000,
     readTimeoutMs: 50,
+    sourceKind: 'fake',
+    fakeProfile: DEFAULT_FAKE_PROFILE,
   },
   appendNewline: true,
   commandInput: '',
@@ -72,8 +76,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
       session,
       config: {
         ...state.config,
-        port: session.port ?? ports[0] ?? state.config.port,
+        port:
+          session.transport === 'fake'
+            ? state.config.port
+            : session.port ?? ports[0] ?? state.config.port,
         baudRate: session.baudRate ?? state.config.baudRate,
+        sourceKind:
+          session.transport === 'fake'
+            ? 'fake'
+            : session.transport === 'serial'
+              ? 'serial'
+              : state.config.sourceKind,
       },
       status: session.isRunning
         ? {
@@ -89,7 +102,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ports,
       config: {
         ...state.config,
-        port: ports.includes(state.config.port) ? state.config.port : ports[0] ?? '',
+        port:
+          state.config.sourceKind === 'fake'
+            ? state.config.port
+            : ports.includes(state.config.port)
+              ? state.config.port
+              : ports[0] ?? '',
       },
       status: {
         tone: 'neutral',
@@ -99,17 +117,29 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   connect: async () => {
     const { config } = get()
-    if (!config.port) {
+    if (config.sourceKind === 'serial' && !config.port) {
       set({ status: { tone: 'warning', message: 'Choose a serial port first.' } })
       return
     }
 
-    const session = await connectSerial(config)
+    const request =
+      config.sourceKind === 'fake'
+        ? {
+            ...config,
+            port: fakePortLabel(config.fakeProfile ?? DEFAULT_FAKE_PROFILE),
+            fakeProfile: config.fakeProfile ?? DEFAULT_FAKE_PROFILE,
+          }
+        : config
+
+    const session = await connectSerial(request)
     set({
       session,
       status: {
         tone: 'neutral',
-        message: `Opening ${config.port} at ${config.baudRate} baud...`,
+        message:
+          config.sourceKind === 'fake'
+            ? `Starting ${request.fakeProfile} fake stream...`
+            : `Opening ${config.port} at ${config.baudRate} baud...`,
       },
     })
   },
@@ -134,54 +164,100 @@ export const useAppStore = create<AppStore>((set, get) => ({
       status: { tone: 'success', message: `Sent ${payload}.` },
     })
   },
-  ingestEvent: (event) => {
-    if (event.kind === 'connection') {
-      set({
-        session: {
-          isRunning: event.connection.state !== 'stopped',
-          port: event.source.port,
-          baudRate: event.source.baudRate,
-          connectionState: event.connection.state,
-        },
-        status: {
-          tone: connectionTone(event.connection.state),
-          message: connectionMessage(event),
-        },
-      })
+  ingestEvent: (event) => get().ingestEvents([event]),
+  ingestEvents: (events) => {
+    if (events.length === 0) {
       return
     }
 
     set((state) => {
-      const consoleEntries = [...state.consoleEntries, asConsoleEntry(event)].slice(-MAX_CONSOLE_ENTRIES)
-      const nextState: Partial<AppStore> = { consoleEntries }
-      const channelId = event.parser.fields.channelId
-      const rawValue = event.parser.fields.value
+      let consoleEntries = state.consoleEntries
+      let variables = state.variables
+      let selectedChannels = state.selectedChannels
+      let session = state.session
+      let status = state.status
+      let variablesChanged = false
+      let selectedChannelsChanged = false
+      let consoleChanged = false
+      let sessionChanged = false
+      let statusChanged = false
 
-      if (event.line.direction === 'rx' && channelId && rawValue) {
+      for (const event of events) {
+        if (event.kind === 'connection') {
+          session = {
+            isRunning: event.connection.state !== 'stopped',
+            transport: event.source.transport,
+            port: event.source.port,
+            baudRate: event.source.baudRate,
+            connectionState: event.connection.state,
+          }
+          status = {
+            tone: connectionTone(event.connection.state),
+            message: connectionMessage(event),
+          }
+          sessionChanged = true
+          statusChanged = true
+          continue
+        }
+
+        consoleEntries = [...consoleEntries, asConsoleEntry(event)].slice(-MAX_CONSOLE_ENTRIES)
+        consoleChanged = true
+
+        const channelId = event.parser.fields.channelId
+        const rawValue = event.parser.fields.value
+        if (event.line.direction !== 'rx' || !channelId || !rawValue) {
+          continue
+        }
+
+        const sampleTimestampMs = parseSampleTimestampMs(event.parser.fields.timestamp, event.timestampMs)
+        const previous = variables[channelId]
         const numericValue = Number(rawValue)
-        const previous = state.variables[channelId]
         const trend = computeTrend(previous?.numericValue, numericValue)
         const points = Number.isFinite(numericValue)
-          ? [...(previous?.points ?? []), { timestampMs: event.timestampMs, value: numericValue }].slice(
+          ? [...(previous?.points ?? []), { timestampMs: sampleTimestampMs, value: numericValue }].slice(
               -MAX_SAMPLES_PER_CHANNEL,
             )
           : previous?.points ?? []
-        const variables = {
-          ...state.variables,
-          [channelId]: {
-            name: channelId,
-            currentValue: rawValue,
-            previousValue: previous?.numericValue,
-            numericValue: Number.isFinite(numericValue) ? numericValue : previous?.numericValue,
-            trend,
-            parserName: event.parser.parserName,
-            sampleCount: (previous?.sampleCount ?? 0) + 1,
-            updatedAtMs: event.timestampMs,
-            points,
-          },
+
+        if (!variablesChanged) {
+          variables = { ...variables }
+          variablesChanged = true
         }
+
+        variables[channelId] = {
+          name: channelId,
+          currentValue: rawValue,
+          previousValue: previous?.numericValue,
+          numericValue: Number.isFinite(numericValue) ? numericValue : previous?.numericValue,
+          trend,
+          parserName: event.parser.parserName,
+          sampleCount: (previous?.sampleCount ?? 0) + 1,
+          updatedAtMs: event.timestampMs,
+          points,
+        }
+
+        const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
+        if (nextSelectedChannels !== selectedChannels) {
+          selectedChannels = nextSelectedChannels
+          selectedChannelsChanged = true
+        }
+      }
+
+      const nextState: Partial<AppStore> = {}
+      if (consoleChanged) {
+        nextState.consoleEntries = consoleEntries
+      }
+      if (variablesChanged) {
         nextState.variables = variables
-        nextState.selectedChannels = autoSelectChannels(state.selectedChannels, channelId)
+      }
+      if (selectedChannelsChanged) {
+        nextState.selectedChannels = selectedChannels
+      }
+      if (sessionChanged) {
+        nextState.session = session
+      }
+      if (statusChanged) {
+        nextState.status = status
       }
 
       return nextState as AppStore
@@ -208,7 +284,7 @@ const autoSelectChannels = (selectedChannels: string[], channelId: string) => {
   if (selectedChannels.includes(channelId)) {
     return selectedChannels
   }
-  if (selectedChannels.length >= 3) {
+  if (selectedChannels.length >= 4) {
     return selectedChannels
   }
   return [...selectedChannels, channelId]
@@ -241,7 +317,8 @@ const connectionTone = (state: SessionSnapshot['connectionState']): AppStatus['t
 }
 
 const connectionMessage = (event: Extract<SerialBusEvent, { kind: 'connection' }>) => {
-  const label = `${event.source.port} @ ${event.source.baudRate}`
+  const sourceLabel = event.source.transport === 'fake' ? 'fake stream' : 'serial'
+  const label = `${event.source.port} @ ${event.source.baudRate} (${sourceLabel})`
 
   switch (event.connection.state) {
     case 'connected':
@@ -257,6 +334,17 @@ const connectionMessage = (event: Extract<SerialBusEvent, { kind: 'connection' }
     default:
       return `Session is ${event.connection.state}.`
   }
+}
+
+const fakePortLabel = (profile: string) => `fake://${profile}`
+
+const parseSampleTimestampMs = (timestamp: string | undefined, fallback: number) => {
+  if (!timestamp) {
+    return fallback
+  }
+
+  const parsed = Number(timestamp)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 const colorForChannel = (channel: string) => {

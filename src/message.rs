@@ -5,6 +5,7 @@ use std::time::SystemTime;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TransportKind {
     Serial,
+    Fake,
 }
 
 /// Source metadata attached to every bus message.
@@ -23,6 +24,18 @@ impl MessageSource {
     pub fn serial(port: impl Into<String>, baud_rate: u32) -> Self {
         Self {
             transport: TransportKind::Serial,
+            port: port.into(),
+            baud_rate,
+        }
+    }
+
+    /// Creates fake source metadata for desktop integration testing.
+    ///
+    /// - `port`: fake source label.
+    /// - `baud_rate`: configured baud rate.
+    pub fn fake(port: impl Into<String>, baud_rate: u32) -> Self {
+        Self {
+            transport: TransportKind::Fake,
             port: port.into(),
             baud_rate,
         }

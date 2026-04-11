@@ -275,6 +275,30 @@ button {
   align-items: flex-start;
 }
 
+.waveform-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.waveform-zoom-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  color: #9ba8b7;
+}
+
+.waveform-zoom-label input {
+  width: 100%;
+}
+
+.waveform-toolbar .chip-row {
+  width: 100%;
+  justify-content: flex-start;
+}
+
 .wave-plot {
   width: 100%;
   min-height: 0;

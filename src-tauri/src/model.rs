@@ -6,6 +6,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceKind {
+    #[default]
+    Serial,
+    Fake,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectRequest {
@@ -13,6 +21,10 @@ pub struct ConnectRequest {
     pub baud_rate: u32,
     pub retry_ms: u64,
     pub read_timeout_ms: u64,
+    #[serde(default)]
+    pub source_kind: SourceKind,
+    #[serde(default)]
+    pub fake_profile: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -26,6 +38,7 @@ pub struct SendRequest {
 #[serde(rename_all = "camelCase")]
 pub struct SessionSnapshot {
     pub is_running: bool,
+    pub transport: Option<UiTransportKind>,
     pub port: Option<String>,
     pub baud_rate: Option<u32>,
     pub connection_state: Option<UiConnectionState>,
@@ -35,6 +48,7 @@ pub struct SessionSnapshot {
 #[serde(rename_all = "camelCase")]
 pub enum UiTransportKind {
     Serial,
+    Fake,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -103,9 +117,10 @@ pub enum UiBusEvent {
 }
 
 impl SessionSnapshot {
-    pub fn connecting(port: String, baud_rate: u32) -> Self {
+    pub fn connecting(transport: UiTransportKind, port: String, baud_rate: u32) -> Self {
         Self {
             is_running: true,
+            transport: Some(transport),
             port: Some(port),
             baud_rate: Some(baud_rate),
             connection_state: Some(UiConnectionState::Idle),
@@ -117,6 +132,7 @@ impl From<TransportKind> for UiTransportKind {
     fn from(value: TransportKind) -> Self {
         match value {
             TransportKind::Serial => Self::Serial,
+            TransportKind::Fake => Self::Fake,
         }
     }
 }
@@ -207,6 +223,7 @@ pub fn apply_connection_snapshot(
     source: &UiSource,
 ) {
     snapshot.is_running = event.state != UiConnectionState::Stopped;
+    snapshot.transport = Some(source.transport.clone());
     snapshot.port = Some(source.port.clone());
     snapshot.baud_rate = Some(source.baud_rate);
     snapshot.connection_state = Some(event.state.clone());

@@ -1,7 +1,8 @@
 use crate::model::{
-    apply_connection_snapshot, ConnectRequest, SendRequest, SessionSnapshot, UiBusEvent,
-    UiConnectionState,
+    ConnectRequest, SendRequest, SessionSnapshot, SourceKind, UiBusEvent, UiConnectionState,
+    UiTransportKind, apply_connection_snapshot,
 };
+use crate::{fake_session, fake_session::FakeSessionHandle};
 use eadai::app::{App, RuntimeCommandHandle, StopSignal};
 use eadai::bus::BusSubscription;
 use eadai::cli::{ParserKind, RunConfig};
@@ -25,11 +26,36 @@ struct SessionState {
 }
 
 struct RunningSession {
-    stop_signal: StopSignal,
-    command_handle: RuntimeCommandHandle,
+    control: SessionControl,
     snapshot: Arc<Mutex<SessionSnapshot>>,
     worker: JoinHandle<()>,
     forwarder: JoinHandle<()>,
+}
+
+enum SessionControl {
+    Real {
+        stop_signal: StopSignal,
+        command_handle: RuntimeCommandHandle,
+    },
+    Fake(FakeSessionHandle),
+}
+
+impl SessionControl {
+    fn request_stop(&self) {
+        match self {
+            Self::Real { stop_signal, .. } => stop_signal.request_stop(),
+            Self::Fake(handle) => handle.request_stop(),
+        }
+    }
+
+    fn send_payload(&self, payload: Vec<u8>) -> Result<(), String> {
+        match self {
+            Self::Real { command_handle, .. } => command_handle
+                .send_payload(payload)
+                .map_err(|error| error.to_string()),
+            Self::Fake(handle) => handle.send_payload(payload),
+        }
+    }
 }
 
 impl DesktopState {
@@ -58,31 +84,14 @@ impl DesktopState {
 
         let bus = eadai::bus::MessageBus::new();
         let subscription = bus.subscribe();
-        let config = RunConfig {
-            port: request.port.clone(),
-            baud_rate: request.baud_rate,
-            retry_delay: Duration::from_millis(request.retry_ms),
-            read_timeout: Duration::from_millis(request.read_timeout_ms),
-            parser: ParserKind::Auto,
-            max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
-        };
-        let app = App::new(config, bus);
-        let stop_signal = app.stop_signal();
-        let command_handle = app.command_handle();
-        let snapshot = Arc::new(Mutex::new(SessionSnapshot::connecting(
-            request.port,
-            request.baud_rate,
-        )));
-        let worker = thread::spawn(move || {
-            let _ = app.run();
-        });
+        let snapshot = Arc::new(Mutex::new(initial_snapshot(&request)));
+        let (control, worker) = spawn_session(request, bus);
         let forwarder = spawn_forwarder(app_handle.clone(), subscription, Arc::clone(&snapshot));
         let current_snapshot = lock_snapshot(&snapshot).clone();
 
         state.last_snapshot = current_snapshot.clone();
         state.running = Some(RunningSession {
-            stop_signal,
-            command_handle,
+            control,
             snapshot,
             worker,
             forwarder,
@@ -100,7 +109,7 @@ impl DesktopState {
                 .ok_or_else(|| "serial session is not running".to_string())?
         };
 
-        running.stop_signal.request_stop();
+        running.control.request_stop();
         let _ = running.worker.join();
         let _ = running.forwarder.join();
 
@@ -125,13 +134,78 @@ impl DesktopState {
             return Err("serial session is not connected".to_string());
         }
 
-        session
-            .command_handle
-            .send_payload(serial::payload_bytes_for_text(
-                &request.payload,
-                request.append_newline,
-            ))
-            .map_err(|error| error.to_string())
+        session.control.send_payload(serial::payload_bytes_for_text(
+            &request.payload,
+            request.append_newline,
+        ))
+    }
+}
+
+fn initial_snapshot(request: &ConnectRequest) -> SessionSnapshot {
+    match request.source_kind {
+        SourceKind::Serial => SessionSnapshot::connecting(
+            UiTransportKind::Serial,
+            request.port.clone(),
+            request.baud_rate,
+        ),
+        SourceKind::Fake => SessionSnapshot::connecting(
+            UiTransportKind::Fake,
+            fake_session::fake_port_label(
+                request
+                    .fake_profile
+                    .as_deref()
+                    .unwrap_or(fake_session::default_profile()),
+            ),
+            request.baud_rate,
+        ),
+    }
+}
+
+fn spawn_session(
+    request: ConnectRequest,
+    bus: eadai::bus::MessageBus,
+) -> (SessionControl, JoinHandle<()>) {
+    match request.source_kind {
+        SourceKind::Serial => {
+            let config = RunConfig {
+                port: request.port,
+                baud_rate: request.baud_rate,
+                retry_delay: Duration::from_millis(request.retry_ms),
+                read_timeout: Duration::from_millis(request.read_timeout_ms),
+                parser: ParserKind::Auto,
+                max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
+            };
+            let app = App::new(config, bus);
+            let stop_signal = app.stop_signal();
+            let command_handle = app.command_handle();
+            let worker = thread::spawn(move || {
+                let _ = app.run();
+            });
+
+            (
+                SessionControl::Real {
+                    stop_signal,
+                    command_handle,
+                },
+                worker,
+            )
+        }
+        SourceKind::Fake => {
+            let profile = request
+                .fake_profile
+                .unwrap_or_else(|| fake_session::default_profile().to_string());
+            let port = fake_session::fake_port_label(&profile);
+            let (handle, worker) = fake_session::spawn(
+                fake_session::FakeSessionConfig {
+                    port,
+                    baud_rate: request.baud_rate,
+                    profile,
+                },
+                bus,
+            );
+
+            (SessionControl::Fake(handle), worker)
+        }
     }
 }
 

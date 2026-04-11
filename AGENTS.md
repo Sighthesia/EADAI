@@ -19,7 +19,7 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 
 # EADAI Agent Notes
 
-- Current executable truth: this repo is a single Rust CLI crate today, not a Tauri/React app yet. Treat `ROADMAP.md` as target architecture, not current wiring.
+- Current executable truth: this repo contains the Rust serial core plus an active Tauri/React desktop workbench. Treat `ROADMAP.md` as target architecture, not exact runtime wiring.
 
 ## Commands
 
@@ -36,7 +36,14 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 - Serial I/O lives in `src/serial.rs`; line framing and write/readback helpers are there.
 - Runtime supervision and auto-reconnect live in `src/app.rs`.
 - Message contract and local bus live in `src/message.rs` and `src/bus.rs`.
-- Current parser is only `key:value` in `src/key_value_parser.rs`.
+- Parser dispatch lives in `src/parser.rs`; legacy parsing is in `src/key_value_parser.rs`; richer telemetry parsing is in `src/measurement_parser.rs`.
+- Desktop backend lives in `src-tauri/src`; frontend workbench lives in `ui/src`.
+
+## Skills
+
+| Skill | When to use |
+| --- | --- |
+| `.github/skills/tauri-streaming-debug/SKILL.md` | Tauri fake stream, waveform rendering, or high-frequency UI update debugging |
 
 ## Working Rules
 
@@ -46,5 +53,5 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 
 ## Frontend Status
 
-- There is no frontend code, workspace, or web build config in the repo yet.
-- If starting frontend work, first create the app scaffold and define the backend-to-UI transport explicitly instead of assuming Tauri IPC already exists.
+- The desktop workbench uses Tauri backend commands in `src-tauri/src` and a React UI in `ui/src`.
+- Default debug flow may auto-connect a fake stream; preserve that path unless the task explicitly changes debugging ergonomics.

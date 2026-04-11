@@ -1,5 +1,10 @@
 import { useAppStore } from '../store/appStore'
 
+const FAKE_PROFILES = [
+  { value: 'telemetry-lab', label: 'Telemetry Lab' },
+  { value: 'noisy-monitor', label: 'Noisy Monitor' },
+]
+
 export function ConnectionPanel() {
   const ports = useAppStore((state) => state.ports)
   const config = useAppStore((state) => state.config)
@@ -13,6 +18,36 @@ export function ConnectionPanel() {
     <section className="panel panel-form">
       <div className="panel-grid">
         <label>
+          <span>Source</span>
+          <select
+            value={config.sourceKind}
+            onChange={(event) =>
+              patchConfig({
+                sourceKind: event.target.value as 'serial' | 'fake',
+                port: event.target.value === 'serial' ? config.port : '',
+              })
+            }
+          >
+            <option value="serial">Serial Port</option>
+            <option value="fake">Fake Stream</option>
+          </select>
+        </label>
+        {config.sourceKind === 'fake' ? (
+          <label>
+            <span>Fake profile</span>
+            <select
+              value={config.fakeProfile ?? FAKE_PROFILES[0].value}
+              onChange={(event) => patchConfig({ fakeProfile: event.target.value })}
+            >
+              {FAKE_PROFILES.map((profile) => (
+                <option key={profile.value} value={profile.value}>
+                  {profile.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+        <label>
           <span>Port</span>
           <select value={config.port} onChange={(event) => patchConfig({ port: event.target.value })}>
             <option value="">Select serial port</option>
@@ -23,6 +58,7 @@ export function ConnectionPanel() {
             ))}
           </select>
         </label>
+        )}
         <label>
           <span>Baud</span>
           <input
@@ -49,7 +85,11 @@ export function ConnectionPanel() {
         </label>
       </div>
       <div className="toolbar-row">
-        <button className="ghost-button" onClick={() => void refreshPorts()}>
+        <button
+          className="ghost-button"
+          disabled={config.sourceKind === 'fake'}
+          onClick={() => void refreshPorts()}
+        >
           Refresh Ports
         </button>
         {session.isRunning ? (
