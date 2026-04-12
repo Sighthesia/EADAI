@@ -146,6 +146,7 @@ button {
 }
 
 .panel-form,
+.mcp-panel,
 .waveform-panel,
 .console-panel {
   padding: 14px;
@@ -333,6 +334,44 @@ button {
   color: #d8dee9;
 }
 
+.mcp-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mcp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #202733;
+  background: #11161e;
+}
+
+.mcp-label {
+  color: #9ba8b7;
+}
+
+.mcp-endpoint {
+  word-break: break-all;
+}
+
+.mcp-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.mcp-banner-warning {
+  border: 1px solid #5e4a19;
+  background: rgba(156, 114, 33, 0.14);
+  color: #f2d28d;
+}
+
 .console-stream {
   min-height: 0;
   flex: 1 1 auto;
@@ -379,6 +418,7 @@ button {
 
 @media (max-width: 1100px) {
   .panel-grid,
+  .mcp-card-grid,
   .detail-list {
     grid-template-columns: 1fr;
   }

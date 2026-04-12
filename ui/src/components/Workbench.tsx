@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Layout, Model, TabNode } from 'flexlayout-react'
 import { ConnectionPanel } from './ConnectionPanel'
+import { McpPanel } from './McpPanel'
 import { VariablesPanel } from './VariablesPanel'
 import { WaveformPanel } from './WaveformPanel'
 import { ConsolePanel } from './ConsolePanel'
@@ -22,6 +23,7 @@ const layoutJson = {
         weight: 24,
         children: [
           { type: 'tab', name: 'Connection', component: 'connection' },
+          { type: 'tab', name: 'MCP', component: 'mcp' },
           { type: 'tab', name: 'Variables', component: 'variables' },
         ],
       },
@@ -61,6 +63,8 @@ function factory(node: TabNode) {
   switch (component) {
     case 'connection':
       return <ConnectionPanel />
+    case 'mcp':
+      return <McpPanel />
     case 'variables':
       return <VariablesPanel />
     case 'waveforms':

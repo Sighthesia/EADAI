@@ -170,9 +170,8 @@ where
 }
 
 fn usage() -> String {
-    format!(
-        "Usage:\n  eadai-mcp --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>]\n  eadai-mcp --fake-profile <name> [--baud <rate>]\n\nRuns a read-only MCP stdio server backed by the serial runtime or fake telemetry stream."
-    )
+    "Usage:\n  eadai-mcp --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>]\n  eadai-mcp --fake-profile <name> [--baud <rate>]\n\nRuns a read-only MCP stdio server backed by the serial runtime or fake telemetry stream."
+        .to_string()
 }
 
 fn next_value(values: &[String], index: &mut usize, flag: &str) -> Result<String, AppError> {

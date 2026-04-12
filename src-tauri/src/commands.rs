@@ -1,4 +1,4 @@
-use crate::model::{ConnectRequest, SendRequest, SessionSnapshot};
+use crate::model::{ConnectRequest, McpServerStatus, SendRequest, SessionSnapshot};
 use crate::state::DesktopState;
 use tauri::{AppHandle, State};
 
@@ -10,6 +10,11 @@ pub fn list_serial_ports(state: State<'_, DesktopState>) -> Result<Vec<String>, 
 #[tauri::command]
 pub fn get_session_snapshot(state: State<'_, DesktopState>) -> SessionSnapshot {
     state.snapshot()
+}
+
+#[tauri::command]
+pub fn get_mcp_server_status(state: State<'_, DesktopState>) -> McpServerStatus {
+    state.mcp_status()
 }
 
 #[tauri::command]

@@ -58,6 +58,12 @@ impl AiContextAdapter {
         state.ingest(message);
     }
 
+    /// Clears all bounded snapshots so a new runtime session starts from a clean state.
+    pub fn reset(&self) {
+        let mut state = lock_state(&self.inner);
+        state.reset();
+    }
+
     /// Returns the latest session snapshot.
     pub fn session_snapshot(&self) -> AiSessionSnapshot {
         lock_state(&self.inner).session.clone()
@@ -261,6 +267,10 @@ impl AiContextState {
     fn push_event(&mut self, event: AiRecentEvent) {
         self.recent_events.push_back(event);
         trim_queue(&mut self.recent_events, self.limits.recent_events);
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new(self.limits);
     }
 }
 

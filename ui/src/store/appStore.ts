@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import {
   connectSerial,
   disconnectSerial,
+  getMcpServerStatus,
   getSessionSnapshot,
   listSerialPorts,
   sendSerial,
@@ -10,6 +11,7 @@ import type {
   AppStatus,
   ConnectRequest,
   ConsoleEntry,
+  McpServerStatus,
   SerialBusEvent,
   SessionSnapshot,
   UiAnalysisPayload,
@@ -25,6 +27,7 @@ const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
 type AppStore = {
   ports: string[]
   session: SessionSnapshot
+  mcp: McpServerStatus
   config: ConnectRequest
   appendNewline: boolean
   commandInput: string
@@ -36,6 +39,7 @@ type AppStore = {
   setAppendNewline: (value: boolean) => void
   patchConfig: (value: Partial<ConnectRequest>) => void
   bootstrap: () => Promise<void>
+  refreshMcpStatus: () => Promise<void>
   refreshPorts: () => Promise<void>
   connect: () => Promise<void>
   disconnect: () => Promise<void>
@@ -51,9 +55,17 @@ const defaultStatus = (): AppStatus => ({
   message: 'Ready. Fake stream will autostart for UI debugging.',
 })
 
+const MCP_STATUS_POLL_INTERVAL_MS = 1000
+
 export const useAppStore = create<AppStore>((set, get) => ({
   ports: [],
   session: { isRunning: false, connectionState: 'stopped' },
+  mcp: {
+    isRunning: false,
+    transport: 'streamableHttp',
+    endpointUrl: null,
+    lastError: null,
+  },
   config: {
     port: '',
     baudRate: 115200,
@@ -72,10 +84,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setAppendNewline: (value) => set({ appendNewline: value }),
   patchConfig: (value) => set((state) => ({ config: { ...state.config, ...value } })),
   bootstrap: async () => {
-    const [ports, session] = await Promise.all([listSerialPorts(), getSessionSnapshot()])
+    const [ports, session, mcp] = await Promise.all([
+      listSerialPorts(),
+      getSessionSnapshot(),
+      readMcpStatusWithRetry(),
+    ])
     set((state) => ({
       ports,
       session,
+      mcp,
       config: {
         ...state.config,
         port:
@@ -97,6 +114,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
           }
         : defaultStatus(),
     }))
+  },
+  refreshMcpStatus: async () => {
+    const mcp = await readMcpStatusWithRetry()
+    set({ mcp })
   },
   refreshPorts: async () => {
     const ports = await listSerialPorts()
@@ -388,6 +409,23 @@ const connectionTone = (state: SessionSnapshot['connectionState']): AppStatus['t
       return 'neutral'
   }
 }
+
+const readMcpStatusWithRetry = async () => {
+  let lastStatus = await getMcpServerStatus()
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (lastStatus.isRunning || lastStatus.lastError) {
+      return lastStatus
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 120))
+    lastStatus = await getMcpServerStatus()
+  }
+
+  return lastStatus
+}
+
+export const shouldPollMcpStatus = (mcp: McpServerStatus) => !mcp.isRunning && !mcp.lastError
 
 const connectionMessage = (event: Extract<SerialBusEvent, { kind: 'connection' }>) => {
   const sourceLabel = event.source.transport === 'fake' ? 'fake stream' : 'serial'

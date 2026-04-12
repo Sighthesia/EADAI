@@ -1,0 +1,11 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": "src/ai_contract.rs", "reason": "AI-facing contract types and resource payloads"}
+{"file": "src/ai_adapter.rs", "reason": "Read-only adapter from bus messages to AI snapshots"}
+{"file": "src/mcp_server.rs", "reason": "MCP server exposing AI adapter resources and tools"}
+{"file": "src/bin/eadai-mcp.rs", "reason": "MCP binary entrypoint and runtime wiring"}
+{"file": "src/app.rs", "reason": "Runtime message publishing path feeding the adapter"}
+{"file": "src/message.rs", "reason": "Canonical bus message contract reused by AI layer"}
+{"file": "src/bus.rs", "reason": "Shared bus used by runtime and AI adapter"}
+{"file": "tests/ai_adapter.rs", "reason": "Existing adapter behavior tests and expected coverage"}

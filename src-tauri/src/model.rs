@@ -47,6 +47,15 @@ pub struct SessionSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct McpServerStatus {
+    pub is_running: bool,
+    pub transport: String,
+    pub endpoint_url: Option<String>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum UiTransportKind {
     Serial,
     Fake,
@@ -175,6 +184,35 @@ impl SessionSnapshot {
             port: Some(port),
             baud_rate: Some(baud_rate),
             connection_state: Some(UiConnectionState::Idle),
+        }
+    }
+}
+
+impl McpServerStatus {
+    pub fn starting() -> Self {
+        Self {
+            is_running: false,
+            transport: "streamableHttp".to_string(),
+            endpoint_url: None,
+            last_error: None,
+        }
+    }
+
+    pub fn running(endpoint_url: String, last_error: Option<String>) -> Self {
+        Self {
+            is_running: true,
+            transport: "streamableHttp".to_string(),
+            endpoint_url: Some(endpoint_url),
+            last_error,
+        }
+    }
+
+    pub fn failed(error: String) -> Self {
+        Self {
+            is_running: false,
+            transport: "streamableHttp".to_string(),
+            endpoint_url: None,
+            last_error: Some(error),
         }
     }
 }

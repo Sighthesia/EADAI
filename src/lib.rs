@@ -11,4 +11,5 @@ pub mod mcp_server;
 pub mod measurement_parser;
 pub mod message;
 pub mod parser;
+pub mod runtime_host;
 pub mod serial;

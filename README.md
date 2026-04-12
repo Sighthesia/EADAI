@@ -32,11 +32,15 @@
 
 ### MCP server
 
+- Desktop app mode: the Tauri shell now starts one shared read-only MCP server on `http://127.0.0.1:8765/mcp`.
+- Shared mode means the desktop UI and MCP clients read the same runtime session, including fake profiles.
+- Standalone binary still exists for headless debugging: `eadai-mcp`
 - Server binary: `eadai-mcp`
 - Build it once: `cargo build --bin eadai-mcp`
 - Run against the fake telemetry stream: `cargo run --bin eadai-mcp -- --fake-profile telemetry-lab`
 - Run against a real serial device: `cargo run --bin eadai-mcp -- --port <device> --baud 115200`
-- The MCP server uses stdio, so point clients at the built binary when possible. That avoids Cargo's startup noise and keeps the protocol stream clean.
+- Desktop shared mode uses Streamable HTTP at `http://127.0.0.1:8765/mcp`.
+- Standalone `eadai-mcp` still uses stdio, so point clients at the built binary when possible. That avoids Cargo's startup noise and keeps the protocol stream clean.
 
 ### Claude Desktop config
 

@@ -20,6 +20,66 @@ impl TelemetryMcpServer {
     pub fn new(adapter: AiContextAdapter) -> Self {
         Self { adapter }
     }
+
+    /// Returns the static resource catalog exposed to MCP clients.
+    pub fn resource_catalog() -> Vec<Resource> {
+        vec![
+            resource(
+                SESSION_RESOURCE_URI,
+                "Current Session",
+                "Current runtime connection state",
+            ),
+            resource(
+                TELEMETRY_RESOURCE_URI,
+                "Telemetry Summary",
+                "Latest telemetry summary per channel",
+            ),
+            resource(
+                ANALYSIS_RESOURCE_URI,
+                "Latest Analysis",
+                "Latest analysis frame per channel",
+            ),
+            resource(
+                TRIGGERS_RESOURCE_URI,
+                "Recent Triggers",
+                "Bounded recent trigger history",
+            ),
+        ]
+    }
+
+    /// Returns the static tool catalog exposed to MCP clients.
+    pub fn tool_catalog() -> Vec<Tool> {
+        vec![
+            Tool::new(
+                "get_channel_analysis",
+                "Return telemetry, latest analysis, and optional trigger context for one channel",
+                json_object(json!({
+                    "type": "object",
+                    "properties": {
+                        "channel_id": { "type": "string", "description": "Target channel id" },
+                        "include_trigger_context": { "type": "boolean", "description": "Include recent trigger history for the channel" }
+                    },
+                    "required": ["channel_id"],
+                    "additionalProperties": false
+                })),
+            )
+            .annotate(ToolAnnotations::new().read_only(true)),
+            Tool::new(
+                "get_recent_events",
+                "Return a bounded filtered list of recent bus events",
+                json_object(json!({
+                    "type": "object",
+                    "properties": {
+                        "limit": { "type": "integer", "minimum": 1, "description": "Maximum number of events to return" },
+                        "kind": { "type": "string", "enum": ["connection", "line", "analysis", "trigger"], "description": "Optional event kind filter" },
+                        "channel_id": { "type": "string", "description": "Optional channel filter for analysis/trigger events" }
+                    },
+                    "additionalProperties": false
+                })),
+            )
+            .annotate(ToolAnnotations::new().read_only(true)),
+        ]
+    }
 }
 
 impl ServerHandler for TelemetryMcpServer {
@@ -43,28 +103,7 @@ impl ServerHandler for TelemetryMcpServer {
         _cx: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
         Ok(ListResourcesResult {
-            resources: vec![
-                resource(
-                    SESSION_RESOURCE_URI,
-                    "Current Session",
-                    "Current runtime connection state",
-                ),
-                resource(
-                    TELEMETRY_RESOURCE_URI,
-                    "Telemetry Summary",
-                    "Latest telemetry summary per channel",
-                ),
-                resource(
-                    ANALYSIS_RESOURCE_URI,
-                    "Latest Analysis",
-                    "Latest analysis frame per channel",
-                ),
-                resource(
-                    TRIGGERS_RESOURCE_URI,
-                    "Recent Triggers",
-                    "Bounded recent trigger history",
-                ),
-            ],
+            resources: Self::resource_catalog(),
             next_cursor: None,
             meta: None,
         })
@@ -119,34 +158,7 @@ impl ServerHandler for TelemetryMcpServer {
         Ok(ListToolsResult {
             meta: None,
             next_cursor: None,
-            tools: vec![
-                Tool::new(
-                    "get_channel_analysis",
-                    "Return telemetry, latest analysis, and optional trigger context for one channel",
-                    json_object(json!({
-                        "type": "object",
-                        "properties": {
-                            "channel_id": { "type": "string", "description": "Target channel id" },
-                            "include_trigger_context": { "type": "boolean", "description": "Include recent trigger history for the channel" }
-                        },
-                        "required": ["channel_id"],
-                        "additionalProperties": false
-                    })),
-                ),
-                Tool::new(
-                    "get_recent_events",
-                    "Return a bounded filtered list of recent bus events",
-                    json_object(json!({
-                        "type": "object",
-                        "properties": {
-                            "limit": { "type": "integer", "minimum": 1, "description": "Maximum number of events to return" },
-                            "kind": { "type": "string", "enum": ["connection", "line", "analysis", "trigger"], "description": "Optional event kind filter" },
-                            "channel_id": { "type": "string", "description": "Optional channel filter for analysis/trigger events" }
-                        },
-                        "additionalProperties": false
-                    })),
-                ),
-            ],
+            tools: Self::tool_catalog(),
         })
     }
 

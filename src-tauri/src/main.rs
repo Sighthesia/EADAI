@@ -1,5 +1,6 @@
 mod commands;
 mod fake_session;
+mod mcp;
 mod model;
 mod state;
 
@@ -12,6 +13,7 @@ pub fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::list_serial_ports,
             commands::get_session_snapshot,
+            commands::get_mcp_server_status,
             commands::connect_serial,
             commands::disconnect_serial,
             commands::send_serial,

@@ -26,6 +26,13 @@ export interface SessionSnapshot {
   connectionState?: UiConnectionState | null
 }
 
+export interface McpServerStatus {
+  isRunning: boolean
+  transport: string
+  endpointUrl?: string | null
+  lastError?: string | null
+}
+
 export interface UiSource {
   transport: UiTransportKind
   port: string

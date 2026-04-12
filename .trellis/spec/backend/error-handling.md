@@ -28,8 +28,12 @@ For future Rust backend code, propagate recoverable errors with `Result` and res
 
 ## API Error Responses
 
-No API error response format exists yet because there is no API surface in the repository.
-Document the exact payload shape once the backend exposes HTTP, SSE, or MCP-facing endpoints.
+The MCP boundary in `src/mcp_server.rs` now uses rmcp `ErrorData` responses.
+Documented MCP cases live in `.trellis/spec/backend/mcp-ai-contract.md` and should remain the source of truth for:
+
+- `resource_not_found` on unknown resource URIs
+- `invalid_params` on unknown tools or invalid tool arguments
+- `internal_error` on serialization failures
 
 ---
 

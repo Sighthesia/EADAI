@@ -121,7 +121,7 @@ fn is_timestamp_key(key: &str) -> bool {
     matches!(key, "ts" | "time" | "timestamp")
 }
 
-fn select_primary_pair<'a>(pairs: &'a [(String, String)]) -> (&'a str, &'a str) {
+fn select_primary_pair(pairs: &[(String, String)]) -> (&str, &str) {
     pairs
         .iter()
         .find(|(key, _)| !is_timestamp_key(key))

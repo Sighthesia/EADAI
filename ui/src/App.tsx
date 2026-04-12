@@ -3,11 +3,14 @@ import { listenSerialBus } from './lib/tauri'
 import { useAppStore } from './store/appStore'
 import type { SerialBusEvent } from './types'
 import { Workbench } from './components/Workbench'
+import { shouldPollMcpStatus } from './store/appStore'
 
 export default function App() {
   const bootstrap = useAppStore((state) => state.bootstrap)
   const connect = useAppStore((state) => state.connect)
   const ingestEvents = useAppStore((state) => state.ingestEvents)
+  const mcp = useAppStore((state) => state.mcp)
+  const refreshMcpStatus = useAppStore((state) => state.refreshMcpStatus)
   const session = useAppStore((state) => state.session)
   const status = useAppStore((state) => state.status)
   const pendingEventsRef = useRef<SerialBusEvent[]>([])
@@ -70,6 +73,20 @@ export default function App() {
     }
   }, [bootstrap, connect, ingestEvents])
 
+  useEffect(() => {
+    if (!shouldPollMcpStatus(mcp)) {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshMcpStatus()
+    }, 1000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [mcp, refreshMcpStatus])
+
   return (
     <main className="app-shell">
       <header className="titlebar">
@@ -79,7 +96,9 @@ export default function App() {
         </div>
         <div className={`status-pill tone-${status.tone}`}>
           <span className="status-dot" />
-          {session.port ? `${session.port} · ${session.connectionState ?? 'idle'}` : status.message}
+          {session.port
+            ? `${session.port} · ${session.connectionState ?? 'idle'} · MCP ${mcp.isRunning ? 'ready' : 'starting'}`
+            : status.message}
         </div>
       </header>
       <section className="status-strip">

@@ -1,11 +1,11 @@
+use crate::mcp::EmbeddedMcpServer;
 use crate::model::{
-    ConnectRequest, SendRequest, SessionSnapshot, SourceKind, UiBusEvent, UiConnectionState,
-    UiTransportKind, apply_connection_snapshot,
+    apply_connection_snapshot, ConnectRequest, McpServerStatus, SendRequest, SessionSnapshot,
+    SourceKind, UiBusEvent, UiConnectionState, UiTransportKind,
 };
-use crate::{fake_session, fake_session::FakeSessionHandle};
-use eadai::app::{App, RuntimeCommandHandle, StopSignal};
 use eadai::bus::BusSubscription;
 use eadai::cli::{ParserKind, RunConfig};
+use eadai::runtime_host::{FakeRuntimeConfig, RuntimeSessionConfig, SessionRuntimeHost};
 use eadai::serial;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
@@ -14,8 +14,9 @@ use tauri::{AppHandle, Emitter};
 
 pub const SERIAL_EVENT_NAME: &str = "serial-bus-event";
 
-#[derive(Default)]
 pub struct DesktopState {
+    runtime: SessionRuntimeHost,
+    mcp_server: EmbeddedMcpServer,
     inner: Mutex<SessionState>,
 }
 
@@ -26,41 +27,25 @@ struct SessionState {
 }
 
 struct RunningSession {
-    control: SessionControl,
     snapshot: Arc<Mutex<SessionSnapshot>>,
-    worker: JoinHandle<()>,
     forwarder: JoinHandle<()>,
 }
 
-enum SessionControl {
-    Real {
-        stop_signal: StopSignal,
-        command_handle: RuntimeCommandHandle,
-    },
-    Fake(FakeSessionHandle),
-}
-
-impl SessionControl {
-    fn request_stop(&self) {
-        match self {
-            Self::Real { stop_signal, .. } => stop_signal.request_stop(),
-            Self::Fake(handle) => handle.request_stop(),
-        }
-    }
-
-    fn send_payload(&self, payload: Vec<u8>) -> Result<(), String> {
-        match self {
-            Self::Real { command_handle, .. } => command_handle
-                .send_payload(payload)
-                .map_err(|error| error.to_string()),
-            Self::Fake(handle) => handle.send_payload(payload),
+impl Default for DesktopState {
+    fn default() -> Self {
+        let runtime = SessionRuntimeHost::default();
+        let mcp_server = EmbeddedMcpServer::new(runtime.adapter());
+        Self {
+            runtime,
+            mcp_server,
+            inner: Mutex::new(SessionState::default()),
         }
     }
 }
 
 impl DesktopState {
     pub fn list_ports(&self) -> Result<Vec<String>, String> {
-        serial::list_ports().map_err(|error| error.to_string())
+        self.runtime.list_ports().map_err(|error| error.to_string())
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
@@ -72,28 +57,27 @@ impl DesktopState {
         }
     }
 
+    pub fn mcp_status(&self) -> McpServerStatus {
+        self.mcp_server.status()
+    }
+
     pub fn connect(
         &self,
         app_handle: &AppHandle,
         request: ConnectRequest,
     ) -> Result<SessionSnapshot, String> {
-        let mut state = lock_state(&self.inner);
-        if state.running.is_some() {
-            return Err("serial session is already running".to_string());
-        }
-
-        let bus = eadai::bus::MessageBus::new();
-        let subscription = bus.subscribe();
         let snapshot = Arc::new(Mutex::new(initial_snapshot(&request)));
-        let (control, worker) = spawn_session(request, bus);
+        let subscription = self
+            .runtime
+            .connect(runtime_config(&request))
+            .map_err(|error| error.to_string())?;
         let forwarder = spawn_forwarder(app_handle.clone(), subscription, Arc::clone(&snapshot));
         let current_snapshot = lock_snapshot(&snapshot).clone();
 
+        let mut state = lock_state(&self.inner);
         state.last_snapshot = current_snapshot.clone();
         state.running = Some(RunningSession {
-            control,
             snapshot,
-            worker,
             forwarder,
         });
 
@@ -103,14 +87,18 @@ impl DesktopState {
     pub fn disconnect(&self) -> Result<SessionSnapshot, String> {
         let running = {
             let mut state = lock_state(&self.inner);
-            state
-                .running
-                .take()
-                .ok_or_else(|| "serial session is not running".to_string())?
+            state.running.take()
         };
 
-        running.control.request_stop();
-        let _ = running.worker.join();
+        let running =
+            running.ok_or_else(|| runtime_state_error("runtime session is not running"))?;
+
+        if let Err(error) = self.runtime.disconnect() {
+            let mut state = lock_state(&self.inner);
+            state.running = Some(running);
+            return Err(error.to_string());
+        }
+
         let _ = running.forwarder.join();
 
         let mut snapshot = lock_snapshot(&running.snapshot).clone();
@@ -123,22 +111,17 @@ impl DesktopState {
     }
 
     pub fn send(&self, request: SendRequest) -> Result<(), String> {
-        let state = lock_state(&self.inner);
-        let session = state
-            .running
-            .as_ref()
-            .ok_or_else(|| "serial session is not running".to_string())?;
-        let snapshot = lock_snapshot(&session.snapshot).clone();
-
-        if snapshot.connection_state != Some(UiConnectionState::Connected) {
-            return Err("serial session is not connected".to_string());
-        }
-
-        session.control.send_payload(serial::payload_bytes_for_text(
-            &request.payload,
-            request.append_newline,
-        ))
+        self.runtime
+            .send_payload(serial::payload_bytes_for_text(
+                &request.payload,
+                request.append_newline,
+            ))
+            .map_err(|error| error.to_string())
     }
+}
+
+fn runtime_state_error(message: &str) -> String {
+    std::io::Error::new(std::io::ErrorKind::NotConnected, message).to_string()
 }
 
 fn initial_snapshot(request: &ConnectRequest) -> SessionSnapshot {
@@ -150,62 +133,34 @@ fn initial_snapshot(request: &ConnectRequest) -> SessionSnapshot {
         ),
         SourceKind::Fake => SessionSnapshot::connecting(
             UiTransportKind::Fake,
-            fake_session::fake_port_label(
+            crate::fake_session::fake_port_label(
                 request
                     .fake_profile
                     .as_deref()
-                    .unwrap_or(fake_session::default_profile()),
+                    .unwrap_or(crate::fake_session::default_profile()),
             ),
             request.baud_rate,
         ),
     }
 }
 
-fn spawn_session(
-    request: ConnectRequest,
-    bus: eadai::bus::MessageBus,
-) -> (SessionControl, JoinHandle<()>) {
+fn runtime_config(request: &ConnectRequest) -> RuntimeSessionConfig {
     match request.source_kind {
-        SourceKind::Serial => {
-            let config = RunConfig {
-                port: request.port,
-                baud_rate: request.baud_rate,
-                retry_delay: Duration::from_millis(request.retry_ms),
-                read_timeout: Duration::from_millis(request.read_timeout_ms),
-                parser: ParserKind::Auto,
-                max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
-            };
-            let app = App::new(config, bus);
-            let stop_signal = app.stop_signal();
-            let command_handle = app.command_handle();
-            let worker = thread::spawn(move || {
-                let _ = app.run();
-            });
-
-            (
-                SessionControl::Real {
-                    stop_signal,
-                    command_handle,
-                },
-                worker,
-            )
-        }
-        SourceKind::Fake => {
-            let profile = request
+        SourceKind::Serial => RuntimeSessionConfig::Serial(RunConfig {
+            port: request.port.clone(),
+            baud_rate: request.baud_rate,
+            retry_delay: Duration::from_millis(request.retry_ms),
+            read_timeout: Duration::from_millis(request.read_timeout_ms),
+            parser: ParserKind::Auto,
+            max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
+        }),
+        SourceKind::Fake => RuntimeSessionConfig::Fake(FakeRuntimeConfig {
+            profile: request
                 .fake_profile
-                .unwrap_or_else(|| fake_session::default_profile().to_string());
-            let port = fake_session::fake_port_label(&profile);
-            let (handle, worker) = fake_session::spawn(
-                fake_session::FakeSessionConfig {
-                    port,
-                    baud_rate: request.baud_rate,
-                    profile,
-                },
-                bus,
-            );
-
-            (SessionControl::Fake(handle), worker)
-        }
+                .clone()
+                .unwrap_or_else(|| crate::fake_session::default_profile().to_string()),
+            baud_rate: request.baud_rate,
+        }),
     }
 }
 
