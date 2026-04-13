@@ -1,5 +1,7 @@
 use crate::ai_adapter::AiContextAdapter;
-use crate::ai_contract::{ChannelAnalysisQuery, RecentEventsQuery};
+use crate::ai_contract::{
+    ChannelAnalysisQuery, ChannelStatisticsQuery, HistoricalAnalysisQuery, RecentEventsQuery,
+};
 use rmcp::{ErrorData, RoleServer, ServerHandler, model::*, service::RequestContext};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -74,6 +76,37 @@ impl TelemetryMcpServer {
                         "kind": { "type": "string", "enum": ["connection", "line", "analysis", "trigger"], "description": "Optional event kind filter" },
                         "channel_id": { "type": "string", "description": "Optional channel filter for analysis/trigger events" }
                     },
+                    "additionalProperties": false
+                })),
+            )
+            .annotate(ToolAnnotations::new().read_only(true)),
+            Tool::new(
+                "get_channel_statistics",
+                "Return sampled channel statistics for a time window",
+                json_object(json!({
+                    "type": "object",
+                    "properties": {
+                        "channel_id": { "type": "string", "description": "Target channel id" },
+                        "window_ms": { "type": "integer", "minimum": 1, "default": 1000, "description": "Optional sample window in ms (defaults to 1000 ms)" },
+                        "include_raw_samples": { "type": "boolean", "description": "Include raw bounded sample points" }
+                    },
+                    "required": ["channel_id"],
+                    "additionalProperties": false
+                })),
+            )
+            .annotate(ToolAnnotations::new().read_only(true)),
+            Tool::new(
+                "query_historical_analysis",
+                "Return historical analysis frames for a channel and time range",
+                json_object(json!({
+                    "type": "object",
+                    "properties": {
+                        "channel_id": { "type": "string", "description": "Target channel id" },
+                        "start_time_ms": { "type": "integer", "minimum": 0, "description": "Inclusive start time" },
+                        "end_time_ms": { "type": "integer", "minimum": 0, "description": "Inclusive end time" },
+                        "max_frames": { "type": "integer", "minimum": 1, "description": "Optional frame limit" }
+                    },
+                    "required": ["channel_id", "start_time_ms", "end_time_ms"],
                     "additionalProperties": false
                 })),
             )
@@ -184,6 +217,26 @@ impl ServerHandler for TelemetryMcpServer {
             "get_recent_events" => {
                 let query: RecentEventsQuery = parse_arguments(request.arguments)?;
                 let resource = self.adapter.recent_events(&query);
+                tool_json_response(&resource)
+            }
+            "get_channel_statistics" => {
+                let query: ChannelStatisticsQuery = parse_arguments(request.arguments)?;
+                let Some(resource) = self.adapter.channel_statistics(&query) else {
+                    return Err(ErrorData::resource_not_found(
+                        "channel not found",
+                        Some(json!({ "channel_id": query.channel_id })),
+                    ));
+                };
+                tool_json_response(&resource)
+            }
+            "query_historical_analysis" => {
+                let query: HistoricalAnalysisQuery = parse_arguments(request.arguments)?;
+                let Some(resource) = self.adapter.historical_analysis(&query) else {
+                    return Err(ErrorData::resource_not_found(
+                        "channel not found",
+                        Some(json!({ "channel_id": query.channel_id })),
+                    ));
+                };
                 tool_json_response(&resource)
             }
             _ => Err(ErrorData::invalid_params(

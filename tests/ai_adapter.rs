@@ -1,5 +1,7 @@
 use eadai::ai_adapter::AiContextAdapter;
-use eadai::ai_contract::{AiRecentEventKind, RecentEventsQuery};
+use eadai::ai_contract::{
+    AiRecentEventKind, ChannelStatisticsQuery, HistoricalAnalysisQuery, RecentEventsQuery,
+};
 use eadai::analysis::{AnalysisFrame, TriggerEvent, TriggerSeverity};
 use eadai::message::{BusMessage, ConnectionState, MessageSource, ParserMeta, ParserStatus};
 use std::collections::BTreeMap;
@@ -29,13 +31,16 @@ fn adapter_builds_session_summary_analysis_and_trigger_history() {
             channel_id: "temp".to_string(),
             window_ms: 2_000,
             sample_count: 8,
+            time_span_ms: Some(700.0),
             frequency_hz: None,
             period_ms: None,
+            period_stability: None,
             duty_cycle: None,
             min_value: Some(23.8),
             max_value: Some(24.8),
             mean_value: Some(24.3),
             rms_value: Some(24.31),
+            variance: Some(0.1),
             edge_count: 0,
             rising_edge_count: 0,
             falling_edge_count: 0,
@@ -44,6 +49,13 @@ fn adapter_builds_session_summary_analysis_and_trigger_history() {
             trigger_hits: vec!["temp-high".to_string()],
         },
     ));
+    adapter.ingest(
+        BusMessage::rx_line(&source, line_payload("temp=25.0")).with_parser(parser(
+            "temp",
+            "25.0",
+            Some("25.0"),
+        )),
+    );
     adapter.ingest(BusMessage::trigger(
         &source,
         TriggerEvent {
@@ -67,8 +79,8 @@ fn adapter_builds_session_summary_analysis_and_trigger_history() {
     let telemetry = adapter.telemetry_summary();
     assert_eq!(telemetry.channels.len(), 1);
     assert_eq!(telemetry.channels[0].channel_id, "temp");
-    assert_eq!(telemetry.channels[0].current_value.as_deref(), Some("24.5"));
-    assert_eq!(telemetry.channels[0].numeric_value, Some(24.5));
+    assert_eq!(telemetry.channels[0].current_value.as_deref(), Some("25.0"));
+    assert_eq!(telemetry.channels[0].numeric_value, Some(25.0));
     assert!(telemetry.channels[0].has_analysis);
     assert_eq!(telemetry.channels[0].trigger_count, 1);
 
@@ -85,6 +97,29 @@ fn adapter_builds_session_summary_analysis_and_trigger_history() {
         .expect("channel analysis");
     assert_eq!(channel.channel_id, "temp");
     assert_eq!(channel.recent_triggers.len(), 1);
+
+    let statistics = adapter
+        .channel_statistics(&ChannelStatisticsQuery {
+            channel_id: "temp".to_string(),
+            window_ms: Some(1_000),
+            include_raw_samples: true,
+        })
+        .expect("channel statistics");
+    assert_eq!(statistics.channel_id, "temp");
+    assert!(statistics.sample_count >= 1);
+    assert!(statistics.variance.is_some());
+    assert!(statistics.raw_samples.is_some());
+
+    let historical = adapter
+        .historical_analysis(&HistoricalAnalysisQuery {
+            channel_id: "temp".to_string(),
+            start_time_ms: 0,
+            end_time_ms: u64::MAX,
+            max_frames: Some(4),
+        })
+        .expect("historical analysis");
+    assert_eq!(historical.channel_id, "temp");
+    assert_eq!(historical.frames.len(), 1);
 }
 
 #[test]
@@ -112,13 +147,16 @@ fn adapter_filters_recent_events_by_kind_and_channel() {
             channel_id: "temp".to_string(),
             window_ms: 2_000,
             sample_count: 4,
+            time_span_ms: Some(300.0),
             frequency_hz: None,
             period_ms: None,
+            period_stability: None,
             duty_cycle: None,
             min_value: Some(24.0),
             max_value: Some(25.0),
             mean_value: Some(24.5),
             rms_value: Some(24.52),
+            variance: Some(0.05),
             edge_count: 0,
             rising_edge_count: 0,
             falling_edge_count: 0,
@@ -133,13 +171,16 @@ fn adapter_filters_recent_events_by_kind_and_channel() {
             channel_id: "pressure".to_string(),
             window_ms: 2_000,
             sample_count: 4,
+            time_span_ms: Some(300.0),
             frequency_hz: None,
             period_ms: None,
+            period_stability: None,
             duty_cycle: None,
             min_value: Some(101.0),
             max_value: Some(102.0),
             mean_value: Some(101.4),
             rms_value: Some(101.41),
+            variance: Some(0.05),
             edge_count: 0,
             rising_edge_count: 0,
             falling_edge_count: 0,

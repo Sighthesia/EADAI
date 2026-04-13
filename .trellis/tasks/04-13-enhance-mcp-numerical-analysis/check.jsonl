@@ -1,0 +1,2 @@
+{"phase": 2, "action": "check", "description": "Verify MCP tool schema correctness", "file": "src/mcp_server.rs", "guideline": "Run cargo clippy and cargo test --test mcp_server"}
+{"phase": 2, "action": "check", "description": "Verify new tools return valid JSON", "file": "tests/mcp_server.rs", "guideline": "Run cargo test --test mcp_server"}

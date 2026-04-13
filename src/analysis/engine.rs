@@ -72,6 +72,7 @@ enum RangeMode {
 struct EdgeMetrics {
     frequency_hz: Option<f64>,
     period_ms: Option<f64>,
+    period_stability: Option<f64>,
     duty_cycle: Option<f64>,
     edge_count: usize,
     rising_edges: usize,
@@ -175,6 +176,7 @@ fn compute_frame(
         Some((values.iter().map(|value| value * value).sum::<f64>() / sample_count as f64).sqrt());
     let trend = (sample_count >= 2).then_some(last.value - first.value);
     let span_ms = last.timestamp_ms.saturating_sub(first.timestamp_ms) as f64;
+    let variance = compute_variance(&values, mean_value?);
     let change_rate = if span_ms >= MIN_EDGE_SPAN_MS {
         trend.map(|delta| delta / (span_ms / 1000.0))
     } else {
@@ -186,13 +188,16 @@ fn compute_frame(
         channel_id: channel_id.to_string(),
         window_ms,
         sample_count,
+        time_span_ms: Some(span_ms),
         frequency_hz: edge_metrics.frequency_hz,
         period_ms: edge_metrics.period_ms,
+        period_stability: edge_metrics.period_stability,
         duty_cycle: edge_metrics.duty_cycle,
         min_value,
         max_value,
         mean_value,
         rms_value,
+        variance,
         edge_count: edge_metrics.edge_count,
         rising_edge_count: edge_metrics.rising_edges,
         falling_edge_count: edge_metrics.falling_edges,
@@ -212,6 +217,7 @@ fn compute_edge_metrics(
         return EdgeMetrics {
             frequency_hz: None,
             period_ms: None,
+            period_stability: None,
             duty_cycle: None,
             edge_count: 0,
             rising_edges: 0,
@@ -267,10 +273,13 @@ fn compute_edge_metrics(
     let frequency_hz =
         period_ms.and_then(|period| (period >= MIN_EDGE_SPAN_MS).then_some(1000.0 / period));
     let duty_cycle = (span_ms >= MIN_EDGE_SPAN_MS).then_some((high_ms / span_ms) * 100.0);
+    let period_stability =
+        period_stability(&rising_times).or_else(|| period_stability(&falling_times));
 
     EdgeMetrics {
         frequency_hz,
         period_ms,
+        period_stability,
         duty_cycle,
         edge_count: rising_times.len() + falling_times.len(),
         rising_edges: rising_times.len(),
@@ -288,6 +297,49 @@ fn average_period(edges: &[f64]) -> Option<f64> {
         .map(|window| window[1] - window[0])
         .collect::<Vec<_>>();
     Some(deltas.iter().sum::<f64>() / deltas.len() as f64)
+}
+
+fn period_stability(edges: &[f64]) -> Option<f64> {
+    if edges.len() < 3 {
+        return None;
+    }
+
+    let periods = edges
+        .windows(2)
+        .map(|window| window[1] - window[0])
+        .collect::<Vec<_>>();
+    let mean = periods.iter().sum::<f64>() / periods.len() as f64;
+    if mean == 0.0 {
+        return None;
+    }
+
+    let variance = periods
+        .iter()
+        .map(|period| {
+            let delta = period - mean;
+            delta * delta
+        })
+        .sum::<f64>()
+        / periods.len() as f64;
+
+    Some(1.0 / (1.0 + variance.sqrt() / mean.abs()))
+}
+
+fn compute_variance(values: &[f64], mean: f64) -> Option<f64> {
+    if values.len() < 2 {
+        return None;
+    }
+
+    Some(
+        values
+            .iter()
+            .map(|value| {
+                let delta = value - mean;
+                delta * delta
+            })
+            .sum::<f64>()
+            / values.len() as f64,
+    )
 }
 
 fn evaluate_rules(

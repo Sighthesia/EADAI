@@ -1,8 +1,9 @@
 use crate::ai_contract::{
-    AiAdapterLimits, AiLineEventRecord, AiRecentEvent, AiRecentEventKind, AiSessionSnapshot,
-    AnalysisFramesResource, ChannelAnalysisResource, DEFAULT_CHANNEL_TRIGGER_CONTEXT_LIMIT,
-    RecentEventsQuery, RecentEventsResource, TelemetryChannelSummary, TelemetrySummaryResource,
-    TriggerHistoryResource,
+    AiAdapterLimits, AiLineEventRecord, AiRecentEvent, AiRecentEventKind, AiSamplePoint,
+    AiSessionSnapshot, AnalysisFramesResource, ChannelAnalysisResource, ChannelStatisticsQuery,
+    ChannelStatisticsResource, DEFAULT_CHANNEL_TRIGGER_CONTEXT_LIMIT, HistoricalAnalysisQuery,
+    HistoricalAnalysisResource, RecentEventsQuery, RecentEventsResource, TelemetryChannelSummary,
+    TelemetrySummaryResource, TriggerHistoryResource,
 };
 use crate::analysis::{AnalysisFrame, TriggerEvent};
 use crate::bus::BusSubscription;
@@ -24,8 +25,16 @@ struct AiContextState {
     session: AiSessionSnapshot,
     telemetry: BTreeMap<String, TelemetryChannelSummary>,
     analysis: BTreeMap<String, AnalysisFrame>,
+    analysis_history: BTreeMap<String, VecDeque<HistoricalAnalysisEntry>>,
+    sample_history: BTreeMap<String, VecDeque<AiSamplePoint>>,
     triggers: VecDeque<TriggerEvent>,
     recent_events: VecDeque<AiRecentEvent>,
+}
+
+#[derive(Clone, Debug)]
+struct HistoricalAnalysisEntry {
+    timestamp_ms: u64,
+    frame: AnalysisFrame,
 }
 
 impl Default for AiContextAdapter {
@@ -83,6 +92,126 @@ impl AiContextAdapter {
         AnalysisFramesResource {
             frames: state.analysis.values().cloned().collect(),
         }
+    }
+
+    /// Returns sampled statistics for one channel.
+    pub fn channel_statistics(
+        &self,
+        query: &ChannelStatisticsQuery,
+    ) -> Option<ChannelStatisticsResource> {
+        let state = lock_state(&self.inner);
+        let frame = state.analysis.get(&query.channel_id)?.clone();
+        let samples = state.sample_history.get(&query.channel_id);
+        let window_ms = query
+            .window_ms
+            .unwrap_or(crate::ai_contract::DEFAULT_CHANNEL_STATISTICS_WINDOW_MS)
+            .max(1);
+        let Some(samples) = samples else {
+            return Some(ChannelStatisticsResource {
+                channel_id: query.channel_id.clone(),
+                window_ms,
+                sample_count: 0,
+                time_span_ms: None,
+                min_value: None,
+                max_value: None,
+                mean_value: None,
+                rms_value: None,
+                variance: None,
+                trend: None,
+                change_rate: None,
+                frequency_hz: frame.frequency_hz,
+                period_ms: frame.period_ms,
+                duty_cycle: frame.duty_cycle,
+                period_stability: frame.period_stability,
+                raw_samples: None,
+            });
+        };
+
+        let newest_timestamp = samples.back()?.timestamp_ms;
+        let min_timestamp = newest_timestamp.saturating_sub(window_ms);
+        let window_samples = samples
+            .iter()
+            .filter(|sample| sample.timestamp_ms >= min_timestamp)
+            .cloned()
+            .collect::<Vec<_>>();
+        if window_samples.is_empty() {
+            return None;
+        }
+
+        let sample_count = window_samples.len();
+        let values = window_samples
+            .iter()
+            .map(|sample| sample.value)
+            .collect::<Vec<_>>();
+        let min_value = values.iter().copied().reduce(f64::min);
+        let max_value = values.iter().copied().reduce(f64::max);
+        let mean_value = Some(values.iter().sum::<f64>() / sample_count as f64);
+        let rms_value = Some(
+            (values.iter().map(|value| value * value).sum::<f64>() / sample_count as f64).sqrt(),
+        );
+        let variance = mean_value.and_then(|mean| compute_variance(&values, mean));
+        let time_span_ms = window_samples
+            .first()
+            .zip(window_samples.last())
+            .map(|(first, last)| last.timestamp_ms.saturating_sub(first.timestamp_ms) as f64);
+        let trend = window_samples
+            .first()
+            .zip(window_samples.last())
+            .map(|(first, last)| last.value - first.value);
+        let change_rate = match (trend, time_span_ms) {
+            (Some(delta), Some(span_ms)) if span_ms >= 1.0 => Some(delta / (span_ms / 1000.0)),
+            _ => None,
+        };
+        let raw_samples = if query.include_raw_samples {
+            Some(window_samples.clone())
+        } else {
+            None
+        };
+
+        Some(ChannelStatisticsResource {
+            channel_id: query.channel_id.clone(),
+            window_ms,
+            sample_count,
+            time_span_ms,
+            min_value,
+            max_value,
+            mean_value,
+            rms_value,
+            variance,
+            trend,
+            change_rate,
+            frequency_hz: frame.frequency_hz,
+            period_ms: frame.period_ms,
+            duty_cycle: frame.duty_cycle,
+            period_stability: frame.period_stability,
+            raw_samples,
+        })
+    }
+
+    /// Returns historical analysis frames for one channel.
+    pub fn historical_analysis(
+        &self,
+        query: &HistoricalAnalysisQuery,
+    ) -> Option<HistoricalAnalysisResource> {
+        let state = lock_state(&self.inner);
+        let history = state.analysis_history.get(&query.channel_id)?;
+        let start_time_ms = query.start_time_ms.min(query.end_time_ms);
+        let end_time_ms = query.start_time_ms.max(query.end_time_ms);
+        let max_frames = query.max_frames.unwrap_or(state.limits.analysis_history);
+
+        let frames = history
+            .iter()
+            .filter(|entry| {
+                entry.timestamp_ms >= start_time_ms && entry.timestamp_ms <= end_time_ms
+            })
+            .map(|entry| entry.frame.clone())
+            .take(max_frames)
+            .collect();
+
+        Some(HistoricalAnalysisResource {
+            channel_id: query.channel_id.clone(),
+            frames,
+        })
     }
 
     /// Returns the bounded trigger history.
@@ -168,6 +297,8 @@ impl AiContextState {
             session: AiSessionSnapshot::default(),
             telemetry: BTreeMap::new(),
             analysis: BTreeMap::new(),
+            analysis_history: BTreeMap::new(),
+            sample_history: BTreeMap::new(),
             triggers: VecDeque::new(),
             recent_events: VecDeque::new(),
         }
@@ -204,6 +335,19 @@ impl AiContextState {
                     summary.numeric_value = parse_numeric_value(&message.parser.fields);
                     summary.parser_name = message.parser.parser_name.clone();
                     summary.updated_at_ms = timestamp_ms;
+
+                    if let Some(value) = summary.numeric_value {
+                        self.sample_history
+                            .entry(channel_id.clone())
+                            .or_default()
+                            .push_back(AiSamplePoint {
+                                timestamp_ms,
+                                value,
+                            });
+                        if let Some(history) = self.sample_history.get_mut(channel_id) {
+                            trim_queue(history, self.limits.analysis_history);
+                        }
+                    }
                 }
 
                 self.push_event(AiRecentEvent {
@@ -230,6 +374,16 @@ impl AiContextState {
                 summary.updated_at_ms = timestamp_ms;
                 self.analysis
                     .insert(frame.channel_id.clone(), frame.clone());
+                self.analysis_history
+                    .entry(frame.channel_id.clone())
+                    .or_default()
+                    .push_back(HistoricalAnalysisEntry {
+                        timestamp_ms,
+                        frame: frame.clone(),
+                    });
+                if let Some(history) = self.analysis_history.get_mut(&frame.channel_id) {
+                    trim_queue(history, self.limits.analysis_history);
+                }
                 self.push_event(AiRecentEvent {
                     timestamp_ms,
                     source,
@@ -274,6 +428,15 @@ impl AiContextState {
     }
 }
 
+impl From<HistoricalAnalysisEntry> for AiSamplePoint {
+    fn from(value: HistoricalAnalysisEntry) -> Self {
+        AiSamplePoint {
+            timestamp_ms: value.timestamp_ms,
+            value: value.frame.mean_value.unwrap_or_default(),
+        }
+    }
+}
+
 fn empty_summary(
     channel_id: &str,
     updated_at_ms: u64,
@@ -303,6 +466,23 @@ fn trim_queue<T>(queue: &mut VecDeque<T>, limit: usize) {
     while queue.len() > limit {
         queue.pop_front();
     }
+}
+
+fn compute_variance(values: &[f64], mean: f64) -> Option<f64> {
+    if values.len() < 2 {
+        return None;
+    }
+
+    Some(
+        values
+            .iter()
+            .map(|value| {
+                let delta = value - mean;
+                delta * delta
+            })
+            .sum::<f64>()
+            / values.len() as f64,
+    )
 }
 
 fn lock_state<'a>(state: &'a Arc<Mutex<AiContextState>>) -> MutexGuard<'a, AiContextState> {

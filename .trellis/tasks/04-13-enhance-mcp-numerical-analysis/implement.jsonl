@@ -1,0 +1,4 @@
+{"phase": 1, "action": "implement", "description": "Add new MCP tools and enhance existing analysis resources", "file": "src/mcp_server.rs", "guideline": "Add get_channel_statistics and query_historical_analysis tools"}
+{"phase": 1, "action": "implement", "description": "Enhance AiContextAdapter to support historical analysis queries", "file": "src/ai_adapter.rs", "guideline": "Add history buffer access methods"}
+{"phase": 1, "action": "implement", "description": "Add channel_statistics tool to MCP tool catalog", "file": "src/mcp_server.rs", "guideline": "Expose variance and edge details in tool response"}
+{"phase": 1, "action": "implement", "description": "Add MCP integration tests for new tools", "file": "tests/mcp_server.rs", "description": "Verify tool responses match expected JSON schema"}

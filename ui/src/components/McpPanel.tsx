@@ -5,14 +5,32 @@ export function McpPanel() {
   const mcp = useAppStore((state) => state.mcp)
   const session = useAppStore((state) => state.session)
   const refreshMcpStatus = useAppStore((state) => state.refreshMcpStatus)
+  const analysisJson = useAppStore((state) =>
+    JSON.stringify(
+      Object.values(state.variables)
+        .filter((variable) => variable.analysis)
+        .map((variable) => variable.analysis),
+      null,
+      2,
+    ),
+  )
+
+  const copyAnalysisJson = async () => {
+    await navigator.clipboard.writeText(analysisJson)
+  }
 
   return (
     <section className="panel panel-scroll mcp-panel">
       <div className="variables-header">
         <span>Shared MCP Status</span>
-        <button className="ghost-button" onClick={() => void refreshMcpStatus()}>
-          Refresh MCP
-        </button>
+        <div className="panel-actions">
+          <button className="ghost-button" onClick={() => void copyAnalysisJson()}>
+            Copy Analysis JSON
+          </button>
+          <button className="ghost-button" onClick={() => void refreshMcpStatus()}>
+            Refresh MCP
+          </button>
+        </div>
       </div>
 
       <div className="mcp-card-grid">

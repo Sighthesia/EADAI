@@ -6,14 +6,19 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_RECENT_EVENTS_LIMIT: usize = 64;
 // FIXME: Make adapter history capacities configurable from operator-facing config when larger windows are needed.
 pub const DEFAULT_RECENT_TRIGGERS_LIMIT: usize = 24;
+// FIXME: Make adapter history capacities configurable from operator-facing config when larger windows are needed.
+pub const DEFAULT_ANALYSIS_HISTORY_LIMIT: usize = 48;
 // FIXME: Make channel trigger context depth configurable once AI workflows need longer retrospectives.
 pub const DEFAULT_CHANNEL_TRIGGER_CONTEXT_LIMIT: usize = 8;
+// FIXME: Make channel statistics window configurable once AI workflows need more dynamic defaults.
+pub const DEFAULT_CHANNEL_STATISTICS_WINDOW_MS: u64 = 1_000;
 
 /// Bounded cache sizes for the AI-facing adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AiAdapterLimits {
     pub recent_events: usize,
     pub recent_triggers: usize,
+    pub analysis_history: usize,
 }
 
 impl Default for AiAdapterLimits {
@@ -21,8 +26,16 @@ impl Default for AiAdapterLimits {
         Self {
             recent_events: DEFAULT_RECENT_EVENTS_LIMIT,
             recent_triggers: DEFAULT_RECENT_TRIGGERS_LIMIT,
+            analysis_history: DEFAULT_ANALYSIS_HISTORY_LIMIT,
         }
     }
+}
+
+/// One bounded raw sample mirrored from the backend bus.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AiSamplePoint {
+    pub timestamp_ms: u64,
+    pub value: f64,
 }
 
 /// Current runtime session state exported to AI clients.
@@ -105,6 +118,34 @@ pub struct AnalysisFramesResource {
     pub frames: Vec<AnalysisFrame>,
 }
 
+/// Resource payload for historical analysis frames.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct HistoricalAnalysisResource {
+    pub channel_id: String,
+    pub frames: Vec<AnalysisFrame>,
+}
+
+/// Resource payload for sampled channel statistics.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ChannelStatisticsResource {
+    pub channel_id: String,
+    pub window_ms: u64,
+    pub sample_count: usize,
+    pub time_span_ms: Option<f64>,
+    pub min_value: Option<f64>,
+    pub max_value: Option<f64>,
+    pub mean_value: Option<f64>,
+    pub rms_value: Option<f64>,
+    pub variance: Option<f64>,
+    pub trend: Option<f64>,
+    pub change_rate: Option<f64>,
+    pub frequency_hz: Option<f64>,
+    pub period_ms: Option<f64>,
+    pub duty_cycle: Option<f64>,
+    pub period_stability: Option<f64>,
+    pub raw_samples: Option<Vec<AiSamplePoint>>,
+}
+
 /// Resource payload for recent triggers.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TriggerHistoryResource {
@@ -128,14 +169,38 @@ pub struct RecentEventsResource {
 
 /// Query parameters for per-channel analysis requests.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ChannelAnalysisQuery {
     pub channel_id: String,
     #[serde(default)]
     pub include_trigger_context: bool,
 }
 
+/// Query parameters for sampled statistics requests.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelStatisticsQuery {
+    pub channel_id: String,
+    #[serde(default)]
+    pub window_ms: Option<u64>,
+    #[serde(default)]
+    pub include_raw_samples: bool,
+}
+
+/// Query parameters for historical analysis lookups.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HistoricalAnalysisQuery {
+    pub channel_id: String,
+    pub start_time_ms: u64,
+    pub end_time_ms: u64,
+    #[serde(default)]
+    pub max_frames: Option<usize>,
+}
+
 /// Query parameters for recent event requests.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RecentEventsQuery {
     pub limit: Option<usize>,
     pub kind: Option<AiRecentEventKind>,
