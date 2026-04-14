@@ -18,6 +18,7 @@ export function WaveformPanel() {
   const toggleChannel = useAppStore((state) => state.toggleChannel)
   const colorForChannel = useAppStore((state) => state.colorForChannel)
   const [timeWindowMs, setTimeWindowMs] = useState(DEFAULT_TIME_WINDOW_MS)
+  const [menuOpen, setMenuOpen] = useState(true)
   const series = useMemo<PlotSeries[]>(
     () =>
       selectedChannels
@@ -33,47 +34,88 @@ export function WaveformPanel() {
 
   return (
     <section className="panel waveform-panel">
-      <div className="toolbar-row waveform-toolbar">
-        <div className="toolbar-title-group">
+      <WavePlot series={series} timeWindowMs={timeWindowMs} onTimeWindowChange={setTimeWindowMs} />
+
+      <div className="waveform-stage-hud">
+        <div className="waveform-stage-meta">
           <strong>Waveforms</strong>
-          <small>{series.length > 0 ? 'Drag panels to reshape your workspace.' : 'Select variables to plot.'}</small>
+          <span>{series.length > 0 ? `${series.length} active` : 'Idle'}</span>
+          <small>{formatTimeWindow(timeWindowMs)}</small>
         </div>
-        <div className="waveform-controls">
-          <button className="ghost-button" onClick={() => setTimeWindowMs((value) => scaleTimeWindow(value, 0.8))}>
-            Zoom In
-          </button>
-          <label className="waveform-zoom-label">
-            <span>Window {formatTimeWindow(timeWindowMs)}</span>
-            <input
-              type="range"
-              min={MIN_TIME_WINDOW_MS}
-              max={MAX_TIME_WINDOW_MS}
-              step={1_000}
-              value={timeWindowMs}
-              onChange={(event) => setTimeWindowMs(Number(event.target.value))}
-            />
-          </label>
-          <button className="ghost-button" onClick={() => setTimeWindowMs((value) => scaleTimeWindow(value, 1.25))}>
-            Zoom Out
-          </button>
-        </div>
-        <div className="chip-row">
-          {Object.keys(variables).map((channel) => {
-            const selected = selectedChannels.includes(channel)
-            return (
-              <button
-                key={channel}
-                className={`channel-chip ${selected ? 'active' : ''}`}
-                onClick={() => toggleChannel(channel)}
-              >
-                <span className="variable-color" style={{ backgroundColor: colorForChannel(channel) }} />
-                {channel}
-              </button>
-            )
-          })}
+        <div className="waveform-stage-legend">
+          {series.slice(0, 4).map((item) => (
+            <span key={item.name} className="waveform-legend-chip">
+              <span className="variable-color" style={{ backgroundColor: item.color }} />
+              {item.name}
+            </span>
+          ))}
         </div>
       </div>
-      <WavePlot series={series} timeWindowMs={timeWindowMs} onTimeWindowChange={setTimeWindowMs} />
+
+      <div className={`waveform-floating-menu ${menuOpen ? '' : 'collapsed'}`}>
+        <div className="waveform-floating-top">
+          <div className="waveform-floating-heading">
+            <strong>Waveform Controls</strong>
+            <small>{series.length > 0 ? 'Pan with mouse wheel; tune the overlay controls here.' : 'Select variables to start plotting.'}</small>
+          </div>
+          <button type="button" className="ghost-button waveform-floating-toggle" onClick={() => setMenuOpen((value) => !value)}>
+            {menuOpen ? 'Hide' : 'Waveforms'}
+          </button>
+        </div>
+
+        {menuOpen ? (
+          <div className="waveform-floating-scroll">
+            <section className="waveform-floating-section">
+              <div className="waveform-floating-section-header">
+                <strong>Window</strong>
+                <small>{formatTimeWindow(timeWindowMs)}</small>
+              </div>
+              <div className="waveform-controls">
+                <button type="button" className="ghost-button" onClick={() => setTimeWindowMs((value) => scaleTimeWindow(value, 0.8))}>
+                  Zoom In
+                </button>
+                <label className="waveform-zoom-label">
+                  <span>Visible span</span>
+                  <input
+                    type="range"
+                    min={MIN_TIME_WINDOW_MS}
+                    max={MAX_TIME_WINDOW_MS}
+                    step={1_000}
+                    value={timeWindowMs}
+                    onChange={(event) => setTimeWindowMs(Number(event.target.value))}
+                  />
+                </label>
+                <button type="button" className="ghost-button" onClick={() => setTimeWindowMs((value) => scaleTimeWindow(value, 1.25))}>
+                  Zoom Out
+                </button>
+              </div>
+            </section>
+
+            <section className="waveform-floating-section">
+              <div className="waveform-floating-section-header">
+                <strong>Channels</strong>
+                <small>{selectedChannels.length} selected</small>
+              </div>
+              <div className="waveform-channel-grid">
+                {Object.keys(variables).map((channel) => {
+                  const selected = selectedChannels.includes(channel)
+                  return (
+                    <button
+                      key={channel}
+                      type="button"
+                      className={`channel-chip ${selected ? 'active' : ''}`}
+                      onClick={() => toggleChannel(channel)}
+                    >
+                      <span className="variable-color" style={{ backgroundColor: colorForChannel(channel) }} />
+                      {channel}
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }
@@ -182,7 +224,7 @@ function WavePlot({
     [],
   )
 
-  return <div className="wave-plot" ref={hostRef} />
+  return <div className="wave-plot waveform-stage-surface" ref={hostRef} />
 }
 
 function buildPlotModel(series: PlotSeries[], timeWindowMs: number) {
