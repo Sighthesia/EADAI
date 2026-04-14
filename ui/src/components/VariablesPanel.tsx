@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
   IMU_ATTITUDE_LABELS,
   IMU_ATTITUDE_ROLES,
@@ -25,6 +25,8 @@ type ContextMenuState = {
   y: number
 }
 
+type MetricDisplayMode = 'text' | 'icon' | 'mixed'
+
 type MappingAction =
   | { type: 'raw'; role: ImuChannelRole; label: string }
   | { type: 'attitude'; role: ImuAttitudeRole; label: string }
@@ -48,6 +50,14 @@ const QUATERNION_MAPPING_ACTIONS: MappingAction[] = IMU_QUATERNION_ROLES.map((ro
   label: IMU_QUATERNION_LABELS[role],
 }))
 
+const METRIC_DISPLAY_MODES: MetricDisplayMode[] = ['text', 'icon', 'mixed']
+const METRIC_DISPLAY_LABELS: Record<MetricDisplayMode, string> = {
+  text: 'Text',
+  icon: 'Icon',
+  mixed: 'Mixed',
+}
+const METRIC_DISPLAY_STORAGE_KEY = 'eadai:variables:metricDisplayMode'
+
 export function VariablesPanel() {
   const variables = useAppStore((state) => state.variables)
   const selectedChannels = useAppStore((state) => state.selectedChannels)
@@ -60,6 +70,7 @@ export function VariablesPanel() {
   const setImuQuaternionChannel = useAppStore((state) => state.setImuQuaternionChannel)
   const colorForChannel = useAppStore((state) => state.colorForChannel)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [metricDisplayMode, setMetricDisplayMode] = useState<MetricDisplayMode>(() => readMetricDisplayMode())
   const rows = useMemo(
     () => Object.values(variables).sort((left, right) => right.updatedAtMs - left.updatedAtMs),
     [variables],
@@ -68,6 +79,10 @@ export function VariablesPanel() {
     () => buildChannelRoleMap(imuChannelMap, imuAttitudeMap, imuQuaternionMap),
     [imuAttitudeMap, imuChannelMap, imuQuaternionMap],
   )
+
+  useEffect(() => {
+    window.localStorage.setItem(METRIC_DISPLAY_STORAGE_KEY, metricDisplayMode)
+  }, [metricDisplayMode])
 
   useEffect(() => {
     if (!contextMenu) {
@@ -127,7 +142,21 @@ export function VariablesPanel() {
     <section className="panel panel-scroll">
       <div className="variables-header">
         <span>Auto-discovered channels</span>
-        <span>{rows.length} · Right-click to assign IMU source</span>
+        <div className="variables-header-actions">
+          <span>{rows.length} · Right-click to assign IMU source</span>
+          <div className="metric-display-switch" role="group" aria-label="Metric display mode">
+            {METRIC_DISPLAY_MODES.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`metric-display-button ${metricDisplayMode === mode ? 'active' : ''}`}
+                onClick={() => setMetricDisplayMode(mode)}
+              >
+                {METRIC_DISPLAY_LABELS[mode]}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="variables-list">
         {rows.map((variable) => {
@@ -152,6 +181,10 @@ export function VariablesPanel() {
                 }
               }}
             >
+              <span
+                className={`variable-selection-bar ${selected ? 'active' : ''}`}
+                style={{ backgroundColor: selected ? colorForChannel(variable.name) : undefined }}
+              />
               <span className="variable-color" style={{ backgroundColor: colorForChannel(variable.name) }} />
               <div className="variable-main">
                 <div className="variable-title-row">
@@ -159,7 +192,7 @@ export function VariablesPanel() {
                   {roleLabels.length > 0 ? (
                     <div className="variable-role-chip-row">
                       {roleLabels.map((label) => (
-                        <span key={`${variable.name}-${label}`} className="variable-role-chip">
+                        <span key={`${variable.name}-${label}`} className={`variable-role-chip role-${roleTone(label)}`}>
                           {label}
                         </span>
                       ))}
@@ -168,7 +201,7 @@ export function VariablesPanel() {
                 </div>
                 <div className="variable-subline">
                   <small>{variable.parserName ?? 'raw'}</small>
-                  <span className="metric-chip">{variable.sampleCount} samples</span>
+                  <span className="metric-chip">◌ {variable.sampleCount}</span>
                   {variable.latestTrigger ? (
                     <span className={`trigger-pill trigger-pill-${variable.latestTrigger.severity}`}>
                       {variable.latestTrigger.ruleId}
@@ -177,9 +210,9 @@ export function VariablesPanel() {
                 </div>
               </div>
               <div className="variable-metric">
-                <strong>{variable.currentValue}</strong>
-                <small className={`trend trend-${variable.trend}`}>{trendLabel(variable)}</small>
-                <small>{summaryMetric(variable)}</small>
+                <strong>{formatPrimaryValue(variable)}</strong>
+                <small className={`trend trend-${variable.trend}`}>{trendLabel(variable, metricDisplayMode)}</small>
+                <small>{renderSummaryMetric(variable, metricDisplayMode)}</small>
               </div>
             </article>
           )
@@ -278,28 +311,145 @@ function clampMenuY(value: number) {
   return Math.max(12, Math.min(value, window.innerHeight - 420))
 }
 
-const summaryMetric = (variable: VariableEntry) => {
+function renderSummaryMetric(variable: VariableEntry, mode: MetricDisplayMode) {
   if (variable.latestTrigger) {
     return variable.latestTrigger.reason
   }
-  if (variable.unit) {
-    return variable.unit
-  }
-  if (variable.analysis?.frequencyHz !== undefined && variable.analysis?.frequencyHz !== null) {
-    return `freq ${variable.analysis.frequencyHz.toFixed(1)}Hz`
+  if (variable.analysis?.dutyCycle !== undefined && variable.analysis?.dutyCycle !== null) {
+    return (
+      <MetricInline mode={mode} icon={<DutyCycleIcon />} text={`Duty ${variable.analysis.dutyCycle.toFixed(0)}%`} compactText={`${variable.analysis.dutyCycle.toFixed(0)}%`} />
+    )
   }
   if (variable.analysis?.rmsValue !== undefined && variable.analysis?.rmsValue !== null) {
-    return `rms ${variable.analysis.rmsValue.toFixed(3)}`
+    return (
+      <MetricInline mode={mode} icon={<RmsIcon />} text={`RMS ${variable.analysis.rmsValue.toFixed(3)}`} compactText={variable.analysis.rmsValue.toFixed(3)} />
+    )
+  }
+  if (variable.analysis?.frequencyHz !== undefined && variable.analysis?.frequencyHz !== null) {
+    return mode === 'text' ? `Frequency ${variable.analysis.frequencyHz.toFixed(1)} Hz` : `ƒ ${variable.analysis.frequencyHz.toFixed(1)} Hz`
+  }
+  if (variable.unit) {
+    return normalizeUnitLabel(variable.unit)
   }
   if (variable.analysis?.meanValue !== undefined && variable.analysis?.meanValue !== null) {
-    return `mean ${variable.analysis.meanValue.toFixed(3)}`
+    return `μ ${variable.analysis.meanValue.toFixed(3)}`
   }
   return `${variable.triggerCount} triggers`
 }
 
-const trendLabel = (variable: VariableEntry) => {
+const trendLabel = (variable: VariableEntry, mode: MetricDisplayMode) => {
   if (variable.analysis?.changeRate !== undefined && variable.analysis?.changeRate !== null) {
-    return `${variable.trend} · ${variable.analysis.changeRate.toFixed(2)}/s`
+    const prefix = mode === 'text' ? trendWord(variable.trend) : trendSymbol(variable.trend)
+    return `${prefix} ${Math.abs(variable.analysis.changeRate).toFixed(2)}/s`
   }
-  return variable.trend
+  return mode === 'text' ? trendWord(variable.trend) : trendSymbol(variable.trend)
+}
+
+function formatPrimaryValue(variable: VariableEntry) {
+  if (!variable.unit) {
+    return variable.currentValue
+  }
+
+  const normalizedUnit = normalizeUnitLabel(variable.unit)
+  if (normalizedUnit === '°' && !variable.currentValue.includes('°')) {
+    return `${variable.currentValue}${normalizedUnit}`
+  }
+  return variable.currentValue
+}
+
+function normalizeUnitLabel(unit: string) {
+  const normalized = unit.trim().toLowerCase()
+  if (normalized === 'deg' || normalized === 'degree' || normalized === 'degrees' || normalized === '°') {
+    return '°'
+  }
+  if (normalized === 'percent' || normalized === 'pct' || normalized === '%') {
+    return '%'
+  }
+  if (normalized === 'celsius' || normalized === 'degc' || normalized === '°c') {
+    return '°C'
+  }
+  if (normalized === 'fahrenheit' || normalized === 'degf' || normalized === '°f') {
+    return '°F'
+  }
+  return unit
+}
+
+function trendSymbol(trend: VariableEntry['trend']) {
+  if (trend === 'up') {
+    return '↑'
+  }
+  if (trend === 'down') {
+    return '↓'
+  }
+  return '-'
+}
+
+function trendWord(trend: VariableEntry['trend']) {
+  if (trend === 'up') {
+    return 'Up'
+  }
+  if (trend === 'down') {
+    return 'Down'
+  }
+  return 'Flat'
+}
+
+function roleTone(label: string) {
+  if (label.startsWith('Accel')) {
+    return 'accel'
+  }
+  if (label.startsWith('Gyro')) {
+    return 'gyro'
+  }
+  if (label.startsWith('Quat')) {
+    return 'quaternion'
+  }
+  return 'attitude'
+}
+
+function readMetricDisplayMode(): MetricDisplayMode {
+  const saved = window.localStorage.getItem(METRIC_DISPLAY_STORAGE_KEY)
+  return isMetricDisplayMode(saved) ? saved : 'mixed'
+}
+
+function isMetricDisplayMode(value: string | null): value is MetricDisplayMode {
+  return value === 'text' || value === 'icon' || value === 'mixed'
+}
+
+function MetricInline({
+  mode,
+  icon,
+  text,
+  compactText,
+}: {
+  mode: MetricDisplayMode
+  icon: ReactNode
+  text: string
+  compactText: string
+}) {
+  if (mode === 'text') {
+    return text
+  }
+  return (
+    <span className="metric-inline">
+      {icon}
+      <span>{mode === 'mixed' ? compactText : text}</span>
+    </span>
+  )
+}
+
+function DutyCycleIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="metric-inline-icon" aria-hidden="true">
+      <path d="M1 10V6h4v4h4V6h6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function RmsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="metric-inline-icon" aria-hidden="true">
+      <path d="M1.5 9.5 3.5 6l2.5 5 2.5-8 2.5 8 1.5-3h2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
 }
