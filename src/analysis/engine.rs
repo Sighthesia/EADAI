@@ -1,3 +1,4 @@
+use super::imu::ImuFusionEngine;
 use super::model::{AnalysisFrame, TriggerEvent, TriggerSeverity};
 use crate::message::{BusMessage, LineDirection, MessageSource, ParserMeta};
 use std::collections::{BTreeMap, VecDeque};
@@ -11,6 +12,7 @@ pub struct AnalysisEngine {
     window_ms: u64,
     rules: Vec<TriggerRule>,
     channels: BTreeMap<String, ChannelState>,
+    imu_fusion: ImuFusionEngine,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -89,6 +91,7 @@ impl AnalysisEngine {
             window_ms,
             rules: default_rules(),
             channels: BTreeMap::new(),
+            imu_fusion: ImuFusionEngine::default(),
         }
     }
 
@@ -115,6 +118,9 @@ impl AnalysisEngine {
             .get("timestamp")
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(timestamp_ms);
+        let synthetic_messages = self
+            .imu_fusion
+            .ingest_measurement(source, parser, timestamp_ms);
 
         let channel = self.channels.entry(channel_id.clone()).or_default();
         channel.samples.push_back(SamplePoint {
@@ -130,7 +136,8 @@ impl AnalysisEngine {
             .map(|trigger| trigger.rule_id.clone())
             .collect();
 
-        let mut messages = vec![BusMessage::analysis(source, frame.clone())];
+        let mut messages = synthetic_messages;
+        messages.push(BusMessage::analysis(source, frame.clone()));
         messages.extend(
             triggers
                 .into_iter()

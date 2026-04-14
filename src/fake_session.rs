@@ -3,11 +3,11 @@ use crate::bus::MessageBus;
 use crate::cli::ParserKind;
 use crate::message::{BusMessage, ConnectionState, LinePayload, MessageSource};
 use crate::parser;
-use crate::serial::{FrameStatus, FramedLine, payload_bytes_for_text};
+use crate::serial::{payload_bytes_for_text, FrameStatus, FramedLine};
 use std::f64::consts::PI;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender, TryRecvError};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -188,9 +188,75 @@ fn line_payload_from_bytes(payload: &[u8]) -> LinePayload {
 
 fn profile_lines(profile: &str, sample_index: u64, elapsed: Duration) -> Vec<String> {
     match profile {
+        "imu-lab" => imu_lab_lines(sample_index, elapsed),
         "noisy-monitor" => noisy_monitor_lines(sample_index, elapsed),
         _ => telemetry_lab_lines(sample_index, elapsed),
     }
+}
+
+fn imu_lab_lines(_sample_index: u64, elapsed: Duration) -> Vec<String> {
+    let seconds = elapsed.as_secs_f64();
+    let roll_deg = (seconds * 0.85).sin() * 28.0;
+    let pitch_deg = (seconds * 0.52 + 0.4).sin() * 18.0;
+    let yaw_deg = normalize_signed_angle_deg((seconds * 22.0).sin() * 65.0);
+
+    let roll_rad = roll_deg.to_radians();
+    let pitch_rad = pitch_deg.to_radians();
+
+    let ax = -pitch_rad.sin() + (seconds * 2.4).sin() * 0.045;
+    let ay = roll_rad.sin() * pitch_rad.cos() + (seconds * 1.8).cos() * 0.03;
+    let az = roll_rad.cos() * pitch_rad.cos() + (seconds * 1.1).sin() * 0.02;
+
+    let gx = 28.0 * 0.85 * (seconds * 0.85).cos();
+    let gy = 18.0 * 0.52 * (seconds * 0.52 + 0.4).cos();
+    let gz = 42.0 * 0.33 * (seconds * 0.33).cos();
+    let [qw, qx, qy, qz] = quaternion_from_euler_deg(roll_deg, pitch_deg, yaw_deg);
+    let timestamp = elapsed.as_millis();
+
+    vec![
+        format!("timestamp={timestamp} imu_ax={ax:.4}g"),
+        format!("timestamp={timestamp} imu_ay={ay:.4}g"),
+        format!("timestamp={timestamp} imu_az={az:.4}g"),
+        format!("timestamp={timestamp} imu_gx={gx:.4}deg/s"),
+        format!("timestamp={timestamp} imu_gy={gy:.4}deg/s"),
+        format!("timestamp={timestamp} imu_gz={gz:.4}deg/s"),
+        format!("timestamp={timestamp} imu_roll={roll_deg:.3}deg"),
+        format!("timestamp={timestamp} imu_pitch={pitch_deg:.3}deg"),
+        format!("timestamp={timestamp} imu_yaw={yaw_deg:.3}deg"),
+        format!("timestamp={timestamp} imu_qw={qw:.6}"),
+        format!("timestamp={timestamp} imu_qx={qx:.6}"),
+        format!("timestamp={timestamp} imu_qy={qy:.6}"),
+        format!("timestamp={timestamp} imu_qz={qz:.6}"),
+    ]
+}
+
+fn normalize_signed_angle_deg(value: f64) -> f64 {
+    let mut normalized = value % 360.0;
+    if normalized > 180.0 {
+        normalized -= 360.0;
+    }
+    if normalized < -180.0 {
+        normalized += 360.0;
+    }
+    normalized
+}
+
+fn quaternion_from_euler_deg(roll_deg: f64, pitch_deg: f64, yaw_deg: f64) -> [f64; 4] {
+    let (roll, pitch, yaw) = (
+        roll_deg.to_radians() * 0.5,
+        pitch_deg.to_radians() * 0.5,
+        yaw_deg.to_radians() * 0.5,
+    );
+    let (sr, cr) = roll.sin_cos();
+    let (sp, cp) = pitch.sin_cos();
+    let (sy, cy) = yaw.sin_cos();
+
+    [
+        cr * cp * cy + sr * sp * sy,
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+    ]
 }
 
 fn telemetry_lab_lines(sample_index: u64, elapsed: Duration) -> Vec<String> {

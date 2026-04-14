@@ -1,8 +1,15 @@
+import { SourceChoiceGroup } from './SourceChoiceGroup'
 import { useAppStore } from '../store/appStore'
 
 const FAKE_PROFILES = [
   { value: 'telemetry-lab', label: 'Telemetry Lab' },
   { value: 'noisy-monitor', label: 'Noisy Monitor' },
+  { value: 'imu-lab', label: 'IMU Lab' },
+]
+
+const SOURCE_OPTIONS = [
+  { value: 'serial' as const, label: 'Serial Port', description: 'Use a live serial device connected to the machine.' },
+  { value: 'fake' as const, label: 'Fake Stream', description: 'Use built-in synthetic telemetry for UI and analysis.' },
 ]
 
 export function ConnectionPanel() {
@@ -16,22 +23,19 @@ export function ConnectionPanel() {
 
   return (
     <section className="panel panel-form">
+      <SourceChoiceGroup
+        ariaLabel="Connection source"
+        className="connection-source-switch"
+        value={config.sourceKind}
+        options={SOURCE_OPTIONS}
+        onChange={(value) =>
+          patchConfig({
+            sourceKind: value,
+            port: value === 'serial' ? config.port : '',
+          })
+        }
+      />
       <div className="panel-grid">
-        <label>
-          <span>Source</span>
-          <select
-            value={config.sourceKind}
-            onChange={(event) =>
-              patchConfig({
-                sourceKind: event.target.value as 'serial' | 'fake',
-                port: event.target.value === 'serial' ? config.port : '',
-              })
-            }
-          >
-            <option value="serial">Serial Port</option>
-            <option value="fake">Fake Stream</option>
-          </select>
-        </label>
         {config.sourceKind === 'fake' ? (
           <label>
             <span>Fake profile</span>
@@ -47,17 +51,17 @@ export function ConnectionPanel() {
             </select>
           </label>
         ) : (
-        <label>
-          <span>Port</span>
-          <select value={config.port} onChange={(event) => patchConfig({ port: event.target.value })}>
-            <option value="">Select serial port</option>
-            {ports.map((port) => (
-              <option key={port} value={port}>
-                {port}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label>
+            <span>Port</span>
+            <select value={config.port} onChange={(event) => patchConfig({ port: event.target.value })}>
+              <option value="">Select serial port</option>
+              {ports.map((port) => (
+                <option key={port} value={port}>
+                  {port}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         <label>
           <span>Baud</span>

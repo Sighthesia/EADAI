@@ -81,3 +81,44 @@ fn disconnect_resets_shared_adapter_snapshots() {
     assert!(host.adapter().analysis_frames().frames.is_empty());
     assert!(host.adapter().trigger_history().triggers.is_empty());
 }
+
+#[test]
+fn imu_fake_profile_emits_fused_attitude_lines() {
+    let host = SessionRuntimeHost::default();
+    let subscription = host
+        .connect(RuntimeSessionConfig::Fake(FakeRuntimeConfig {
+            profile: "imu-lab".to_string(),
+            baud_rate: 115200,
+        }))
+        .expect("start imu fake runtime host");
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut saw_fused_roll = false;
+    let mut saw_fused_qw = false;
+
+    while Instant::now() < deadline {
+        if let Ok(message) = subscription.recv_timeout(Duration::from_millis(100))
+            && let MessageKind::Line(_) = &message.kind
+        {
+            match message.parser.fields.get("channel_id").map(String::as_str) {
+                Some("imu_fused_roll") => saw_fused_roll = true,
+                Some("imu_fused_qw") => saw_fused_qw = true,
+                _ => {}
+            }
+            if saw_fused_roll && saw_fused_qw {
+                break;
+            }
+        }
+    }
+
+    assert!(
+        saw_fused_roll,
+        "expected imu fake runtime to publish fused attitude lines"
+    );
+    assert!(
+        saw_fused_qw,
+        "expected imu fake runtime to publish fused quaternion lines"
+    );
+
+    host.disconnect().expect("disconnect imu fake runtime host");
+}

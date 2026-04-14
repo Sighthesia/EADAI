@@ -24,6 +24,61 @@ fn parses_single_value_with_embedded_unit() {
 }
 
 #[test]
+fn parses_imu_gyro_units_with_slash_suffix() {
+    let parser = measurement_parser::parse_line("timestamp=42 imu_gx=12.5deg/s");
+
+    assert_eq!(parser.parser_name.as_deref(), Some("measurements"));
+    assert_eq!(parser.status, ParserStatus::Parsed);
+    assert_eq!(
+        parser.fields.get("channel_id").map(String::as_str),
+        Some("imu_gx")
+    );
+    assert_eq!(
+        parser.fields.get("numeric_value").map(String::as_str),
+        Some("12.5")
+    );
+    assert_eq!(parser.fields.get("unit").map(String::as_str), Some("deg/s"));
+    assert_eq!(
+        parser.fields.get("timestamp").map(String::as_str),
+        Some("42")
+    );
+}
+
+#[test]
+fn parses_fused_imu_angle_units() {
+    let parser = measurement_parser::parse_line("timestamp=99 imu_fused_roll=18.25deg");
+
+    assert_eq!(parser.parser_name.as_deref(), Some("measurements"));
+    assert_eq!(parser.status, ParserStatus::Parsed);
+    assert_eq!(
+        parser.fields.get("channel_id").map(String::as_str),
+        Some("imu_fused_roll")
+    );
+    assert_eq!(
+        parser.fields.get("numeric_value").map(String::as_str),
+        Some("18.25")
+    );
+    assert_eq!(parser.fields.get("unit").map(String::as_str), Some("deg"));
+}
+
+#[test]
+fn parses_quaternion_scalar_without_unit() {
+    let parser = measurement_parser::parse_line("timestamp=100 imu_fused_qw=0.998742");
+
+    assert_eq!(parser.parser_name.as_deref(), Some("measurements"));
+    assert_eq!(parser.status, ParserStatus::Parsed);
+    assert_eq!(
+        parser.fields.get("channel_id").map(String::as_str),
+        Some("imu_fused_qw")
+    );
+    assert_eq!(
+        parser.fields.get("numeric_value").map(String::as_str),
+        Some("0.998742")
+    );
+    assert!(parser.fields.get("unit").is_none());
+}
+
+#[test]
 fn parses_single_value_with_separate_unit_and_status() {
     let parser = measurement_parser::parse_line("CH1=1.23 V OK");
 

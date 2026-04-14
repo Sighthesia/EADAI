@@ -1,5 +1,13 @@
 import { create } from 'zustand'
 import {
+  autoDetectImuAttitudeMap,
+  autoDetectImuChannelMap,
+  autoDetectImuQuaternionMap,
+  createEmptyImuAttitudeMap,
+  createEmptyImuChannelMap,
+  createEmptyImuQuaternionMap,
+} from '../lib/imu'
+import {
   connectSerial,
   disconnectSerial,
   getMcpServerStatus,
@@ -11,6 +19,16 @@ import type {
   AppStatus,
   ConnectRequest,
   ConsoleEntry,
+  ImuAttitudeMap,
+  ImuAttitudeRole,
+  ImuChannelMap,
+  ImuChannelRole,
+  ImuMapMode,
+  ImuOrientationSource,
+  ImuQuaternionMap,
+  ImuQuaternionRole,
+  ImuCalibrationState,
+  ImuQualitySnapshot,
   McpServerStatus,
   SerialBusEvent,
   SessionSnapshot,
@@ -34,6 +52,13 @@ type AppStore = {
   consoleEntries: ConsoleEntry[]
   variables: Record<string, VariableEntry>
   selectedChannels: string[]
+  imuChannelMap: ImuChannelMap
+  imuAttitudeMap: ImuAttitudeMap
+  imuQuaternionMap: ImuQuaternionMap
+  imuMapMode: ImuMapMode
+  imuOrientationSource: ImuOrientationSource
+  imuCalibration: ImuCalibrationState
+  imuQuality: ImuQualitySnapshot
   status: AppStatus
   setCommandInput: (value: string) => void
   setAppendNewline: (value: boolean) => void
@@ -47,6 +72,13 @@ type AppStore = {
   ingestEvent: (event: SerialBusEvent) => void
   ingestEvents: (events: SerialBusEvent[]) => void
   toggleChannel: (channel: string) => void
+  setImuChannel: (role: ImuChannelRole, channel: string | null) => void
+  setImuAttitudeChannel: (role: ImuAttitudeRole, channel: string | null) => void
+  setImuQuaternionChannel: (role: ImuQuaternionRole, channel: string | null) => void
+  autoMapImuChannels: () => void
+  setImuOrientationSource: (value: ImuOrientationSource) => void
+  calibrateImuFromCurrentState: () => void
+  resetImuCalibration: () => void
   colorForChannel: (channel: string) => string
 }
 
@@ -79,6 +111,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
   consoleEntries: [],
   variables: {},
   selectedChannels: [],
+  imuChannelMap: createEmptyImuChannelMap(),
+  imuAttitudeMap: createEmptyImuAttitudeMap(),
+  imuQuaternionMap: createEmptyImuQuaternionMap(),
+  imuMapMode: 'auto',
+  imuOrientationSource: 'rawFusion',
+  imuCalibration: {
+    accelBiasApplied: false,
+    gyroBiasApplied: false,
+    sourceLabel: null,
+    lastCalibratedAtMs: null,
+  },
+  imuQuality: {
+    level: 'idle',
+    label: 'No IMU data',
+    details: 'Waiting for mapped IMU samples.',
+    timestampMs: null,
+  },
   status: defaultStatus(),
   setCommandInput: (value) => set({ commandInput: value }),
   setAppendNewline: (value) => set({ appendNewline: value }),
@@ -197,10 +246,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       let consoleEntries = state.consoleEntries
       let variables = state.variables
       let selectedChannels = state.selectedChannels
+      let imuChannelMap = state.imuChannelMap
+      let imuAttitudeMap = state.imuAttitudeMap
+      let imuQuaternionMap = state.imuQuaternionMap
+      let imuCalibration = state.imuCalibration
+      let imuQuality = state.imuQuality
       let session = state.session
       let status = state.status
       let variablesChanged = false
       let selectedChannelsChanged = false
+      let imuChannelMapChanged = false
+      let imuAttitudeMapChanged = false
+      let imuQuaternionMapChanged = false
+      let imuQualityChanged = false
       let consoleChanged = false
       let sessionChanged = false
       let statusChanged = false
@@ -252,6 +310,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             currentValue: rawValue,
             previousValue: previous.numericValue,
             numericValue: Number.isFinite(numericValue) ? numericValue : previous.numericValue,
+            unit: event.parser.fields.unit ?? previous.unit ?? null,
             parserName: event.parser.parserName,
             sampleCount: previous.sampleCount + 1,
             updatedAtMs: event.timestampMs,
@@ -262,6 +321,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
           if (nextSelectedChannels !== selectedChannels) {
             selectedChannels = nextSelectedChannels
             selectedChannelsChanged = true
+          }
+
+          const nextImuQuality = computeImuQuality(variables, state)
+          if (!isSameImuQualitySnapshot(nextImuQuality, imuQuality)) {
+            imuQuality = nextImuQuality
+            imuQualityChanged = true
           }
           continue
         }
@@ -319,9 +384,41 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
       if (variablesChanged) {
         nextState.variables = variables
+
+        if (state.imuMapMode === 'auto') {
+          const nextImuChannelMap = autoDetectImuChannelMap(variables, imuChannelMap)
+          if (!isSameImuChannelMap(nextImuChannelMap, imuChannelMap)) {
+            imuChannelMap = nextImuChannelMap
+            imuChannelMapChanged = true
+          }
+
+          const nextImuAttitudeMap = autoDetectImuAttitudeMap(variables, imuAttitudeMap)
+          if (!isSameImuAttitudeMap(nextImuAttitudeMap, imuAttitudeMap)) {
+            imuAttitudeMap = nextImuAttitudeMap
+            imuAttitudeMapChanged = true
+          }
+
+          const nextImuQuaternionMap = autoDetectImuQuaternionMap(variables, imuQuaternionMap)
+          if (!isSameImuQuaternionMap(nextImuQuaternionMap, imuQuaternionMap)) {
+            imuQuaternionMap = nextImuQuaternionMap
+            imuQuaternionMapChanged = true
+          }
+        }
       }
       if (selectedChannelsChanged) {
         nextState.selectedChannels = selectedChannels
+      }
+      if (imuChannelMapChanged) {
+        nextState.imuChannelMap = imuChannelMap
+      }
+      if (imuAttitudeMapChanged) {
+        nextState.imuAttitudeMap = imuAttitudeMap
+      }
+      if (imuQuaternionMapChanged) {
+        nextState.imuQuaternionMap = imuQuaternionMap
+      }
+      if (imuQualityChanged) {
+        nextState.imuQuality = imuQuality
       }
       if (sessionChanged) {
         nextState.session = session
@@ -340,6 +437,75 @@ export const useAppStore = create<AppStore>((set, get) => ({
         : [...state.selectedChannels, channel].slice(-4),
     }))
   },
+  setImuChannel: (role, channel) => {
+    set((state) => ({
+      imuMapMode: 'manual',
+      imuChannelMap: {
+        ...state.imuChannelMap,
+        [role]: channel,
+      },
+    }))
+  },
+  setImuAttitudeChannel: (role, channel) => {
+    set((state) => ({
+      imuMapMode: 'manual',
+      imuAttitudeMap: {
+        ...state.imuAttitudeMap,
+        [role]: channel,
+      },
+    }))
+  },
+  setImuQuaternionChannel: (role, channel) => {
+    set((state) => ({
+      imuMapMode: 'manual',
+      imuQuaternionMap: {
+        ...state.imuQuaternionMap,
+        [role]: channel,
+      },
+    }))
+  },
+  autoMapImuChannels: () => {
+    set((state) => ({
+      imuMapMode: 'auto',
+      imuChannelMap: autoDetectImuChannelMap(state.variables, createEmptyImuChannelMap()),
+      imuAttitudeMap: autoDetectImuAttitudeMap(state.variables, createEmptyImuAttitudeMap()),
+      imuQuaternionMap: autoDetectImuQuaternionMap(state.variables, createEmptyImuQuaternionMap()),
+    }))
+  },
+  setImuOrientationSource: (value) => set({ imuOrientationSource: value }),
+  calibrateImuFromCurrentState: () => {
+    set((state) => ({
+      imuCalibration: {
+        accelBiasApplied: state.imuChannelMap.accelX !== null,
+        gyroBiasApplied: state.imuChannelMap.gyroZ !== null,
+        sourceLabel: state.imuOrientationSource,
+        lastCalibratedAtMs: Date.now(),
+      },
+      imuQuality: {
+        ...state.imuQuality,
+        level: 'good',
+        label: 'Calibration stored',
+        details: 'Current offsets and orientation source have been recorded.',
+        timestampMs: Date.now(),
+      },
+    }))
+  },
+  resetImuCalibration: () => {
+    set({
+      imuCalibration: {
+        accelBiasApplied: false,
+        gyroBiasApplied: false,
+        sourceLabel: null,
+        lastCalibratedAtMs: null,
+      },
+      imuQuality: {
+        level: 'warning',
+        label: 'Calibration cleared',
+        details: 'IMU will use live samples without stored offsets.',
+        timestampMs: Date.now(),
+      },
+    })
+  },
   colorForChannel: (channel) => colorForChannel(channel),
 }))
 
@@ -354,6 +520,7 @@ const createVariableEntry = (channelId: string, updatedAtMs: number): VariableEn
   name: channelId,
   currentValue: '—',
   trend: 'flat',
+  unit: null,
   parserName: null,
   sampleCount: 0,
   updatedAtMs,
@@ -480,3 +647,88 @@ const colorForChannel = (channel: string) => {
   }
   return CHANNEL_COLORS[Math.abs(hash) % CHANNEL_COLORS.length]
 }
+
+const isSameImuChannelMap = (left: ImuChannelMap, right: ImuChannelMap) =>
+  Object.keys(left).every((key) => left[key as ImuChannelRole] === right[key as ImuChannelRole])
+
+const isSameImuAttitudeMap = (left: ImuAttitudeMap, right: ImuAttitudeMap) =>
+  Object.keys(left).every((key) => left[key as ImuAttitudeRole] === right[key as ImuAttitudeRole])
+
+const isSameImuQuaternionMap = (left: ImuQuaternionMap, right: ImuQuaternionMap) =>
+  Object.keys(left).every((key) => left[key as ImuQuaternionRole] === right[key as ImuQuaternionRole])
+
+const isSameImuQualitySnapshot = (left: ImuQualitySnapshot, right: ImuQualitySnapshot) =>
+  left.level === right.level && left.label === right.label && left.details === right.details && left.timestampMs === right.timestampMs
+
+const computeImuQuality = (variables: Record<string, VariableEntry>, state: AppStore) => {
+  const imuRawCount = ['accelX', 'accelY', 'accelZ', 'gyroX', 'gyroY', 'gyroZ'].filter((role) => {
+    const key = role as keyof typeof state.imuChannelMap
+    return Boolean(state.imuChannelMap[key])
+  }).length
+  const quaternionCount = ['quatW', 'quatX', 'quatY', 'quatZ'].filter((role) => {
+    const key = role as keyof typeof state.imuQuaternionMap
+    return Boolean(state.imuQuaternionMap[key])
+  }).length
+
+  if (state.imuOrientationSource === 'rawFusion') {
+    if (quaternionCount === 4) {
+      return {
+        level: 'good' as const,
+        label: 'Rust fused quaternion active',
+        details: 'Quaternion output is available and preferred over local approximation.',
+        timestampMs: latestUpdateForChannels(variables, Object.values(state.imuQuaternionMap)),
+      }
+    }
+    if (imuRawCount >= 4) {
+      return {
+        level: 'warning' as const,
+        label: 'Local fallback active',
+        details: 'Using accel/gyro approximation because fused quaternion is not mapped.',
+        timestampMs: latestUpdateForChannels(variables, Object.values(state.imuChannelMap)),
+      }
+    }
+    return {
+      level: 'critical' as const,
+      label: 'IMU mapping incomplete',
+      details: 'Not enough accel/gyro channels are mapped to compute orientation.',
+      timestampMs: null,
+    }
+  }
+
+  if (state.imuOrientationSource === 'directQuaternion') {
+    return {
+      level: quaternionCount === 4 ? ('good' as const) : ('warning' as const),
+      label: quaternionCount === 4 ? 'Quaternion mapped' : 'Quaternion incomplete',
+      details:
+        quaternionCount === 4
+          ? 'Direct quaternion mode is fully mapped.'
+          : 'Map W/X/Y/Z to use direct quaternion mode.',
+      timestampMs: latestUpdateForChannels(variables, Object.values(state.imuQuaternionMap)),
+    }
+  }
+
+  const attitudeCount = ['roll', 'pitch', 'yaw'].filter((role) => {
+    const key = role as keyof typeof state.imuAttitudeMap
+    return Boolean(state.imuAttitudeMap[key])
+  }).length
+  return {
+    level: attitudeCount === 3 ? ('good' as const) : ('warning' as const),
+    label: attitudeCount === 3 ? 'Angles mapped' : 'Angles incomplete',
+    details:
+      attitudeCount === 3
+        ? 'Direct angle mode is fully mapped.'
+        : 'Map Roll/Pitch/Yaw to use direct angle mode.',
+    timestampMs: latestUpdateForChannels(variables, Object.values(state.imuAttitudeMap)),
+  }
+}
+
+const latestUpdateForChannels = (variables: Record<string, VariableEntry>, channels: Array<string | null>) =>
+  channels
+    .filter((channel): channel is string => Boolean(channel))
+    .map((channel) => variables[channel]?.updatedAtMs ?? null)
+    .reduce<number | null>((latest, timestamp) => {
+      if (timestamp === null) {
+        return latest
+      }
+      return latest === null ? timestamp : Math.max(latest, timestamp)
+    }, null)

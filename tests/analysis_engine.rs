@@ -97,12 +97,66 @@ fn key_value_style_parser_without_numeric_field_is_accepted() {
     assert!(frame.time_span_ms.is_some());
 }
 
+#[test]
+fn imu_raw_stream_produces_fused_attitude_lines() {
+    let source = MessageSource::fake("fake://imu-lab", 115_200);
+    let mut engine = AnalysisEngine::with_window_ms(2_000);
+    let mut fused_lines = Vec::new();
+
+    for index in 0..6_u64 {
+        let timestamp_ms = index * 20;
+        for (channel_id, value, unit) in [
+            ("imu_ax", 0.0, "g"),
+            ("imu_ay", 0.0, "g"),
+            ("imu_az", 1.0, "g"),
+            ("imu_gx", 0.0, "deg/s"),
+            ("imu_gy", 0.0, "deg/s"),
+            ("imu_gz", 12.0, "deg/s"),
+        ] {
+            if let Some(messages) = engine.ingest_line(
+                &source,
+                &LineDirection::Rx,
+                &parser_with_unit(channel_id, value, unit, timestamp_ms, true),
+                timestamp_ms,
+            ) {
+                capture_line_channels(&messages, &mut fused_lines);
+            }
+        }
+    }
+
+    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_roll"));
+    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_pitch"));
+    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_yaw"));
+    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_qw"));
+    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_qx"));
+    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_qy"));
+    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_qz"));
+}
+
 fn parser(channel_id: &str, value: f64, timestamp_ms: u64, include_numeric: bool) -> ParserMeta {
+    parser_with_unit(channel_id, value, "", timestamp_ms, include_numeric)
+}
+
+fn parser_with_unit(
+    channel_id: &str,
+    value: f64,
+    unit: &str,
+    timestamp_ms: u64,
+    include_numeric: bool,
+) -> ParserMeta {
     let mut fields = BTreeMap::new();
     fields.insert("channel_id".to_string(), channel_id.to_string());
-    fields.insert("value".to_string(), value.to_string());
+    let display_value = if unit.is_empty() {
+        value.to_string()
+    } else {
+        format!("{value}{unit}")
+    };
+    fields.insert("value".to_string(), display_value);
     if include_numeric {
         fields.insert("numeric_value".to_string(), value.to_string());
+    }
+    if !unit.is_empty() {
+        fields.insert("unit".to_string(), unit.to_string());
     }
     fields.insert("timestamp".to_string(), timestamp_ms.to_string());
     ParserMeta::parsed("measurements", fields)
@@ -120,6 +174,16 @@ fn capture_messages(
                 fired.push((trigger.rule_id.clone(), trigger.severity))
             }
             _ => {}
+        }
+    }
+}
+
+fn capture_line_channels(messages: &[eadai::message::BusMessage], fused_lines: &mut Vec<String>) {
+    for message in messages {
+        if let MessageKind::Line(_) = &message.kind
+            && let Some(channel_id) = message.parser.fields.get("channel_id")
+        {
+            fused_lines.push(channel_id.clone());
         }
     }
 }

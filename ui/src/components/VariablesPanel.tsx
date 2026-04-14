@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import type { UiAnalysisPayload, VariableEntry } from '../types'
 
@@ -7,10 +7,27 @@ export function VariablesPanel() {
   const selectedChannels = useAppStore((state) => state.selectedChannels)
   const toggleChannel = useAppStore((state) => state.toggleChannel)
   const colorForChannel = useAppStore((state) => state.colorForChannel)
+  const [copiedChannel, setCopiedChannel] = useState<string | null>(null)
   const rows = useMemo(
     () => Object.values(variables).sort((left, right) => right.updatedAtMs - left.updatedAtMs),
     [variables],
   )
+
+  const copyAnalysisJson = async (variable: VariableEntry) => {
+    if (!variable.analysis) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(variable.analysis, null, 2))
+      setCopiedChannel(variable.name)
+      window.setTimeout(() => {
+        setCopiedChannel((current) => (current === variable.name ? null : current))
+      }, 1400)
+    } catch {
+      setCopiedChannel(null)
+    }
+  }
 
   return (
     <section className="panel panel-scroll">
@@ -22,10 +39,18 @@ export function VariablesPanel() {
         {rows.map((variable) => {
           const selected = selectedChannels.includes(variable.name)
           return (
-            <button
+            <article
               key={variable.name}
               className={`variable-card ${selected ? 'selected' : ''}`}
+              role="button"
+              tabIndex={0}
               onClick={() => toggleChannel(variable.name)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  toggleChannel(variable.name)
+                }
+              }}
             >
               <span className="variable-color" style={{ backgroundColor: colorForChannel(variable.name) }} />
               <div className="variable-main">
@@ -41,13 +66,32 @@ export function VariablesPanel() {
                     </span>
                   ) : null}
                 </div>
+                {variable.analysis ? (
+                  <div className="variable-analysis-grid">
+                    <small>{rangeLabel(variable.analysis)}</small>
+                    <small>{varianceLabel(variable.analysis)}</small>
+                    <small>{periodLabel(variable.analysis)}</small>
+                    <small>{spanLabel(variable.analysis)}</small>
+                  </div>
+                ) : null}
               </div>
               <div className="variable-metric">
                 <strong>{variable.currentValue}</strong>
                 <small className={`trend trend-${variable.trend}`}>{trendLabel(variable)}</small>
                 <small>{secondaryMetric(variable)}</small>
+                {variable.analysis ? (
+                  <button
+                    className="ghost-button variable-card-action"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void copyAnalysisJson(variable)
+                    }}
+                  >
+                    {copiedChannel === variable.name ? 'Copied' : 'Copy Analysis JSON'}
+                  </button>
+                ) : null}
               </div>
-            </button>
+            </article>
           )
         })}
       </div>
@@ -64,6 +108,28 @@ const dutyLabel = (analysis: UiAnalysisPayload) =>
   analysis.dutyCycle === undefined || analysis.dutyCycle === null
     ? 'duty --'
     : `duty ${analysis.dutyCycle.toFixed(0)}%`
+
+const rangeLabel = (analysis: UiAnalysisPayload) => {
+  if (analysis.minValue === undefined || analysis.minValue === null || analysis.maxValue === undefined || analysis.maxValue === null) {
+    return 'range --'
+  }
+  return `range ${analysis.minValue.toFixed(2)}..${analysis.maxValue.toFixed(2)}`
+}
+
+const varianceLabel = (analysis: UiAnalysisPayload) =>
+  analysis.variance === undefined || analysis.variance === null
+    ? 'variance --'
+    : `variance ${analysis.variance.toFixed(3)}`
+
+const periodLabel = (analysis: UiAnalysisPayload) =>
+  analysis.periodStability === undefined || analysis.periodStability === null
+    ? 'stability --'
+    : `stability ${(analysis.periodStability * 100).toFixed(0)}%`
+
+const spanLabel = (analysis: UiAnalysisPayload) =>
+  analysis.timeSpanMs === undefined || analysis.timeSpanMs === null
+    ? 'span --'
+    : `span ${analysis.timeSpanMs.toFixed(0)}ms`
 
 const secondaryMetric = (variable: VariableEntry) => {
   if (variable.latestTrigger) {
