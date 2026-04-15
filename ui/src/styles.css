@@ -53,6 +53,17 @@ button {
   border-bottom: 1px solid #1f2430;
 }
 
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workspace-switch {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .titlebar strong,
 .toolbar-title-group strong {
   display: block;
@@ -229,6 +240,199 @@ button {
   border-color: #9f3f48;
 }
 
+.logic-analyzer-panel {
+  padding: 14px;
+  gap: 14px;
+}
+
+.logic-header,
+.logic-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.logic-header small,
+.logic-section-title small,
+.logic-label,
+.logic-note {
+  color: #8892a0;
+}
+
+.logic-badge {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #2a3240;
+  background: #181d26;
+}
+
+.logic-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #202733;
+  border-radius: 14px;
+  background: rgba(15, 18, 24, 0.88);
+}
+
+.logic-grid,
+.logic-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.logic-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.logic-grid input,
+.logic-grid select {
+  width: 100%;
+  border: 1px solid #2a3240;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #0f131a;
+  color: #d8dee9;
+}
+
+.logic-status-grid article {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #202733;
+  border-radius: 12px;
+  background: #131820;
+}
+
+.logic-banner {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #2a3240;
+  background: rgba(79, 124, 255, 0.08);
+}
+
+.logic-banner-warning {
+  border-color: #8b5f18;
+  background: rgba(255, 213, 128, 0.08);
+}
+
+.logic-device-list {
+  display: grid;
+  gap: 10px;
+}
+
+.logic-device {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #2a3240;
+  background: #181d26;
+  color: inherit;
+}
+
+.logic-device.selected {
+  border-color: #3966f6;
+  background: rgba(79, 124, 255, 0.08);
+}
+
+.logic-empty-state {
+  padding: 12px;
+  border: 1px dashed #2a3240;
+  border-radius: 12px;
+  color: #8892a0;
+}
+
+.logic-pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  overflow: auto;
+  background: #0b0f14;
+  border: 1px solid #202733;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.logic-pre-muted {
+  color: #9ba8b7;
+}
+
+.logic-waveform-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.logic-waveform-track {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #202733;
+  border-radius: 12px;
+  background: #0b0f14;
+}
+
+.logic-waveform-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #9ba8b7;
+}
+
+.logic-waveform-lane {
+  overflow: hidden;
+}
+
+.logic-waveform-segments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6px, 1fr));
+  gap: 2px;
+  align-items: stretch;
+  min-height: 28px;
+}
+
+.logic-waveform-segment {
+  display: block;
+  min-height: 28px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+
+.logic-waveform-segment.high {
+  background: linear-gradient(180deg, rgba(83, 225, 146, 0.95), rgba(35, 148, 90, 0.88));
+}
+
+.logic-waveform-segment.low {
+  background: linear-gradient(180deg, rgba(84, 113, 246, 0.92), rgba(46, 72, 191, 0.86));
+}
+
+.logic-waveform-segment.gap {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(79, 124, 255, 0.12),
+    rgba(79, 124, 255, 0.12) 6px,
+    rgba(79, 124, 255, 0.24) 6px,
+    rgba(79, 124, 255, 0.24) 12px
+  );
+  border-color: rgba(79, 124, 255, 0.14);
+}
+
+.logic-waveform-empty,
+.logic-waveform-footnote {
+  color: #9ba8b7;
+}
+
 .variable-card,
 .channel-chip {
   display: inline-flex;
@@ -378,6 +582,148 @@ button {
 .waveform-stage-legend {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.waveform-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.waveform-overlay-lines,
+.waveform-overlay-labels,
+.waveform-text-track {
+  position: absolute;
+  inset: 0;
+}
+
+.waveform-overlay-labels {
+  z-index: 2;
+}
+
+.waveform-overlay-label {
+  position: absolute;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 6px 10px;
+  border: 1px solid rgba(92, 112, 139, 0.35);
+  border-radius: 999px;
+  background: rgba(8, 12, 17, 0.78);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  color: #eaf0f7;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.waveform-overlay-label-chip {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.waveform-overlay-label--left {
+  left: 26px;
+}
+
+.waveform-overlay-label--latest,
+.waveform-overlay-label--cursor {
+  max-width: 180px;
+}
+
+.waveform-text-track {
+  position: absolute;
+  left: 18px;
+  top: 14px;
+  width: min(260px, 34%);
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1;
+}
+
+.waveform-text-track-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(92, 112, 139, 0.3);
+  border-radius: 14px;
+  background: rgba(8, 12, 17, 0.64);
+  backdrop-filter: blur(12px);
+}
+
+.waveform-text-track-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.waveform-text-track-copy strong,
+.waveform-text-track-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waveform-aid-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.waveform-aid-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(42, 50, 64, 0.95);
+  background: rgba(17, 22, 30, 0.9);
+  color: inherit;
+  text-align: left;
+}
+
+.waveform-aid-toggle.active {
+  border-color: rgba(79, 124, 255, 0.55);
+  background: rgba(79, 124, 255, 0.14);
+}
+
+.waveform-aid-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.waveform-aid-copy small,
+.waveform-aid-state {
+  color: #9ba8b7;
+}
+
+.waveform-aid-state {
+  margin-left: auto;
+}
+
+.waveform-overlay-callout,
+.waveform-overlay-band,
+.waveform-overlay-slope {
+  fill: none;
+}
+
+.waveform-overlay-band {
+  opacity: 0.95;
+}
+
+.waveform-overlay-latest-dot {
+  stroke: rgba(255, 255, 255, 0.6);
+  stroke-width: 1;
 }
 
 .waveform-legend-chip {

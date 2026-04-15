@@ -433,7 +433,7 @@ function MetricInline({
   return (
     <span className="metric-inline">
       {icon}
-      <span>{mode === 'mixed' ? compactText : text}</span>
+      <span>{mode === 'icon' ? compactText : text}</span>
     </span>
   )
 }
