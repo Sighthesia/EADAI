@@ -220,6 +220,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       session,
       status: { tone: 'neutral', message: 'Serial session stopped.' },
+      variables: {},
+      selectedChannels: [],
     })
   },
   send: async () => {
