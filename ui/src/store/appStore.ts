@@ -547,7 +547,10 @@ const autoSelectChannels = (selectedChannels: string[], channelId: string) => {
   if (selectedChannels.includes(channelId)) {
     return selectedChannels
   }
-  return [...selectedChannels, channelId]
+  if (selectedChannels.length > 0) {
+    return selectedChannels
+  }
+  return [channelId]
 }
 
 const trendFromDelta = (delta: number | null | undefined) => {
