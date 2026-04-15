@@ -436,7 +436,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       selectedChannels: state.selectedChannels.includes(channel)
         ? state.selectedChannels.filter((name) => name !== channel)
-        : [...state.selectedChannels, channel].slice(-4),
+        : [...state.selectedChannels, channel],
     }))
   },
   setImuChannel: (role, channel) => {
@@ -545,9 +545,6 @@ const applyAnalysis = (
 
 const autoSelectChannels = (selectedChannels: string[], channelId: string) => {
   if (selectedChannels.includes(channelId)) {
-    return selectedChannels
-  }
-  if (selectedChannels.length >= 4) {
     return selectedChannels
   }
   return [...selectedChannels, channelId]
