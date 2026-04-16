@@ -14,6 +14,7 @@ export function LogicAnalyzerPage() {
 
   const waveform = logicAnalyzer.lastCapture
   const visibleChannelLabels = logicAnalyzerConfig.selectedChannelLabels
+  const backendReadyLabel = logicAnalyzer.executable === 'dev-simulator' ? 'dev simulator ready' : logicAnalyzer.available ? 'sigrok ready' : 'sigrok unavailable'
   const emptyChannelLabels = useMemo(
     () =>
       visibleChannelLabels.length > 0
@@ -109,7 +110,7 @@ export function LogicAnalyzerPage() {
                 </div>
                 <div className="logic-floating-chip-row">
                   <span className={`status-pill tone-${logicAnalyzer.available ? 'success' : 'warning'}`}>
-                    {logicAnalyzer.available ? 'sigrok ready' : 'sigrok unavailable'}
+                    {backendReadyLabel}
                   </span>
                   <span className="imu-chip">{logicAnalyzer.devices.length} devices</span>
                   <span className="imu-chip">{logicAnalyzer.sessionState}</span>

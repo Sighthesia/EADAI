@@ -174,7 +174,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       listSerialPorts(),
       getSessionSnapshot(),
       readMcpStatusWithRetry(),
-      readLogicAnalyzerStatusSafely(),
+      refreshLogicAnalyzerDevicesSafely(),
     ])
     set((state) => ({
       ports,
@@ -711,6 +711,14 @@ const readLogicAnalyzerStatusSafely = async () => {
     return await getLogicAnalyzerStatus()
   } catch {
     return defaultLogicAnalyzerStatus()
+  }
+}
+
+const refreshLogicAnalyzerDevicesSafely = async () => {
+  try {
+    return await refreshLogicAnalyzerDevices()
+  } catch {
+    return readLogicAnalyzerStatusSafely()
   }
 }
 

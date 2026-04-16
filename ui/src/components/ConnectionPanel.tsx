@@ -462,6 +462,8 @@ function LogicConnectionDetail({
   startLogicAnalyzerCapture: () => Promise<void>
   stopLogicAnalyzerCapture: () => Promise<void>
 }) {
+  const backendReadyLabel = logicAnalyzer.executable === 'dev-simulator' ? 'dev simulator ready' : logicAnalyzer.available ? 'sigrok ready' : 'sigrok unavailable'
+
   return (
     <section className="connection-section-card">
       <div className="connection-section-header">
@@ -470,7 +472,7 @@ function LogicConnectionDetail({
           <small>Selected logic analyzer device</small>
         </div>
         <div className={`logic-badge tone-${logicAnalyzer.available ? 'success' : 'warning'}`}>
-          {logicAnalyzer.available ? 'sigrok ready' : 'sigrok unavailable'}
+          {backendReadyLabel}
         </div>
       </div>
       <div className="connection-section-note">{logicAnalyzer.linuxFirstNote}</div>

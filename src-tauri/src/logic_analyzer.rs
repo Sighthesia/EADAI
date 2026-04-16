@@ -10,6 +10,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const SIGROK_ENV: &str = "EADAI_SIGROK_CLI";
 const DEFAULT_SIGROK_BIN: &str = "sigrok-cli";
+const DEV_SIM_EXECUTABLE: &str = "dev-simulator";
+const DEV_SIM_DEVICE_REF: &str = "dev://logic-analyzer";
+const DEV_SIM_DEVICE_NAME: &str = "Logic Playground";
+const DEV_SIM_SAMPLE_RATE_HZ: u64 = 2_000_000;
+const DEV_SIM_CHANNELS: [&str; 8] = ["D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7"];
 
 pub struct LogicAnalyzerService {
     inner: Arc<Mutex<LogicAnalyzerState>>,
@@ -56,6 +61,21 @@ impl LogicAnalyzerService {
         state.status.last_error = None;
 
         let Some(executable) = resolve_sigrok_cli() else {
+            if dev_mode_enabled() {
+                state.status.available = true;
+                state.status.executable = Some(DEV_SIM_EXECUTABLE.to_string());
+                state.status.devices = vec![simulated_device()];
+                state.status.selected_device_ref = Some(DEV_SIM_DEVICE_REF.to_string());
+                state.status.scan_output = Some(
+                    "Development logic analyzer simulator enabled (sigrok-cli unavailable)."
+                        .to_string(),
+                );
+                state.status.last_scan_at_ms = Some(now_ms());
+                state.status.session_state = LogicAnalyzerSessionState::Ready;
+                state.status.last_error = None;
+                return Ok(state.status.clone());
+            }
+
             state.status.available = false;
             state.status.executable = None;
             state.status.devices.clear();
@@ -72,7 +92,10 @@ impl LogicAnalyzerService {
         match Command::new(&executable).arg("--scan").output() {
             Ok(output) => {
                 let scan_output = combine_output(&output.stdout, &output.stderr);
-                let devices = parse_scan_output(&scan_output);
+                let mut devices = parse_scan_output(&scan_output);
+                if dev_mode_enabled() {
+                    devices.push(simulated_device());
+                }
                 state.status.available = true;
                 state.status.devices = devices;
                 state.status.selected_device_ref = state
@@ -108,6 +131,20 @@ impl LogicAnalyzerService {
                 Ok(state.status.clone())
             }
             Err(error) => {
+                if dev_mode_enabled() {
+                    state.status.available = true;
+                    state.status.executable = Some(DEV_SIM_EXECUTABLE.to_string());
+                    state.status.devices = vec![simulated_device()];
+                    state.status.selected_device_ref = Some(DEV_SIM_DEVICE_REF.to_string());
+                    state.status.scan_output = Some(format!(
+                        "Development logic analyzer simulator enabled after sigrok scan failure: {error}"
+                    ));
+                    state.status.last_scan_at_ms = Some(now_ms());
+                    state.status.session_state = LogicAnalyzerSessionState::Ready;
+                    state.status.last_error = None;
+                    return Ok(state.status.clone());
+                }
+
                 state.status.available = false;
                 state.status.devices.clear();
                 state.status.selected_device_ref = None;
@@ -125,6 +162,31 @@ impl LogicAnalyzerService {
     ) -> Result<LogicAnalyzerStatus, String> {
         let mut state = lock_state(&self.inner);
         state.reconcile_capture();
+
+        if request.device_ref == DEV_SIM_DEVICE_REF {
+            let capture = build_simulated_capture(&request);
+            state.status.available = true;
+            state.status.executable = Some(
+                state
+                    .status
+                    .executable
+                    .clone()
+                    .unwrap_or_else(|| DEV_SIM_EXECUTABLE.to_string()),
+            );
+            state.status.selected_device_ref = Some(request.device_ref.clone());
+            state.status.last_capture = Some(capture);
+            state.status.active_capture = None;
+            state.status.capture_plan = Some(format!(
+                "{DEV_SIM_EXECUTABLE} --device {} --samples {} --channels {}",
+                shell_escape(&request.device_ref),
+                request.sample_count,
+                shell_escape(&requested_channel_labels(&request).join(","))
+            ));
+            state.status.session_state = LogicAnalyzerSessionState::Ready;
+            state.status.last_error = None;
+            state.capture = None;
+            return Ok(state.status.clone());
+        }
 
         let executable = match state.status.executable.clone().or_else(resolve_sigrok_cli) {
             Some(value) => value,
@@ -533,6 +595,76 @@ fn resolve_sigrok_cli() -> Option<String> {
         .ok()
         .filter(|value| !value.trim().is_empty())
         .or_else(|| Some(DEFAULT_SIGROK_BIN.to_string()))
+}
+
+fn dev_mode_enabled() -> bool {
+    cfg!(debug_assertions)
+}
+
+fn simulated_device() -> LogicAnalyzerDevice {
+    LogicAnalyzerDevice {
+        reference: DEV_SIM_DEVICE_REF.to_string(),
+        name: DEV_SIM_DEVICE_NAME.to_string(),
+        driver: Some("simulator".to_string()),
+        channels: DEV_SIM_CHANNELS
+            .iter()
+            .map(|channel| (*channel).to_string())
+            .collect(),
+        note: Some("Built-in development logic analyzer for waveform UI testing.".to_string()),
+        raw_line: Some("development simulator".to_string()),
+    }
+}
+
+fn requested_channel_labels(request: &LogicAnalyzerCaptureRequest) -> Vec<String> {
+    if request.channels.is_empty() {
+        return DEV_SIM_CHANNELS
+            .iter()
+            .map(|channel| (*channel).to_string())
+            .collect();
+    }
+
+    request.channels.clone()
+}
+
+fn build_simulated_capture(request: &LogicAnalyzerCaptureRequest) -> LogicAnalyzerCaptureResult {
+    let sample_count = request.sample_count.max(1) as usize;
+    let sample_rate_hz = request.samplerate_hz.or(Some(DEV_SIM_SAMPLE_RATE_HZ));
+    let channels = requested_channel_labels(request)
+        .into_iter()
+        .enumerate()
+        .map(|(index, label)| LogicAnalyzerWaveformChannel {
+            label,
+            samples: build_simulated_samples(sample_count, index),
+        })
+        .collect();
+
+    LogicAnalyzerCaptureResult {
+        output_path: format!("dev://logic-capture/{}", now_ms()),
+        sample_rate_hz,
+        sample_count,
+        channels,
+        captured_at_ms: now_ms(),
+    }
+}
+
+fn build_simulated_samples(sample_count: usize, channel_index: usize) -> Vec<Option<bool>> {
+    let period = 1usize << (channel_index.min(5) + 1);
+    let half_period = (period / 2).max(1);
+
+    (0..sample_count)
+        .map(|sample_index| {
+            if channel_index == 6 && sample_index % 29 == 0 {
+                return None;
+            }
+
+            if channel_index == 7 {
+                let pulse = sample_index % 19;
+                return Some((3..=5).contains(&pulse) || (11..=12).contains(&pulse));
+            }
+
+            Some(((sample_index / half_period) + channel_index) % 2 == 0)
+        })
+        .collect()
 }
 
 fn capture_output_path() -> String {

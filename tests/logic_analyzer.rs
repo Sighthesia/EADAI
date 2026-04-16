@@ -4,7 +4,9 @@ mod model;
 #[path = "../src-tauri/src/logic_analyzer.rs"]
 mod logic_analyzer;
 
-use logic_analyzer::{build_capture_command, parse_capture_csv_for_test, parse_scan_output};
+use logic_analyzer::{
+    build_capture_command, parse_capture_csv_for_test, parse_scan_output, LogicAnalyzerService,
+};
 
 #[test]
 fn parses_sigrok_scan_output_into_devices() {
@@ -54,4 +56,40 @@ fn parses_simple_csv_waveform_into_channels() {
         parsed.channels[1].samples,
         vec![Some(true), Some(false), Some(true)]
     );
+}
+
+#[test]
+fn exposes_dev_simulator_and_generates_capture() {
+    let service = LogicAnalyzerService::default();
+
+    let status = service
+        .refresh_devices()
+        .expect("refresh logic analyzer devices");
+    let simulator = status
+        .devices
+        .iter()
+        .find(|device| device.reference == "dev://logic-analyzer")
+        .expect("dev simulator should be present in debug builds");
+
+    assert_eq!(simulator.name, "Logic Playground");
+    assert_eq!(simulator.channels.len(), 8);
+
+    let capture_status = service
+        .start_capture(model::LogicAnalyzerCaptureRequest {
+            device_ref: simulator.reference.clone(),
+            sample_count: 32,
+            samplerate_hz: None,
+            channels: vec!["D0".to_string(), "D3".to_string(), "D7".to_string()],
+        })
+        .expect("start simulated capture");
+
+    let capture = capture_status
+        .last_capture
+        .expect("simulated capture should be available immediately");
+    assert_eq!(capture.sample_count, 32);
+    assert_eq!(capture.channels.len(), 3);
+    assert_eq!(capture.channels[0].label, "D0");
+    assert_eq!(capture.channels[1].label, "D3");
+    assert_eq!(capture.channels[2].label, "D7");
+    assert!(capture.output_path.starts_with("dev://logic-capture/"));
 }
