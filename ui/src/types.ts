@@ -136,6 +136,7 @@ export interface UiAnalysisPayload {
   minValue?: number | null
   maxValue?: number | null
   meanValue?: number | null
+  medianValue?: number | null
   rmsValue?: number | null
   variance?: number | null
   edgeCount: number

@@ -419,7 +419,7 @@ button {
   left: 16px;
   right: 16px;
   bottom: 16px;
-  z-index: 3;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -507,12 +507,14 @@ button {
   position: absolute;
   top: 16px;
   right: 16px;
-  bottom: 16px;
   z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(360px, calc(100% - 32px));
+  width: fit-content;
+  min-width: min(300px, calc(100% - 32px));
+  max-width: min(360px, calc(100% - 32px));
+  max-height: min(calc(100% - 32px), 720px);
   padding: 12px;
   border: 1px solid rgba(47, 59, 78, 0.82);
   border-radius: 20px;
@@ -523,7 +525,9 @@ button {
 
 .logic-floating-menu.collapsed {
   width: auto;
-  bottom: auto;
+  min-width: 0;
+  max-width: calc(100% - 32px);
+  max-height: none;
   padding: 10px;
   border-radius: 999px;
 }
@@ -556,6 +560,7 @@ button {
 
 .logic-floating-scroll {
   min-height: 0;
+  max-height: inherit;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -804,6 +809,8 @@ button {
 
 .logic-waveform-lane {
   overflow: hidden;
+  min-height: 40px;
+  padding: 2px 0;
 }
 
 .logic-waveform-lane-placeholder {
@@ -833,42 +840,33 @@ button {
   font-size: 12px;
 }
 
-.logic-waveform-segments {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6px, 1fr));
-  gap: 2px;
-  align-items: stretch;
-  min-height: 28px;
-}
-
-.logic-waveform-segment {
+.logic-waveform-svg {
   display: block;
-  min-height: 28px;
-  border-radius: 4px;
-  border: 1px solid transparent;
+  width: 100%;
+  height: 40px;
+  overflow: visible;
 }
 
-.logic-waveform-segment.placeholder {
-  opacity: 0.45;
+.logic-waveform-rail {
+  stroke: rgba(132, 151, 179, 0.22);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
 }
 
-.logic-waveform-segment.high {
-  background: linear-gradient(180deg, rgba(83, 225, 146, 0.95), rgba(35, 148, 90, 0.88));
+.logic-waveform-trace {
+  fill: none;
+  stroke: #56dfa1;
+  stroke-width: 2.4;
+  stroke-linecap: square;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 6px rgba(86, 223, 161, 0.25));
 }
 
-.logic-waveform-segment.low {
-  background: linear-gradient(180deg, rgba(84, 113, 246, 0.92), rgba(46, 72, 191, 0.86));
-}
-
-.logic-waveform-segment.gap {
-  background: repeating-linear-gradient(
-    45deg,
-    rgba(79, 124, 255, 0.12),
-    rgba(79, 124, 255, 0.12) 6px,
-    rgba(79, 124, 255, 0.24) 6px,
-    rgba(79, 124, 255, 0.24) 12px
-  );
-  border-color: rgba(79, 124, 255, 0.14);
+.logic-waveform-gap {
+  fill: rgba(79, 124, 255, 0.12);
+  stroke: rgba(116, 146, 246, 0.42);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
 }
 
 .logic-waveform-empty,
@@ -974,6 +972,19 @@ button {
   width: 100%;
 }
 
+.waveform-zoom-icon-button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  justify-content: center;
+}
+
+.waveform-zoom-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
 .waveform-toolbar .chip-row {
   width: 100%;
   justify-content: flex-start;
@@ -1033,10 +1044,16 @@ button {
   justify-content: flex-end;
 }
 
+.waveform-floating-note {
+  margin: 0;
+  color: #9ba8b7;
+  line-height: 1.5;
+}
+
 .waveform-overlay {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 1;
   pointer-events: none;
 }
 
@@ -1048,7 +1065,7 @@ button {
 }
 
 .waveform-overlay-labels {
-  z-index: 2;
+  z-index: 1;
 }
 
 .waveform-overlay-label {
@@ -1076,12 +1093,62 @@ button {
   flex: 0 0 auto;
 }
 
+.waveform-overlay-label-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.waveform-overlay-label-copy strong,
+.waveform-overlay-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variable-context-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.variable-context-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.variable-context-section-toggle strong {
+  color: #9ba8b7;
+}
+
+.variable-context-scrollbox {
+  max-height: 260px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+  overscroll-behavior: contain;
+}
+
 .waveform-overlay-label--left {
   left: 26px;
 }
 
 .waveform-overlay-label--latest,
 .waveform-overlay-label--cursor {
+  max-width: 180px;
+}
+
+.waveform-overlay-label--measurement {
   max-width: 180px;
 }
 
@@ -1186,12 +1253,14 @@ button {
   position: absolute;
   top: 16px;
   right: 16px;
-  bottom: 16px;
   z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(360px, calc(100% - 32px));
+  width: fit-content;
+  min-width: min(300px, calc(100% - 32px));
+  max-width: min(360px, calc(100% - 32px));
+  max-height: min(calc(100% - 32px), 720px);
   padding: 12px;
   border: 1px solid rgba(47, 59, 78, 0.82);
   border-radius: 20px;
@@ -1202,7 +1271,9 @@ button {
 
 .waveform-floating-menu.collapsed {
   width: auto;
-  bottom: auto;
+  min-width: 0;
+  max-width: calc(100% - 32px);
+  max-height: none;
   padding: 10px;
   border-radius: 999px;
 }
@@ -1232,6 +1303,7 @@ button {
 
 .waveform-floating-scroll {
   min-height: 0;
+  max-height: inherit;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1398,12 +1470,14 @@ button {
   position: absolute;
   top: 16px;
   right: 16px;
-  bottom: 16px;
   z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(360px, calc(100% - 32px));
+  width: fit-content;
+  min-width: min(300px, calc(100% - 32px));
+  max-width: min(360px, calc(100% - 32px));
+  max-height: min(calc(100% - 32px), 720px);
   padding: 12px;
   border: 1px solid rgba(47, 59, 78, 0.82);
   border-radius: 20px;
@@ -1414,7 +1488,9 @@ button {
 
 .imu-floating-menu.collapsed {
   width: auto;
-  bottom: auto;
+  min-width: 0;
+  max-width: calc(100% - 32px);
+  max-height: none;
   padding: 10px;
   border-radius: 999px;
 }
@@ -1447,6 +1523,7 @@ button {
 
 .imu-floating-scroll {
   min-height: 0;
+  max-height: inherit;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1740,9 +1817,10 @@ button {
     top: 12px;
     right: 12px;
     left: 12px;
-    bottom: auto;
     width: auto;
     max-height: min(58vh, 540px);
+    min-width: 0;
+    max-width: none;
   }
 
   .imu-stage-hud {
@@ -1755,9 +1833,10 @@ button {
     top: 12px;
     right: 12px;
     left: 12px;
-    bottom: auto;
     width: auto;
     max-height: min(58vh, 540px);
+    min-width: 0;
+    max-width: none;
   }
 
   .waveform-stage-hud {
@@ -2030,7 +2109,11 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(300px, calc(100vw - 24px));
+  width: fit-content;
+  min-width: min(260px, calc(100vw - 24px));
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(calc(100vh - 24px), 720px);
+  overflow: auto;
   padding: 12px;
   border: 1px solid #2a3240;
   border-radius: 12px;
@@ -2061,8 +2144,13 @@ button {
   gap: 8px;
 }
 
+.variable-context-actions-stack {
+  flex-direction: column;
+}
+
 .variable-context-action,
-.variable-context-clear {
+.variable-context-clear,
+.variable-context-toggle {
   border: 1px solid #2a3240;
   border-radius: 9px;
   background: #181d26;
@@ -2076,6 +2164,56 @@ button {
 .variable-context-clear {
   padding: 8px 10px;
   color: #ffd580;
+}
+
+.variable-context-toggle {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.variable-context-toggle-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.variable-context-toggle-copy strong {
+  color: #d8dee9;
+}
+
+.variable-context-toggle-value,
+.variable-context-toggle-detail,
+.variable-context-toggle span {
+  color: #9ba8b7;
+}
+
+.variable-context-toggle-value {
+  font-size: 13px;
+}
+
+.variable-context-toggle-detail {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.variable-context-toggle-state {
+  color: #ffd580;
+}
+
+.variable-context-toggle.active {
+  border-color: #364153;
+  background: rgba(79, 124, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(79, 124, 255, 0.18);
+}
+
+.variable-context-toggle.active .variable-context-toggle-state {
+  color: #95edf5;
 }
 
 .metric-inline {

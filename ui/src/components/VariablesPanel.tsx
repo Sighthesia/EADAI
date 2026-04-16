@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
   IMU_ATTITUDE_LABELS,
   IMU_ATTITUDE_ROLES,
@@ -7,6 +7,7 @@ import {
   IMU_QUATERNION_ROLES,
   IMU_ROLE_LABELS,
 } from '../lib/imu'
+import { isWaveformVisualAidEnabled, type WaveformVisualAidKey, type WaveformVisualAidState } from '../lib/waveformVisualAids'
 import { useAppStore } from '../store/appStore'
 import type {
   ImuAttitudeMap,
@@ -69,7 +70,10 @@ export function VariablesPanel() {
   const setImuAttitudeChannel = useAppStore((state) => state.setImuAttitudeChannel)
   const setImuQuaternionChannel = useAppStore((state) => state.setImuQuaternionChannel)
   const colorForChannel = useAppStore((state) => state.colorForChannel)
+  const visualAidState = useAppStore((state) => state.visualAidState)
+  const setVisualAidEnabled = useAppStore((state) => state.setVisualAidEnabled)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
   const [metricDisplayMode, setMetricDisplayMode] = useState<MetricDisplayMode>(() => readMetricDisplayMode())
   const rows = useMemo(
     () => Object.values(variables).sort((left, right) => right.updatedAtMs - left.updatedAtMs),
@@ -89,7 +93,13 @@ export function VariablesPanel() {
       return
     }
 
-    const closeMenu = () => setContextMenu(null)
+    const closeMenu = (event: Event) => {
+      const target = event.target
+      if (target instanceof Node && contextMenuRef.current?.contains(target)) {
+        return
+      }
+      setContextMenu(null)
+    }
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setContextMenu(null)
@@ -143,7 +153,7 @@ export function VariablesPanel() {
       <div className="variables-header">
         <span>Auto-discovered channels</span>
         <div className="variables-header-actions">
-          <span>{rows.length} · Right-click to assign IMU source</span>
+          <span>{rows.length} · Right-click to assign IMU source or tune waveform overlays</span>
           <div className="metric-display-switch" role="group" aria-label="Metric display mode">
             {METRIC_DISPLAY_MODES.map((mode) => (
               <button
@@ -219,37 +229,101 @@ export function VariablesPanel() {
         })}
       </div>
       {contextMenu ? (
-        <div
-          className="variable-context-menu"
-          style={{ left: clampMenuX(contextMenu.x), top: clampMenuY(contextMenu.y) }}
+        <VariableContextMenu
+          menuRef={contextMenuRef}
+          channel={contextMenu.channel}
+          visualAidItems={buildVisualAidMenuItems(variables[contextMenu.channel], visualAidState, contextMenu.channel)}
+          x={contextMenu.x}
+          y={contextMenu.y}
           onPointerDown={(event) => event.stopPropagation()}
-        >
-          <div className="variable-context-header">
-            <strong>{contextMenu.channel}</strong>
-            <small>Assign this variable as an IMU source</small>
-          </div>
-          <ContextMenuGroup
-            title="Raw Sensors"
-            actions={RAW_MAPPING_ACTIONS}
-            onSelect={(action) => assignImuRole(contextMenu.channel, action)}
-          />
-          <ContextMenuGroup
-            title="Solved Angles"
-            actions={ATTITUDE_MAPPING_ACTIONS}
-            onSelect={(action) => assignImuRole(contextMenu.channel, action)}
-          />
-          <ContextMenuGroup
-            title="Quaternion"
-            actions={QUATERNION_MAPPING_ACTIONS}
-            onSelect={(action) => assignImuRole(contextMenu.channel, action)}
-          />
-          <button type="button" className="variable-context-clear" onClick={() => clearImuRoles(contextMenu.channel)}>
-            Clear IMU roles from this variable
-          </button>
-        </div>
+          onScrollCapture={(event) => event.stopPropagation()}
+          onWheelCapture={(event) => event.stopPropagation()}
+          onToggleVisualAid={(key, enabled) => setVisualAidEnabled(contextMenu.channel, key, enabled)}
+          onClearImuRoles={() => clearImuRoles(contextMenu.channel)}
+          onAssignImuRole={(action) => assignImuRole(contextMenu.channel, action)}
+        />
       ) : null}
     </section>
   )
+}
+
+function VariableContextMenu({
+  menuRef,
+  channel,
+  visualAidItems,
+  x,
+  y,
+  onPointerDown,
+  onScrollCapture,
+  onWheelCapture,
+  onToggleVisualAid,
+  onAssignImuRole,
+  onClearImuRoles,
+}: {
+  menuRef: React.RefObject<HTMLDivElement>
+  channel: string
+  visualAidItems: VisualAidMenuItem[]
+  x: number
+  y: number
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onScrollCapture: (event: React.UIEvent<HTMLDivElement>) => void
+  onWheelCapture: (event: React.WheelEvent<HTMLDivElement>) => void
+  onToggleVisualAid: (key: WaveformVisualAidKey, enabled: boolean) => void
+  onAssignImuRole: (action: MappingAction) => void
+  onClearImuRoles: () => void
+}) {
+  return (
+    <div
+      ref={menuRef}
+      className="variable-context-menu"
+      style={{ left: clampMenuX(x), top: clampMenuY(y) }}
+      onPointerDown={onPointerDown}
+      onScrollCapture={onScrollCapture}
+      onWheelCapture={onWheelCapture}
+    >
+      <div className="variable-context-header">
+        <strong>{channel}</strong>
+        <small>Assign this variable as an IMU source or tune its waveform overlays</small>
+      </div>
+      <CollapsibleContextSection title="Waveform overlays" defaultOpen>
+        <div className="variable-context-scrollbox variable-context-actions-stack">
+          {visualAidItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`variable-context-toggle ${item.enabled ? 'active' : ''}`}
+              onClick={() => onToggleVisualAid(item.key, !item.enabled)}
+            >
+              <span className="variable-context-toggle-copy">
+                <strong>{item.label}</strong>
+                <span className="variable-context-toggle-value">{item.value}</span>
+                <span className="variable-context-toggle-detail">{item.detail}</span>
+              </span>
+              <strong className="variable-context-toggle-state">{item.enabled ? 'On' : 'Off'}</strong>
+            </button>
+          ))}
+        </div>
+      </CollapsibleContextSection>
+      <CollapsibleContextSection title="IMU mappings" defaultOpen>
+        <div className="variable-context-scrollbox">
+          <ContextMenuGroup title="Raw Sensors" actions={RAW_MAPPING_ACTIONS} onSelect={onAssignImuRole} />
+          <ContextMenuGroup title="Solved Angles" actions={ATTITUDE_MAPPING_ACTIONS} onSelect={onAssignImuRole} />
+          <ContextMenuGroup title="Quaternion" actions={QUATERNION_MAPPING_ACTIONS} onSelect={onAssignImuRole} />
+        </div>
+      </CollapsibleContextSection>
+      <button type="button" className="variable-context-clear" onClick={onClearImuRoles}>
+        Clear IMU roles from this variable
+      </button>
+    </div>
+  )
+}
+
+type VisualAidMenuItem = {
+  key: WaveformVisualAidKey
+  label: string
+  enabled: boolean
+  value: ReactNode
+  detail: ReactNode
 }
 
 function ContextMenuGroup({
@@ -272,6 +346,28 @@ function ContextMenuGroup({
         ))}
       </div>
     </div>
+  )
+}
+
+function CollapsibleContextSection({
+  title,
+  defaultOpen,
+  children,
+}: {
+  title: string
+  defaultOpen: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  return (
+    <section className="variable-context-section">
+      <button type="button" className="variable-context-section-toggle" onClick={() => setOpen((value) => !value)}>
+        <span>{title}</span>
+        <strong>{open ? 'Collapse' : 'Expand'}</strong>
+      </button>
+      {open ? children : null}
+    </section>
   )
 }
 
@@ -309,6 +405,148 @@ function clampMenuX(value: number) {
 
 function clampMenuY(value: number) {
   return Math.max(12, Math.min(value, window.innerHeight - 420))
+}
+
+function isNumericVariable(variable: VariableEntry) {
+  if (Number.isFinite(variable.numericValue)) {
+    return true
+  }
+  if (variable.points.length > 0) {
+    return true
+  }
+  return [variable.analysis?.minValue, variable.analysis?.maxValue, variable.analysis?.meanValue, variable.analysis?.medianValue, variable.analysis?.changeRate].some((value) =>
+    Number.isFinite(value ?? Number.NaN),
+  )
+}
+
+function buildVisualAidMenuItems(variable: VariableEntry | undefined, visualAidState: WaveformVisualAidState, channel: string): VisualAidMenuItem[] {
+  if (!variable) {
+    return []
+  }
+
+  if (!isNumericVariable(variable)) {
+    return [
+      {
+        key: 'text',
+        label: 'Text track',
+        enabled: isWaveformVisualAidEnabled(visualAidState, channel, 'text'),
+        value: formatPrimaryValue(variable),
+        detail: variable.parserName ?? 'raw',
+      },
+    ]
+  }
+
+  return [
+    {
+      key: 'labels',
+      label: 'Latest value',
+      enabled: isWaveformVisualAidEnabled(visualAidState, channel, 'labels'),
+      value: formatPrimaryValue(variable),
+      detail: renderSummaryMetric(variable, 'mixed'),
+    },
+    {
+      key: 'range',
+      label: 'Min / max lines',
+      enabled: isWaveformVisualAidEnabled(visualAidState, channel, 'range'),
+      value: formatRangeValue(variable),
+      detail: renderRangeMetric(variable),
+    },
+    {
+      key: 'mean',
+      label: 'Average line',
+      enabled: isWaveformVisualAidEnabled(visualAidState, channel, 'mean'),
+      value: formatAverageValue(variable),
+      detail: renderAverageMetric(variable),
+    },
+    {
+      key: 'median',
+      label: 'Median line',
+      enabled: isWaveformVisualAidEnabled(visualAidState, channel, 'median'),
+      value: formatMedianValue(variable),
+      detail: renderMedianMetric(variable),
+    },
+    {
+      key: 'slope',
+      label: 'Slope line',
+      enabled: isWaveformVisualAidEnabled(visualAidState, channel, 'slope'),
+      value: trendLabel(variable, 'mixed'),
+      detail: renderSummaryMetric(variable, 'mixed'),
+    },
+  ]
+}
+
+function formatRangeValue(variable: VariableEntry) {
+  const minValue = variable.analysis?.minValue
+  const maxValue = variable.analysis?.maxValue
+  if (minValue === undefined || minValue === null || maxValue === undefined || maxValue === null) {
+    return 'No range data'
+  }
+  return `${formatNumericValue(variable, minValue)} to ${formatNumericValue(variable, maxValue)}`
+}
+
+function renderRangeMetric(variable: VariableEntry) {
+  const minValue = variable.analysis?.minValue
+  const maxValue = variable.analysis?.maxValue
+  if (minValue === undefined || minValue === null || maxValue === undefined || maxValue === null) {
+    return variable.parserName ?? 'raw'
+  }
+  return `Min ${formatNumericValue(variable, minValue)} · Max ${formatNumericValue(variable, maxValue)}`
+}
+
+function formatAverageValue(variable: VariableEntry) {
+  const meanValue = resolveAverageValue(variable)
+  return meanValue === null ? 'No average data' : formatNumericValue(variable, meanValue)
+}
+
+function renderAverageMetric(variable: VariableEntry) {
+  const meanValue = resolveAverageValue(variable)
+  if (meanValue === null) {
+    return variable.parserName ?? 'raw'
+  }
+  return `Average ${formatNumericValue(variable, meanValue)}`
+}
+
+function formatMedianValue(variable: VariableEntry) {
+  const medianValue = resolveMedianValue(variable)
+  return medianValue === null ? 'No median data' : formatNumericValue(variable, medianValue)
+}
+
+function renderMedianMetric(variable: VariableEntry) {
+  const medianValue = resolveMedianValue(variable)
+  if (medianValue === null) {
+    return variable.parserName ?? 'raw'
+  }
+  return `Median ${formatNumericValue(variable, medianValue)}`
+}
+
+function formatNumericValue(variable: VariableEntry, value: number) {
+  const abs = Math.abs(value)
+  const digits = abs >= 100 ? 1 : abs >= 10 ? 2 : 3
+  const text = Number.isInteger(value) ? `${value}` : value.toFixed(digits)
+  const unit = variable.unit ? normalizeUnitLabel(variable.unit) : ''
+  return `${text}${unit}`
+}
+
+function resolveAverageValue(variable: VariableEntry) {
+  if (variable.analysis?.meanValue !== undefined && variable.analysis?.meanValue !== null) {
+    return variable.analysis.meanValue
+  }
+  if (variable.points.length > 0) {
+    return variable.points.reduce((sum, point) => sum + point.value, 0) / variable.points.length
+  }
+  return Number.isFinite(variable.numericValue) ? (variable.numericValue as number) : null
+}
+
+function resolveMedianValue(variable: VariableEntry) {
+  if (variable.analysis?.medianValue !== undefined && variable.analysis?.medianValue !== null) {
+    return variable.analysis.medianValue
+  }
+  if (variable.points.length > 0) {
+    const values = variable.points.map((point) => point.value).sort((left, right) => left - right)
+    const center = Math.floor(values.length / 2)
+    return values.length % 2 === 0 ? (values[center - 1] + values[center]) / 2 : values[center]
+  }
+  return Number.isFinite(variable.numericValue) ? (variable.numericValue as number) : null
 }
 
 function renderSummaryMetric(variable: VariableEntry, mode: MetricDisplayMode) {

@@ -310,18 +310,88 @@ function renderDigitalLane(samples: Array<boolean | null>, sampleIndices: number
   }
 
   const mapped = sampleIndices.map((index) => samples[index] ?? null)
+  const sampleWidth = 12
+  const laneHeight = 40
+  const laneWidth = Math.max(sampleWidth, mapped.length * sampleWidth)
+  const highY = 9
+  const lowY = 31
+  const traces = buildDigitalTracePaths(mapped, sampleWidth, highY, lowY)
+  const gaps = buildGapRects(mapped, sampleWidth)
 
   return (
-    <div className="logic-waveform-segments">
-      {mapped.map((value, index) => (
-        <span
-          key={`${index}-${value === null ? 'gap' : value ? 'high' : 'low'}`}
-          className={`logic-waveform-segment ${value === null ? 'gap' : value ? 'high' : 'low'}`}
-          title={value === null ? 'gap' : value ? 'high' : 'low'}
+    <svg className="logic-waveform-svg" viewBox={`0 0 ${laneWidth} ${laneHeight}`} preserveAspectRatio="none" aria-hidden="true">
+      <line className="logic-waveform-rail" x1={0} y1={highY} x2={laneWidth} y2={highY} />
+      <line className="logic-waveform-rail" x1={0} y1={lowY} x2={laneWidth} y2={lowY} />
+      {gaps.map((gap, index) => (
+        <rect
+          key={`gap-${index}-${gap.x}`}
+          className="logic-waveform-gap"
+          x={gap.x}
+          y={4}
+          width={gap.width}
+          height={laneHeight - 8}
+          rx={4}
+          ry={4}
         />
       ))}
-    </div>
+      {traces.map((trace, index) => (
+        <path key={`trace-${index}`} className="logic-waveform-trace" d={trace} />
+      ))}
+    </svg>
   )
+}
+
+function buildDigitalTracePaths(samples: Array<boolean | null>, sampleWidth: number, highY: number, lowY: number) {
+  const paths: string[] = []
+
+  for (let index = 0; index < samples.length; ) {
+    const value = samples[index]
+    if (value === null) {
+      index += 1
+      continue
+    }
+
+    let path = `M ${index * sampleWidth} ${value ? highY : lowY}`
+    let previousValue = value
+    let cursor = index + 1
+
+    while (cursor < samples.length && samples[cursor] !== null) {
+      const nextValue = samples[cursor] === true
+      const nextX = cursor * sampleWidth
+      path += ` H ${nextX}`
+      if (nextValue !== previousValue) {
+        path += ` V ${nextValue ? highY : lowY}`
+      }
+      previousValue = nextValue
+      cursor += 1
+    }
+
+    path += ` H ${cursor * sampleWidth}`
+    paths.push(path)
+    index = cursor
+  }
+
+  return paths
+}
+
+function buildGapRects(samples: Array<boolean | null>, sampleWidth: number) {
+  const rects: Array<{ x: number; width: number }> = []
+
+  for (let index = 0; index < samples.length; ) {
+    if (samples[index] !== null) {
+      index += 1
+      continue
+    }
+
+    const start = index
+    while (index < samples.length && samples[index] === null) {
+      index += 1
+    }
+
+    rects.push({ x: start * sampleWidth, width: Math.max(sampleWidth, (index - start) * sampleWidth) })
+  }
+
+  return rects
 }
 
 function formatSampleRate(sampleRateHz?: number | null) {

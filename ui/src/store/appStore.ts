@@ -8,6 +8,13 @@ import {
   createEmptyImuQuaternionMap,
 } from '../lib/imu'
 import {
+  readWaveformVisualAidState,
+  setWaveformVisualAidPreference,
+  writeWaveformVisualAidState,
+  type WaveformVisualAidKey,
+  type WaveformVisualAidState,
+} from '../lib/waveformVisualAids'
+import {
   connectSerial,
   disconnectSerial,
   getLogicAnalyzerStatus,
@@ -58,6 +65,7 @@ type AppStore = {
   consoleEntries: ConsoleEntry[]
   variables: Record<string, VariableEntry>
   selectedChannels: string[]
+  visualAidState: WaveformVisualAidState
   imuChannelMap: ImuChannelMap
   imuAttitudeMap: ImuAttitudeMap
   imuQuaternionMap: ImuQuaternionMap
@@ -80,6 +88,7 @@ type AppStore = {
   ingestEvent: (event: SerialBusEvent) => void
   ingestEvents: (events: SerialBusEvent[]) => void
   toggleChannel: (channel: string) => void
+  setVisualAidEnabled: (channel: string, key: WaveformVisualAidKey, enabled: boolean) => void
   setImuChannel: (role: ImuChannelRole, channel: string | null) => void
   setImuAttitudeChannel: (role: ImuAttitudeRole, channel: string | null) => void
   setImuQuaternionChannel: (role: ImuQuaternionRole, channel: string | null) => void
@@ -141,6 +150,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   consoleEntries: [],
   variables: {},
   selectedChannels: [],
+  visualAidState: readWaveformVisualAidState(),
   imuChannelMap: createEmptyImuChannelMap(),
   imuAttitudeMap: createEmptyImuAttitudeMap(),
   imuQuaternionMap: createEmptyImuQuaternionMap(),
@@ -550,6 +560,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
         ? state.selectedChannels.filter((name) => name !== channel)
         : [...state.selectedChannels, channel],
     }))
+  },
+  setVisualAidEnabled: (channel, key, enabled) => {
+    set((state) => {
+      const visualAidState = setWaveformVisualAidPreference(state.visualAidState, channel, key, enabled)
+      writeWaveformVisualAidState(visualAidState)
+      return { visualAidState }
+    })
   },
   setImuChannel: (role, channel) => {
     set((state) => ({

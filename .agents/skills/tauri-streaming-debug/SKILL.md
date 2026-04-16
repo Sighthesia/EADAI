@@ -30,6 +30,10 @@ The Tauri workbench stays responsive only when serial events are timestamp-align
 - Batch frontend bus events in `ui/src/App.tsx` before calling the store.
 - Process grouped events in `ui/src/store/appStore.ts::ingestEvents()` so one animation frame produces one Zustand update.
 - In `ui/src/components/WaveformPanel.tsx`, keep a rolling time window, normalize x-values to visible seconds, and update the existing uPlot instance instead of rebuilding it.
+- Overlay labels should use a two-line card format: first line is the variable name, second line is the latest value or cursor value; do not split name and value into separate floating widgets.
+- Visual measurement and IMU sections in `ui/src/components/VariablesPanel.tsx` should be grouped into collapsible blocks, and each block should contain an internal scrollbox when content can grow beyond the visible menu height.
+- Context menus that contain internal scrollboxes must stop `pointerdown`, `wheel`, and `scroll` propagation on the menu root so scrolling the menu does not close it or fall through to the underlying card list.
+- If a menu still closes on internal scrolling, do not rely only on propagation stopping: close the menu only when the external event target is outside the menu root, and add `overscroll-behavior: contain` to the menu scrollbox.
 - If performance degrades again, inspect console scrolling and chip list growth before blaming the parser.
 
 ## Verification

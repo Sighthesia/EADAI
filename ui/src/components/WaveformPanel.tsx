@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import uPlot from 'uplot'
+import { isWaveformVisualAidEnabled, type WaveformVisualAidState } from '../lib/waveformVisualAids'
 import { useAppStore } from '../store/appStore'
 import type { UiAnalysisPayload, VariableEntry } from '../types'
 
 const MIN_TIME_WINDOW_MS = 2_000
 const MAX_TIME_WINDOW_MS = 120_000
 const DEFAULT_TIME_WINDOW_MS = 15_000
-const VISUAL_AID_STORAGE_KEY = 'waveform.visual-aid-state.v1'
 const SLOPE_REGRESSION_POINT_COUNT = 8
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -17,12 +17,11 @@ type SelectedVariable = {
   variable: VariableEntry
 }
 
-type VisualAidState = Record<string, boolean>
-
 type NumericStats = {
   minValue: number
   maxValue: number
   meanValue: number
+  medianValue: number
   changeRate?: number | null
 }
 
@@ -30,7 +29,11 @@ type PlotTrack = {
   name: string
   color: string
   variable: VariableEntry
-  visualAidEnabled: boolean
+  labelsEnabled: boolean
+  rangeEnabled: boolean
+  meanEnabled: boolean
+  medianEnabled: boolean
+  slopeEnabled: boolean
   points: Array<{ timestampMs: number; value: number }>
   displayValue: string
   seriesIndex: number
@@ -40,7 +43,7 @@ type PlotTrack = {
 type TextTrack = {
   name: string
   color: string
-  visualAidEnabled: boolean
+  textEnabled: boolean
   value: string
   updatedAtMs: number
 }
@@ -57,11 +60,10 @@ type PlotModel = {
 export function WaveformPanel() {
   const variables = useAppStore((state) => state.variables)
   const selectedChannels = useAppStore((state) => state.selectedChannels)
-  const toggleChannel = useAppStore((state) => state.toggleChannel)
   const colorForChannel = useAppStore((state) => state.colorForChannel)
+  const visualAidState = useAppStore((state) => state.visualAidState)
   const [timeWindowMs, setTimeWindowMs] = useState(DEFAULT_TIME_WINDOW_MS)
   const [menuOpen, setMenuOpen] = useState(true)
-  const [visualAidState, setVisualAidState] = useState<VisualAidState>(() => readVisualAidState())
 
   const selectedVariables = useMemo<SelectedVariable[]>(
     () =>
@@ -75,21 +77,6 @@ export function WaveformPanel() {
         })),
     [colorForChannel, selectedChannels, variables],
   )
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(VISUAL_AID_STORAGE_KEY, JSON.stringify(visualAidState))
-    } catch {
-      // Ignore storage failures so the panel still works in restricted browser modes.
-    }
-  }, [visualAidState])
-
-  const toggleVisualAid = (name: string) => {
-    setVisualAidState((current) => ({
-      ...current,
-      [name]: !current[name],
-    }))
-  }
 
   const numericCount = selectedVariables.filter(({ variable }) => isNumericVariable(variable)).length
   const textCount = selectedVariables.length - numericCount
@@ -125,8 +112,14 @@ export function WaveformPanel() {
                 <small>{formatTimeWindow(timeWindowMs)}</small>
               </div>
               <div className="waveform-controls">
-                <button type="button" className="ghost-button" onClick={() => setTimeWindowMs((value) => scaleTimeWindow(value, 0.8))}>
-                  Zoom In
+                <button
+                  type="button"
+                  className="ghost-button waveform-zoom-icon-button"
+                  onClick={() => setTimeWindowMs((value) => scaleTimeWindow(value, 0.8))}
+                  aria-label="Zoom in"
+                  title="Zoom in"
+                >
+                  <MagnifyPlusIcon />
                 </button>
                 <label className="waveform-zoom-label">
                   <span>Visible span</span>
@@ -139,61 +132,23 @@ export function WaveformPanel() {
                     onChange={(event) => setTimeWindowMs(Number(event.target.value))}
                   />
                 </label>
-                <button type="button" className="ghost-button" onClick={() => setTimeWindowMs((value) => scaleTimeWindow(value, 1.25))}>
-                  Zoom Out
+                <button
+                  type="button"
+                  className="ghost-button waveform-zoom-icon-button"
+                  onClick={() => setTimeWindowMs((value) => scaleTimeWindow(value, 1.25))}
+                  aria-label="Zoom out"
+                  title="Zoom out"
+                >
+                  <MagnifyMinusIcon />
                 </button>
               </div>
             </section>
-
             <section className="waveform-floating-section">
               <div className="waveform-floating-section-header">
-                <strong>Channels</strong>
-                <small>{selectedChannels.length} selected</small>
-              </div>
-              <div className="waveform-channel-grid">
-                {Object.keys(variables).map((channel) => {
-                  const selected = selectedChannels.includes(channel)
-                  return (
-                    <button
-                      key={channel}
-                      type="button"
-                      className={`channel-chip ${selected ? 'active' : ''}`}
-                      onClick={() => toggleChannel(channel)}
-                    >
-                      <span className="variable-color" style={{ backgroundColor: colorForChannel(channel) }} />
-                      {channel}
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
-
-            <section className="waveform-floating-section">
-              <div className="waveform-floating-section-header">
-                <strong>Visual measurement aids</strong>
+                <strong>Overlays</strong>
                 <small>{selectedVariables.length > 0 ? `${numericCount} numeric · ${textCount} text` : 'No active channels'}</small>
               </div>
-              <div className="waveform-aid-grid">
-                {selectedVariables.map(({ name, color, variable }) => {
-                  const enabled = visualAidState[name] ?? false
-                  const kindLabel = isNumericVariable(variable) ? 'Curve + measurement lines' : 'Text track only'
-                  return (
-                    <button
-                      key={name}
-                      type="button"
-                      className={`waveform-aid-toggle ${enabled ? 'active' : ''}`}
-                      onClick={() => toggleVisualAid(name)}
-                    >
-                      <span className="variable-color" style={{ backgroundColor: color }} />
-                      <span className="waveform-aid-copy">
-                        <strong>{name}</strong>
-                        <small>{kindLabel}</small>
-                      </span>
-                      <span className="waveform-aid-state">{enabled ? 'On' : 'Off'}</span>
-                    </button>
-                  )
-                })}
-              </div>
+              <p className="waveform-floating-note">Right-click any variable card to enable or disable max/min, slope, and text overlays.</p>
             </section>
           </div>
         ) : null}
@@ -209,7 +164,7 @@ function WavePlot({
   onTimeWindowChange,
 }: {
   selectedVariables: SelectedVariable[]
-  visualAidState: VisualAidState
+  visualAidState: WaveformVisualAidState
   timeWindowMs: number
   onTimeWindowChange: (value: number | ((current: number) => number)) => void
 }) {
@@ -316,12 +271,16 @@ function WavePlot({
   return <div className="wave-plot waveform-stage-surface" ref={hostRef} />
 }
 
-function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: VisualAidState, timeWindowMs: number): PlotModel {
+function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: WaveformVisualAidState, timeWindowMs: number): PlotModel {
   const tracks = selectedVariables.map(({ name, color, variable }) => ({
     name,
     color,
     variable,
-    visualAidEnabled: visualAidState[name] ?? false,
+    labelsEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'labels'),
+    rangeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'range'),
+    meanEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'mean'),
+    medianEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'median'),
+    slopeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'slope'),
   }))
 
   const latestPointTimestampMs = tracks.reduce((max, item) => {
@@ -350,7 +309,11 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: V
         name: item.name,
         color: item.color,
         variable: item.variable,
-        visualAidEnabled: item.visualAidEnabled,
+        labelsEnabled: item.labelsEnabled,
+        rangeEnabled: item.rangeEnabled,
+        meanEnabled: item.meanEnabled,
+        medianEnabled: item.medianEnabled,
+        slopeEnabled: item.slopeEnabled,
         points: visiblePoints,
         displayValue: formatDisplayValue(
           item.variable,
@@ -366,7 +329,7 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: V
     .map((item) => ({
       name: item.name,
       color: item.color,
-      visualAidEnabled: item.visualAidEnabled,
+      textEnabled: isWaveformVisualAidEnabled(visualAidState, item.name, 'text'),
       value: item.variable.currentValue,
       updatedAtMs: item.variable.updatedAtMs,
     }))
@@ -440,7 +403,7 @@ function hasNumericAnalysis(analysis?: UiAnalysisPayload | null) {
     return false
   }
 
-  return [analysis.minValue, analysis.maxValue, analysis.meanValue, analysis.changeRate].some((value) => Number.isFinite(value ?? Number.NaN))
+  return [analysis.minValue, analysis.maxValue, analysis.meanValue, analysis.medianValue, analysis.changeRate].some((value) => Number.isFinite(value ?? Number.NaN))
 }
 
 function createFallbackNumericPoint(variable: VariableEntry, timestampMs: number) {
@@ -460,12 +423,14 @@ function resolveNumericStats(
   const statSource = visiblePoints.length > 0 ? visiblePoints : allPoints
   const minValue = fallbackStat(statSource, 'min')
   const maxValue = fallbackStat(statSource, 'max')
-  const meanValue = fallbackStat(statSource, 'mean')
+  const meanValue = analysis?.meanValue ?? fallbackStat(statSource, 'mean')
+  const medianValue = analysis?.medianValue ?? fallbackStat(statSource, 'median')
 
   return {
     minValue,
     maxValue,
     meanValue,
+    medianValue,
     changeRate: resolveVisibleChangeRate(statSource, analysis),
   }
 }
@@ -511,13 +476,22 @@ function resolveVisibleChangeRate(
   return analysis?.changeRate ?? null
 }
 
-function fallbackStat(points: Array<{ value: number }>, mode: 'min' | 'max' | 'mean') {
+function fallbackStat(points: Array<{ value: number }>, mode: 'min' | 'max' | 'mean' | 'median') {
   if (points.length === 0) {
     return 0
   }
 
   if (mode === 'mean') {
     return points.reduce((sum, point) => sum + point.value, 0) / points.length
+  }
+
+  if (mode === 'median') {
+    const values = points.map((point) => point.value).sort((left, right) => left - right)
+    const center = Math.floor(values.length / 2)
+    if (values.length % 2 === 0) {
+      return (values[center - 1] + values[center]) / 2
+    }
+    return values[center]
   }
 
   return points.reduce((current, point) => (mode === 'min' ? Math.min(current, point.value) : Math.max(current, point.value)), points[0].value)
@@ -533,24 +507,6 @@ function formatDisplayValue(variable: VariableEntry, value?: number | null) {
   const digits = abs >= 100 ? 1 : abs >= 10 ? 2 : 3
   const text = Number.isInteger(value) ? `${value}` : value.toFixed(digits)
   return `${text}${unit}`
-}
-
-function readVisualAidState(): VisualAidState {
-  if (typeof window === 'undefined') {
-    return {}
-  }
-
-  try {
-    const raw = window.localStorage.getItem(VISUAL_AID_STORAGE_KEY)
-    if (!raw) {
-      return {}
-    }
-
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => typeof value === 'boolean')) as VisualAidState
-  } catch {
-    return {}
-  }
 }
 
 function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | null>): uPlot.Plugin {
@@ -626,13 +582,26 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const width = Math.max(0, Math.floor(u.over.getBoundingClientRect().width))
     const height = Math.max(0, Math.floor(u.over.getBoundingClientRect().height))
 
-    const activeNumericTracks = model.numericTracks.filter((track) => track.visualAidEnabled)
-    const activeTextTracks = model.textTracks.filter((track) => track.visualAidEnabled)
+    const activeNumericTracks = model.numericTracks.filter(
+      (track) => track.labelsEnabled || track.rangeEnabled || track.meanEnabled || track.medianEnabled || track.slopeEnabled,
+    )
+    const activeTextTracks = model.textTracks.filter((track) => track.textEnabled)
     const textTrackSignature = activeTextTracks.map((track) => `${track.name}\u0000${track.value}\u0000${track.color}`).join('|')
 
     const sortedByMean = [...activeNumericTracks].sort((left, right) => left.stats.meanValue - right.stats.meanValue)
-    const labelSlots = placeVerticalLabels(sortedByMean.map((item) => ({ key: item.name, baseY: safePos(u, item.stats.meanValue, 'y', height), minY: 14, maxY: Math.max(14, height - 14) })))
     const latestSlots = placeVerticalLabels(sortedByMean.map((item) => ({ key: item.name, baseY: safePos(u, getLatestValue(item), 'y', height), minY: 10, maxY: Math.max(10, height - 22) })))
+    const measurementSlots = placeVerticalLabels(
+      activeNumericTracks.flatMap((track) => {
+        const slots: Array<{ key: string; baseY: number; minY: number; maxY: number }> = []
+        if (track.meanEnabled) {
+          slots.push({ key: measurementSlotKey(track.name, 'mean'), baseY: safePos(u, track.stats.meanValue, 'y', height), minY: 14, maxY: Math.max(14, height - 14) })
+        }
+        if (track.medianEnabled) {
+          slots.push({ key: measurementSlotKey(track.name, 'median'), baseY: safePos(u, track.stats.medianValue, 'y', height), minY: 14, maxY: Math.max(14, height - 14) })
+        }
+        return slots
+      }),
+    )
 
     const requiredKeys = new Set<string>()
 
@@ -641,29 +610,59 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       const elements = getOrCreateOverlayElements(state, track.name)
       const latestPoint = track.points[track.points.length - 1]
       const meanValue = track.stats.meanValue
+      const medianValue = track.stats.medianValue
       const minValue = track.stats.minValue
       const maxValue = track.stats.maxValue
 
       const meanY = safePos(u, meanValue, 'y', height)
+      const medianY = safePos(u, medianValue, 'y', height)
       const minY = safePos(u, minValue, 'y', height)
       const maxY = safePos(u, maxValue, 'y', height)
 
-      setLine(elements.minLine, 0, minY, width, minY, colorToRgba(track.color, 0.52), '5 6')
-      setLine(elements.maxLine, 0, maxY, width, maxY, colorToRgba(track.color, 0.52), '5 6')
+      if (track.rangeEnabled) {
+        setLine(elements.minLine, 0, minY, width, minY, colorToRgba(track.color, 0.52), '5 6')
+        setLine(elements.maxLine, 0, maxY, width, maxY, colorToRgba(track.color, 0.52), '5 6')
+      } else {
+        elements.minLine.setAttribute('visibility', 'hidden')
+        elements.maxLine.setAttribute('visibility', 'hidden')
+      }
 
-      const labelY = labelSlots.get(track.name) ?? meanY
-      const labelWidth = 156
-      setLine(elements.calloutLine, 18, labelY, 30, meanY, colorToRgba(track.color, 0.72))
+      if (track.meanEnabled) {
+        setLine(elements.meanLine, 0, meanY, width, meanY, colorToRgba(track.color, 0.64), '10 6', 1.8)
+        updateMeasurementLabel(
+          elements.meanLabel,
+          width,
+          measurementSlots.get(measurementSlotKey(track.name, 'mean')) ?? meanY,
+          track.color,
+          track.name,
+          'AVG',
+          formatDisplayValue(track.variable, meanValue),
+          'mean',
+        )
+      } else {
+        elements.meanLine.setAttribute('visibility', 'hidden')
+        elements.meanLabel.style.display = 'none'
+      }
 
-      elements.leftLabel.style.display = 'flex'
-      elements.leftLabel.style.left = '26px'
-      elements.leftLabel.style.top = `${labelY}px`
-      elements.leftLabel.style.transform = 'translateY(-50%)'
-      elements.leftLabel.style.borderColor = colorToRgba(track.color, 0.38)
-      elements.leftLabel.style.background = colorToRgba(track.color, 0.12)
-      elements.leftLabel.style.color = '#eaf0f7'
-      elements.leftLabel.style.minWidth = `${labelWidth}px`
-      elements.leftLabel.innerHTML = `<span class="waveform-overlay-label-chip" style="background:${track.color}"></span><span class="waveform-overlay-label-text">${escapeHtml(track.name)}</span>`
+      if (track.medianEnabled) {
+        setLine(elements.medianLine, 0, medianY, width, medianY, colorToRgba(track.color, 0.54), '3 5', 1.8)
+        updateMeasurementLabel(
+          elements.medianLabel,
+          width,
+          measurementSlots.get(measurementSlotKey(track.name, 'median')) ?? medianY,
+          track.color,
+          track.name,
+          'MED',
+          formatDisplayValue(track.variable, medianValue),
+          'median',
+        )
+      } else {
+        elements.medianLine.setAttribute('visibility', 'hidden')
+        elements.medianLabel.style.display = 'none'
+      }
+
+      elements.leftLabel.style.display = 'none'
+      elements.calloutLine.setAttribute('visibility', 'hidden')
 
       if (latestPoint) {
         const latestX = safePos(u, (latestPoint.timestampMs - model.windowStartMs) / 1000, 'x', width)
@@ -671,21 +670,26 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
         const latestLabelY = latestSlots.get(track.name) ?? latestY
         const latestLabelX = latestX > width - 170 ? Math.max(12, latestX - 150) : Math.min(width - 150, latestX + 12)
 
-        setCircle(elements.latestDot, latestX, latestY, 3.5, track.color)
-        elements.latestLabel.style.display = 'flex'
-        elements.latestLabel.style.left = `${latestLabelX}px`
-        elements.latestLabel.style.top = `${latestLabelY}px`
-        elements.latestLabel.style.transform = 'translateY(-50%)'
-        elements.latestLabel.style.borderColor = colorToRgba(track.color, 0.4)
-        elements.latestLabel.style.background = colorToRgba(track.color, 0.14)
-        elements.latestLabel.style.color = '#f3f7fc'
-        elements.latestLabel.innerHTML = `<span class="waveform-overlay-label-text">${escapeHtml(track.displayValue)}</span>`
+        if (track.labelsEnabled) {
+          setCircle(elements.latestDot, latestX, latestY, 3.5, track.color)
+          elements.latestLabel.style.display = 'flex'
+          elements.latestLabel.style.left = `${latestLabelX}px`
+          elements.latestLabel.style.top = `${latestLabelY}px`
+          elements.latestLabel.style.transform = 'translateY(-50%)'
+          elements.latestLabel.style.borderColor = colorToRgba(track.color, 0.4)
+          elements.latestLabel.style.background = colorToRgba(track.color, 0.14)
+          elements.latestLabel.style.color = '#f3f7fc'
+          elements.latestLabel.innerHTML = renderOverlayValueLabel(track.color, track.name, track.displayValue)
+        } else {
+          elements.latestDot.setAttribute('r', '0')
+          elements.latestLabel.style.display = 'none'
+        }
       } else {
         elements.latestDot.setAttribute('r', '0')
         elements.latestLabel.style.display = 'none'
       }
 
-      if (track.stats.changeRate !== null && track.stats.changeRate !== undefined && latestPoint) {
+      if (track.slopeEnabled && track.stats.changeRate !== null && track.stats.changeRate !== undefined && latestPoint) {
         const latestX = (latestPoint.timestampMs - model.windowStartMs) / 1000
         const latestY = latestPoint.value
         const clipped = clipSlopeSegment(
@@ -712,6 +716,11 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
         element.latestLabel.style.display = 'none'
         element.latestDot.setAttribute('r', '0')
         element.calloutLine.setAttribute('visibility', 'hidden')
+        element.cursorCalloutLine.setAttribute('visibility', 'hidden')
+        element.meanLabel.style.display = 'none'
+        element.medianLabel.style.display = 'none'
+        element.meanLine.setAttribute('visibility', 'hidden')
+        element.medianLine.setAttribute('visibility', 'hidden')
         element.minLine.setAttribute('visibility', 'hidden')
         element.maxLine.setAttribute('visibility', 'hidden')
         element.slopeLine.setAttribute('visibility', 'hidden')
@@ -752,20 +761,31 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     if (left == null || top == null || left < 0 || top < 0 || idx === null) {
       for (const element of state.items.values()) {
         element.cursorLabel.style.display = 'none'
+        element.cursorCalloutLine.setAttribute('visibility', 'hidden')
       }
       return
     }
 
-    const activeNumericTracks = model.numericTracks.filter((track) => track.visualAidEnabled)
-    const cursorSlots = placeVerticalLabels(activeNumericTracks.map((item) => ({ key: item.name, baseY: safePos(u, getCursorValue(u, item), 'y', height), minY: 10, maxY: Math.max(10, height - 22) })))
+    const activeNumericTracks = model.numericTracks.filter((track) => track.labelsEnabled || track.slopeEnabled)
+    const cursorAnchors = activeNumericTracks.map((track) => ({
+      track,
+      anchor: resolveCursorAnchor(u, track, model.windowStartMs, width),
+    }))
+    const cursorSlots = placeVerticalLabels(
+      cursorAnchors.map(({ track, anchor }) => ({
+        key: track.name,
+        baseY: safePos(u, anchor.value, 'y', height),
+        minY: 10,
+        maxY: Math.max(10, height - 22),
+      })),
+    )
 
     const requiredKeys = new Set<string>()
-    for (const track of activeNumericTracks) {
+    for (const { track, anchor: cursorAnchor } of cursorAnchors) {
       requiredKeys.add(track.name)
       const element = getOrCreateOverlayElements(state, track.name)
-      const cursorValue = getCursorValue(u, track)
-      const cursorY = safePos(u, cursorValue, 'y', height)
-      const cursorX = clamp(left + 14, 12, Math.max(12, width - 160))
+      const cursorY = safePos(u, cursorAnchor.value, 'y', height)
+      const cursorX = clamp(cursorAnchor.x + 14, 12, Math.max(12, width - 160))
       const cursorYPlacement = cursorSlots.get(track.name) ?? cursorY
 
       element.cursorLabel.style.display = 'flex'
@@ -775,12 +795,14 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       element.cursorLabel.style.borderColor = colorToRgba(track.color, 0.42)
       element.cursorLabel.style.background = colorToRgba(track.color, 0.16)
       element.cursorLabel.style.color = '#f6f8fb'
-      element.cursorLabel.innerHTML = `<span class="waveform-overlay-label-chip" style="background:${track.color}"></span><span class="waveform-overlay-label-text">${escapeHtml(formatDisplayValue(track.variable, cursorValue))}</span>`
+      element.cursorLabel.innerHTML = renderOverlayValueLabel(track.color, track.name, formatDisplayValue(track.variable, cursorAnchor.value))
+      setLine(element.cursorCalloutLine, cursorAnchor.x, cursorY, cursorX - 6, cursorYPlacement, colorToRgba(track.color, 0.76))
     }
 
     for (const [name, element] of state.items) {
       if (!requiredKeys.has(name)) {
         element.cursorLabel.style.display = 'none'
+        element.cursorCalloutLine.setAttribute('visibility', 'hidden')
       }
     }
   }
@@ -804,7 +826,16 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const cursorLabel = document.createElement('div')
     cursorLabel.className = 'waveform-overlay-label waveform-overlay-label--cursor'
 
+    const meanLabel = document.createElement('div')
+    meanLabel.className = 'waveform-overlay-label waveform-overlay-label--measurement'
+
+    const medianLabel = document.createElement('div')
+    medianLabel.className = 'waveform-overlay-label waveform-overlay-label--measurement'
+
     const calloutLine = createSvgLine(state.linesLayer, 'waveform-overlay-callout')
+    const cursorCalloutLine = createSvgLine(state.linesLayer, 'waveform-overlay-callout')
+    const meanLine = createSvgLine(state.linesLayer, 'waveform-overlay-band')
+    const medianLine = createSvgLine(state.linesLayer, 'waveform-overlay-band')
     const minLine = createSvgLine(state.linesLayer, 'waveform-overlay-band')
     const maxLine = createSvgLine(state.linesLayer, 'waveform-overlay-band')
     const slopeLine = createSvgLine(state.linesLayer, 'waveform-overlay-slope')
@@ -814,14 +845,19 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       leftLabel,
       latestLabel,
       cursorLabel,
+      meanLabel,
+      medianLabel,
       calloutLine,
+      cursorCalloutLine,
+      meanLine,
+      medianLine,
       minLine,
       maxLine,
       slopeLine,
       latestDot,
     }
 
-    state.labelsLayer.append(leftLabel, latestLabel, cursorLabel)
+    state.labelsLayer.append(leftLabel, latestLabel, cursorLabel, meanLabel, medianLabel)
     state.items.set(name, elements)
     return elements
   }
@@ -871,18 +907,120 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     return getLatestValue(track)
   }
 
+  function resolveCursorAnchor(u: uPlot, track: PlotTrack, windowStartMs: number, width: number) {
+    const cursorIndex = u.cursor.idx ?? 0
+    const cursorTime = u.data[0]?.[cursorIndex]
+    const cursorX = Number.isFinite(cursorTime) ? safePos(u, Number(cursorTime), 'x', width) : u.cursor.left ?? 0
+
+    if (track.slopeEnabled && !track.labelsEnabled) {
+      const slopeValue = getSlopeCursorValue(track, cursorTime, windowStartMs)
+      if (slopeValue !== null) {
+        return {
+          value: slopeValue,
+          x: cursorX,
+        }
+      }
+    }
+
+    return {
+      value: getCursorValue(u, track),
+      x: cursorX,
+    }
+  }
+
+  function getSlopeCursorValue(track: PlotTrack, cursorTimeSeconds: unknown, windowStartMs: number) {
+    if (typeof cursorTimeSeconds !== 'number' || !Number.isFinite(cursorTimeSeconds)) {
+      return null
+    }
+
+    const latestPoint = track.points[track.points.length - 1]
+    const rate = track.stats.changeRate
+    if (!latestPoint || rate === null || rate === undefined || !Number.isFinite(rate)) {
+      return null
+    }
+
+    const anchorX = (latestPoint.timestampMs - windowStartMs) / 1000
+    const clipped = clipSlopeSegment(anchorX, latestPoint.value, rate, 0, track.stats.minValue, track.stats.maxValue)
+    if (!clipped) {
+      return null
+    }
+
+    if (cursorTimeSeconds < clipped.startX || cursorTimeSeconds > clipped.endX) {
+      return null
+    }
+
+    return latestPoint.value + rate * (cursorTimeSeconds - anchorX)
+  }
+
   function placeVerticalLabels(items: Array<{ key: string; baseY: number; minY: number; maxY: number }>) {
     const sorted = [...items].sort((left, right) => left.baseY - right.baseY)
     const slots = new Map<string, number>()
-    let lastY = Number.NEGATIVE_INFINITY
-    for (const item of sorted) {
-      const target = clamp(item.baseY, item.minY, item.maxY)
-      const y = lastY === Number.NEGATIVE_INFINITY ? target : Math.max(target, lastY + 18)
-      const clamped = clamp(y, item.minY, item.maxY)
-      slots.set(item.key, clamped)
-      lastY = clamped
+
+    if (sorted.length === 0) {
+      return slots
     }
+
+    const gap = 18
+    const positions = sorted.map((item) => clamp(item.baseY, item.minY, item.maxY))
+
+    for (let index = 1; index < sorted.length; index += 1) {
+      positions[index] = clamp(Math.max(positions[index], positions[index - 1] + gap), sorted[index].minY, sorted[index].maxY)
+    }
+
+    for (let index = sorted.length - 2; index >= 0; index -= 1) {
+      positions[index] = clamp(Math.min(positions[index], positions[index + 1] - gap), sorted[index].minY, sorted[index].maxY)
+    }
+
+    for (let index = 1; index < sorted.length; index += 1) {
+      if (positions[index] - positions[index - 1] < gap) {
+        positions[index] = clamp(positions[index - 1] + gap, sorted[index].minY, sorted[index].maxY)
+      }
+    }
+
+    for (let index = 0; index < sorted.length; index += 1) {
+      slots.set(sorted[index].key, positions[index])
+    }
+
     return slots
+  }
+
+  function measurementSlotKey(name: string, kind: 'mean' | 'median') {
+    return `${name}:${kind}`
+  }
+
+  function updateMeasurementLabel(
+    label: HTMLDivElement,
+    width: number,
+    y: number,
+    color: string,
+    name: string,
+    title: string,
+    value: string,
+    lane: 'mean' | 'median',
+  ) {
+    const labelWidth = 180
+    const gutter = 10
+    const rightLaneLeft = Math.max(12, width - labelWidth)
+    const leftLaneLeft = Math.max(12, width - labelWidth * 2 - gutter)
+
+    label.style.display = 'flex'
+    label.style.left = `${lane === 'mean' ? leftLaneLeft : rightLaneLeft}px`
+    label.style.top = `${y}px`
+    label.style.transform = 'translateY(-50%)'
+    label.style.borderColor = colorToRgba(color, 0.36)
+    label.style.background = colorToRgba(color, 0.12)
+    label.style.color = '#eaf0f7'
+    label.innerHTML = renderOverlayValueLabel(color, name, `${title} ${value}`)
+  }
+
+  function renderOverlayValueLabel(color: string, name: string, value: string) {
+    return `
+      <span class="waveform-overlay-label-chip" style="background:${color}"></span>
+      <span class="waveform-overlay-label-copy">
+        <strong>${escapeHtml(name)}</strong>
+        <span class="waveform-overlay-label-text">${escapeHtml(value)}</span>
+      </span>
+    `
   }
 
   function clipSlopeSegment(anchorX: number, anchorY: number, rate: number, xMin: number, yMin: number, yMax: number) {
@@ -976,11 +1114,36 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
   }
 }
 
+function MagnifyPlusIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="waveform-zoom-icon" aria-hidden="true">
+      <circle cx="8.25" cy="8.25" r="4.75" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M11.8 11.8 16 16" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M8.25 6.25v4M6.25 8.25h4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function MagnifyMinusIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="waveform-zoom-icon" aria-hidden="true">
+      <circle cx="8.25" cy="8.25" r="4.75" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M11.8 11.8 16 16" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M6.25 8.25h4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
 type OverlayItemElements = {
   leftLabel: HTMLDivElement
   latestLabel: HTMLDivElement
   cursorLabel: HTMLDivElement
+  meanLabel: HTMLDivElement
+  medianLabel: HTMLDivElement
   calloutLine: SVGLineElement
+  cursorCalloutLine: SVGLineElement
+  meanLine: SVGLineElement
+  medianLine: SVGLineElement
   minLine: SVGLineElement
   maxLine: SVGLineElement
   slopeLine: SVGLineElement
