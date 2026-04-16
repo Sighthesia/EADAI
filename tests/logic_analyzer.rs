@@ -5,7 +5,7 @@ mod model;
 mod logic_analyzer;
 
 use logic_analyzer::{
-    build_capture_command, parse_capture_csv_for_test, parse_scan_output, LogicAnalyzerService,
+    LogicAnalyzerService, build_capture_command, parse_capture_csv_for_test, parse_scan_output,
 };
 
 #[test]

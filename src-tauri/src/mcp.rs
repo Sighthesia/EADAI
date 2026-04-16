@@ -35,10 +35,7 @@ impl EmbeddedMcpServer {
     }
 }
 
-fn spawn_server(
-    adapter: AiContextAdapter,
-    status: Arc<Mutex<McpServerStatus>>,
-) -> JoinHandle<()> {
+fn spawn_server(adapter: AiContextAdapter, status: Arc<Mutex<McpServerStatus>>) -> JoinHandle<()> {
     thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -62,7 +59,10 @@ fn spawn_server(
             let address = match listener.local_addr() {
                 Ok(address) => address,
                 Err(error) => {
-                    set_error(&status, format!("failed to resolve embedded MCP address: {error}"));
+                    set_error(
+                        &status,
+                        format!("failed to resolve embedded MCP address: {error}"),
+                    );
                     return;
                 }
             };
@@ -77,12 +77,10 @@ fn spawn_server(
 
             {
                 let mut current = lock_status(&status);
-                *current = McpServerStatus::running(format!(
-                    "http://{}:{}{}",
-                    address.ip(),
-                    address.port(),
-                    MCP_PATH
-                ), bind_warning);
+                *current = McpServerStatus::running(
+                    format!("http://{}:{}{}", address.ip(), address.port(), MCP_PATH),
+                    bind_warning,
+                );
             }
 
             let app = Router::new()

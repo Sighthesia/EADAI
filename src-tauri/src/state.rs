@@ -1,9 +1,9 @@
 use crate::logic_analyzer::LogicAnalyzerService;
 use crate::mcp::EmbeddedMcpServer;
 use crate::model::{
-    apply_connection_snapshot, ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus,
-    McpServerStatus, SendRequest, SessionSnapshot, SourceKind, UiBusEvent, UiConnectionState,
-    UiTransportKind,
+    ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus, McpServerStatus, SendRequest,
+    SessionSnapshot, SourceKind, UiBusEvent, UiConnectionState, UiTransportKind,
+    apply_connection_snapshot,
 };
 use eadai::bus::BusSubscription;
 use eadai::cli::{ParserKind, RunConfig};

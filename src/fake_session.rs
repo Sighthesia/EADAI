@@ -3,11 +3,11 @@ use crate::bus::MessageBus;
 use crate::cli::ParserKind;
 use crate::message::{BusMessage, ConnectionState, LinePayload, MessageSource};
 use crate::parser;
-use crate::serial::{payload_bytes_for_text, FrameStatus, FramedLine};
+use crate::serial::{FrameStatus, FramedLine, payload_bytes_for_text};
 use std::f64::consts::PI;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender, TryRecvError};
-use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
