@@ -165,6 +165,127 @@ button {
   gap: 14px;
 }
 
+.connection-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.connection-panel {
+  position: relative;
+  padding: 14px;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.connection-layout {
+  display: grid;
+  grid-template-rows: minmax(320px, 1fr) auto;
+  gap: 14px;
+  min-height: 0;
+  height: 100%;
+}
+
+.connection-device-deck,
+.connection-detail-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.connection-device-deck {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.connection-device-list {
+  flex: 1 1 auto;
+  padding-top: 0;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.connection-detail-shell {
+  flex: 0 0 auto;
+  max-height: 42%;
+}
+
+.connection-device-card {
+  cursor: pointer;
+  min-height: 84px;
+  align-items: stretch;
+}
+
+.connection-device-card.selected {
+  border-color: #313b4d;
+  background: rgba(79, 124, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(79, 124, 255, 0.18);
+}
+
+.connection-device-card.device-connected {
+  box-shadow: inset 0 0 0 1px rgba(79, 124, 255, 0.12);
+  border-color: #364153;
+  background: rgba(79, 124, 255, 0.08);
+}
+
+.connection-device-main {
+  gap: 6px;
+  min-height: 60px;
+  justify-content: center;
+}
+
+.connection-device-note {
+  color: #9ba8b7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-section-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #202733;
+  border-radius: 14px;
+  background: #11161e;
+}
+
+.connection-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connection-section-header small,
+.connection-section-note {
+  color: #8892a0;
+}
+
+.connection-context-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connection-context-field span {
+  color: #9ba8b7;
+}
+
+.connection-context-field input,
+.connection-context-field textarea {
+  width: 100%;
+  border: 1px solid #2a3240;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #0f131a;
+  color: #d8dee9;
+  resize: vertical;
+}
+
 .panel-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -240,9 +361,114 @@ button {
   border-color: #9f3f48;
 }
 
-.logic-analyzer-panel {
-  padding: 14px;
+.logic-analyzer-stage-panel {
+  position: relative;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.logic-stage-shell {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.logic-stage-surface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at center, rgba(79, 124, 255, 0.12), rgba(11, 14, 19, 0.96) 40%),
+    linear-gradient(180deg, #0c1118, #090d13);
+}
+
+.logic-stage-empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  color: #9ba8b7;
+}
+
+.logic-empty-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
+  padding: 18px 18px 104px;
+  overflow: auto;
+}
+
+.logic-empty-track-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.logic-bottom-banner {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(47, 59, 78, 0.84);
+  background: rgba(9, 13, 18, 0.82);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+  color: #9ba8b7;
+}
+
+.logic-bottom-banner strong {
+  color: #d8dee9;
+}
+
+.logic-stage-hud {
+  position: absolute;
+  left: 20px;
+  right: min(404px, 42vw);
+  bottom: 20px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.logic-stage-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(47, 59, 78, 0.88);
+  border-radius: 16px;
+  background: rgba(9, 13, 18, 0.68);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+}
+
+.logic-stage-meta span,
+.logic-stage-meta small {
+  color: #9ba8b7;
+}
+
+.logic-stage-meta-secondary {
+  justify-content: flex-end;
 }
 
 .logic-header,
@@ -275,6 +501,87 @@ button {
   border: 1px solid #202733;
   border-radius: 14px;
   background: rgba(15, 18, 24, 0.88);
+}
+
+.logic-floating-menu {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(360px, calc(100% - 32px));
+  padding: 12px;
+  border: 1px solid rgba(47, 59, 78, 0.82);
+  border-radius: 20px;
+  background: rgba(10, 14, 20, 0.64);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+}
+
+.logic-floating-menu.collapsed {
+  width: auto;
+  bottom: auto;
+  padding: 10px;
+  border-radius: 999px;
+}
+
+.logic-floating-top,
+.logic-floating-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.logic-floating-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.logic-floating-heading small,
+.logic-floating-section-header small,
+.logic-floating-copy {
+  color: #9ba8b7;
+}
+
+.logic-floating-toggle {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  background: rgba(24, 29, 38, 0.82);
+}
+
+.logic-floating-scroll {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.logic-floating-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(10, 14, 20, 0.54);
+  border: 1px solid rgba(47, 59, 78, 0.72);
+}
+
+.logic-floating-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.logic-floating-copy {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .logic-grid,
@@ -320,6 +627,72 @@ button {
 .logic-banner-warning {
   border-color: #8b5f18;
   background: rgba(255, 213, 128, 0.08);
+}
+
+.logic-banner-success {
+  border-color: #2f7f51;
+  background: rgba(83, 225, 146, 0.08);
+  color: #bdf6cf;
+}
+
+.logic-channel-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.logic-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.logic-channel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #2a3240;
+  background: #181d26;
+  color: inherit;
+}
+
+.logic-channel-chip.selected {
+  border-color: #3966f6;
+  background: rgba(79, 124, 255, 0.16);
+}
+
+.logic-chip-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+}
+
+.logic-capture-focus {
+  scroll-margin-top: 16px;
+}
+
+.logic-capture-focus.active {
+  border-color: #3966f6;
+  box-shadow: 0 0 0 1px rgba(57, 102, 246, 0.22), 0 0 0 6px rgba(57, 102, 246, 0.08);
+}
+
+.logic-time-axis {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #131820;
+  border: 1px solid #202733;
+  color: #9ba8b7;
 }
 
 .logic-device-list {
@@ -372,6 +745,26 @@ button {
   gap: 12px;
 }
 
+.logic-waveform-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 18px 104px;
+  overflow: auto;
+}
+
+.logic-time-axis-empty {
+  background: rgba(10, 14, 20, 0.72);
+}
+
+.logic-waveform-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .logic-waveform-track {
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr);
@@ -383,6 +776,25 @@ button {
   background: #0b0f14;
 }
 
+.logic-waveform-track-stage {
+  background: rgba(8, 12, 17, 0.76);
+  backdrop-filter: blur(6px);
+}
+
+.logic-waveform-track-placeholder {
+  border-style: dashed;
+  border-color: rgba(47, 59, 78, 0.88);
+}
+
+.logic-waveform-track-placeholder.selected {
+  border-color: rgba(57, 102, 246, 0.6);
+  box-shadow: 0 0 0 1px rgba(57, 102, 246, 0.14);
+}
+
+.logic-waveform-label-placeholder small {
+  color: #7d8796;
+}
+
 .logic-waveform-label {
   display: flex;
   flex-direction: column;
@@ -392,6 +804,33 @@ button {
 
 .logic-waveform-lane {
   overflow: hidden;
+}
+
+.logic-waveform-lane-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logic-track-arm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #2a3240;
+  background: rgba(17, 22, 30, 0.92);
+  color: #cdd7e3;
+}
+
+.logic-track-arm.selected {
+  border-color: #3966f6;
+  background: rgba(79, 124, 255, 0.16);
+}
+
+.logic-track-arm-icon {
+  font-size: 12px;
 }
 
 .logic-waveform-segments {
@@ -407,6 +846,10 @@ button {
   min-height: 28px;
   border-radius: 4px;
   border: 1px solid transparent;
+}
+
+.logic-waveform-segment.placeholder {
+  opacity: 0.45;
 }
 
 .logic-waveform-segment.high {
@@ -433,6 +876,11 @@ button {
   color: #9ba8b7;
 }
 
+.logic-time-axis-stage {
+  background: rgba(10, 14, 20, 0.82);
+  backdrop-filter: blur(12px);
+}
+
 .variable-card,
 .channel-chip {
   display: inline-flex;
@@ -453,6 +901,7 @@ button {
 .channel-chip.active {
   border-color: #364153;
   background: rgba(79, 124, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(79, 124, 255, 0.22);
 }
 
 .variable-main,

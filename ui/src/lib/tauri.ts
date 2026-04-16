@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
   ConnectRequest,
+  LogicAnalyzerCaptureRequest,
+  LogicAnalyzerStatus,
   McpServerStatus,
   SendRequest,
   SerialBusEvent,
@@ -15,6 +17,16 @@ export const listSerialPorts = () => invoke<string[]>('list_serial_ports')
 export const getSessionSnapshot = () => invoke<SessionSnapshot>('get_session_snapshot')
 
 export const getMcpServerStatus = () => invoke<McpServerStatus>('get_mcp_server_status')
+
+export const getLogicAnalyzerStatus = () => invoke<LogicAnalyzerStatus>('get_logic_analyzer_status')
+
+export const refreshLogicAnalyzerDevices = () =>
+  invoke<LogicAnalyzerStatus>('refresh_logic_analyzer_devices')
+
+export const startLogicAnalyzerCapture = (request: LogicAnalyzerCaptureRequest) =>
+  invoke<LogicAnalyzerStatus>('start_logic_analyzer_capture', { request })
+
+export const stopLogicAnalyzerCapture = () => invoke<LogicAnalyzerStatus>('stop_logic_analyzer_capture')
 
 export const connectSerial = (request: ConnectRequest) =>
   invoke<SessionSnapshot>('connect_serial', { request })

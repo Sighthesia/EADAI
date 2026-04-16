@@ -1,0 +1,53 @@
+{
+  "id": "unify-variable-data-panel",
+  "name": "unify-variable-data-panel",
+  "title": "Unify variable data panel",
+  "description": "Unify the variable data experience across the desktop UI by merging data source selection, variable telemetry, and IMU status/calibration into one coherent panel system.",
+  "status": "planning",
+  "dev_type": "implement",
+  "scope": "frontend",
+  "priority": "P2",
+  "creator": "Sighthesia",
+  "assignee": "Sighthesia",
+  "createdAt": "2026-04-14",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 2,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "ui/src/components/VariablesPanel.tsx",
+    "ui/src/components/ConnectionPanel.tsx",
+    "ui/src/components/ImuPanel.tsx",
+    "ui/src/components/SourceChoiceGroup.tsx",
+    "ui/src/components/Workbench.tsx",
+    "ui/src/store/appStore.ts",
+    "ui/src/styles.css",
+    "ui/src/types.ts"
+  ],
+  "notes": "",
+  "meta": {}
+}

@@ -10,10 +10,14 @@ import {
 import {
   connectSerial,
   disconnectSerial,
+  getLogicAnalyzerStatus,
   getMcpServerStatus,
   getSessionSnapshot,
   listSerialPorts,
+  refreshLogicAnalyzerDevices,
   sendSerial,
+  startLogicAnalyzerCapture,
+  stopLogicAnalyzerCapture,
 } from '../lib/tauri'
 import type {
   AppStatus,
@@ -29,6 +33,8 @@ import type {
   ImuQuaternionRole,
   ImuCalibrationState,
   ImuQualitySnapshot,
+  LogicAnalyzerConfig,
+  LogicAnalyzerStatus,
   McpServerStatus,
   SerialBusEvent,
   SessionSnapshot,
@@ -59,6 +65,8 @@ type AppStore = {
   imuOrientationSource: ImuOrientationSource
   imuCalibration: ImuCalibrationState
   imuQuality: ImuQualitySnapshot
+  logicAnalyzer: LogicAnalyzerStatus
+  logicAnalyzerConfig: LogicAnalyzerConfig
   status: AppStatus
   setCommandInput: (value: string) => void
   setAppendNewline: (value: boolean) => void
@@ -79,6 +87,12 @@ type AppStore = {
   setImuOrientationSource: (value: ImuOrientationSource) => void
   calibrateImuFromCurrentState: () => void
   resetImuCalibration: () => void
+  refreshLogicAnalyzerStatus: () => Promise<void>
+  refreshLogicAnalyzerDevices: () => Promise<void>
+  patchLogicAnalyzerConfig: (value: Partial<LogicAnalyzerConfig>) => void
+  toggleLogicAnalyzerChannel: (channel: string) => void
+  startLogicAnalyzerCapture: () => Promise<void>
+  stopLogicAnalyzerCapture: () => Promise<void>
   colorForChannel: (channel: string) => string
 }
 
@@ -88,6 +102,22 @@ const defaultStatus = (): AppStatus => ({
 })
 
 const MCP_STATUS_POLL_INTERVAL_MS = 1000
+const DEFAULT_LOGIC_SAMPLE_COUNT = 2048
+
+const defaultLogicAnalyzerStatus = (): LogicAnalyzerStatus => ({
+  available: false,
+  executable: null,
+  sessionState: 'idle',
+  devices: [],
+  selectedDeviceRef: null,
+  activeCapture: null,
+  lastCapture: null,
+  lastScanAtMs: null,
+  scanOutput: null,
+  lastError: null,
+  capturePlan: null,
+  linuxFirstNote: 'Linux-first sigrok path; install sigrok-cli or set EADAI_SIGROK_CLI.',
+})
 
 export const useAppStore = create<AppStore>((set, get) => ({
   ports: [],
@@ -128,20 +158,30 @@ export const useAppStore = create<AppStore>((set, get) => ({
     details: 'Waiting for mapped IMU samples.',
     timestampMs: null,
   },
+  logicAnalyzer: defaultLogicAnalyzerStatus(),
+  logicAnalyzerConfig: {
+    deviceRef: '',
+    sampleCount: DEFAULT_LOGIC_SAMPLE_COUNT,
+    samplerateHzInput: '',
+    selectedChannelLabels: [],
+  },
   status: defaultStatus(),
   setCommandInput: (value) => set({ commandInput: value }),
   setAppendNewline: (value) => set({ appendNewline: value }),
   patchConfig: (value) => set((state) => ({ config: { ...state.config, ...value } })),
   bootstrap: async () => {
-    const [ports, session, mcp] = await Promise.all([
+    const [ports, session, mcp, logicAnalyzer] = await Promise.all([
       listSerialPorts(),
       getSessionSnapshot(),
       readMcpStatusWithRetry(),
+      readLogicAnalyzerStatusSafely(),
     ])
     set((state) => ({
       ports,
       session,
       mcp,
+      logicAnalyzer,
+      logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, logicAnalyzer),
       config: {
         ...state.config,
         port:
@@ -167,6 +207,78 @@ export const useAppStore = create<AppStore>((set, get) => ({
   refreshMcpStatus: async () => {
     const mcp = await readMcpStatusWithRetry()
     set({ mcp })
+  },
+  refreshLogicAnalyzerStatus: async () => {
+    const logicAnalyzer = await getLogicAnalyzerStatus()
+    set((state) => ({
+      logicAnalyzer,
+      logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, logicAnalyzer),
+    }))
+  },
+  refreshLogicAnalyzerDevices: async () => {
+    const logicAnalyzer = await refreshLogicAnalyzerDevices()
+    set((state) => ({
+      logicAnalyzer,
+      logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, logicAnalyzer),
+    }))
+  },
+  patchLogicAnalyzerConfig: (value) =>
+    set((state) => ({
+      logicAnalyzerConfig: {
+        ...state.logicAnalyzerConfig,
+        ...value,
+      },
+    })),
+  toggleLogicAnalyzerChannel: (channel) => {
+    set((state) => ({
+      logicAnalyzerConfig: {
+        ...state.logicAnalyzerConfig,
+        selectedChannelLabels: state.logicAnalyzerConfig.selectedChannelLabels.includes(channel)
+          ? state.logicAnalyzerConfig.selectedChannelLabels.filter((name) => name !== channel)
+          : [...state.logicAnalyzerConfig.selectedChannelLabels, channel],
+      },
+    }))
+  },
+  startLogicAnalyzerCapture: async () => {
+    const { logicAnalyzer, logicAnalyzerConfig } = get()
+    const deviceRef = logicAnalyzerConfig.deviceRef.trim()
+
+    if (!deviceRef) {
+      set((state) => ({
+        logicAnalyzer: {
+          ...state.logicAnalyzer,
+          lastError: 'Select a logic analyzer device first.',
+        },
+      }))
+      return
+    }
+
+    const nextStatus = await startLogicAnalyzerCapture({
+      deviceRef,
+      sampleCount: Math.max(1, logicAnalyzerConfig.sampleCount || DEFAULT_LOGIC_SAMPLE_COUNT),
+      samplerateHz: parseLogicSamplerate(logicAnalyzerConfig.samplerateHzInput),
+      channels: logicAnalyzerConfig.selectedChannelLabels,
+    })
+
+    set((state) => ({
+      logicAnalyzer: nextStatus,
+      logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, nextStatus),
+      status: {
+        tone: 'neutral',
+        message: `Starting logic capture on ${logicAnalyzer.devices.find((device) => device.reference === deviceRef)?.name ?? deviceRef}.`,
+      },
+    }))
+  },
+  stopLogicAnalyzerCapture: async () => {
+    const nextStatus = await stopLogicAnalyzerCapture()
+    set((state) => ({
+      logicAnalyzer: nextStatus,
+      logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, nextStatus),
+      status: {
+        tone: nextStatus.lastCapture ? 'success' : 'neutral',
+        message: nextStatus.lastCapture ? 'Logic capture completed.' : 'Logic capture stopped.',
+      },
+    }))
   },
   refreshPorts: async () => {
     const ports = await listSerialPorts()
@@ -592,6 +704,42 @@ const readMcpStatusWithRetry = async () => {
   }
 
   return lastStatus
+}
+
+const readLogicAnalyzerStatusSafely = async () => {
+  try {
+    return await getLogicAnalyzerStatus()
+  } catch {
+    return defaultLogicAnalyzerStatus()
+  }
+}
+
+const syncLogicAnalyzerConfig = (
+  config: LogicAnalyzerConfig,
+  logicAnalyzer: LogicAnalyzerStatus,
+): LogicAnalyzerConfig => {
+  const availableDeviceRefs = new Set(logicAnalyzer.devices.map((device) => device.reference))
+  const nextDeviceRef =
+    config.deviceRef && availableDeviceRefs.has(config.deviceRef)
+      ? config.deviceRef
+      : logicAnalyzer.selectedDeviceRef ?? logicAnalyzer.devices[0]?.reference ?? ''
+
+  const availableChannelLabels = new Set(logicAnalyzer.lastCapture?.channels.map((channel) => channel.label) ?? [])
+  const nextChannels = config.selectedChannelLabels.filter((channel) => availableChannelLabels.has(channel))
+
+  return {
+    ...config,
+    deviceRef: nextDeviceRef,
+    selectedChannelLabels:
+      nextChannels.length > 0
+        ? nextChannels
+        : logicAnalyzer.lastCapture?.channels.map((channel) => channel.label) ?? config.selectedChannelLabels,
+  }
+}
+
+const parseLogicSamplerate = (value: string) => {
+  const parsed = Number(value.trim())
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
 export const shouldPollMcpStatus = (mcp: McpServerStatus) => !mcp.isRunning && !mcp.lastError

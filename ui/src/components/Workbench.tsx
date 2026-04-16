@@ -6,6 +6,7 @@ import { VariablesPanel } from './VariablesPanel'
 import { WaveformPanel } from './WaveformPanel'
 import { ConsolePanel } from './ConsolePanel'
 import { ImuPanel } from './ImuPanel'
+import { LogicAnalyzerPage } from './LogicAnalyzerPage'
 
 const layoutJson = {
   global: {
@@ -38,6 +39,7 @@ const layoutJson = {
             children: [
               { type: 'tab', name: 'Waveforms', component: 'waveforms' },
               { type: 'tab', name: 'IMU', component: 'imu' },
+              { type: 'tab', name: 'Logic Analyzer', component: 'logicAnalyzer' },
             ],
           },
           {
@@ -75,6 +77,8 @@ function factory(node: TabNode) {
       return <WaveformPanel />
     case 'imu':
       return <ImuPanel />
+    case 'logicAnalyzer':
+      return <LogicAnalyzerPage />
     case 'console':
       return <ConsolePanel />
     default:

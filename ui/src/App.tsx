@@ -11,7 +11,9 @@ export default function App() {
   const ingestEvents = useAppStore((state) => state.ingestEvents)
   const mcp = useAppStore((state) => state.mcp)
   const refreshMcpStatus = useAppStore((state) => state.refreshMcpStatus)
+  const refreshLogicAnalyzerStatus = useAppStore((state) => state.refreshLogicAnalyzerStatus)
   const session = useAppStore((state) => state.session)
+  const logicAnalyzerSessionState = useAppStore((state) => state.logicAnalyzer.sessionState)
   const status = useAppStore((state) => state.status)
   const pendingEventsRef = useRef<SerialBusEvent[]>([])
   const frameRef = useRef<number | null>(null)
@@ -74,6 +76,20 @@ export default function App() {
   }, [bootstrap, connect, ingestEvents])
 
   useEffect(() => {
+    if (logicAnalyzerSessionState !== 'capturing') {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshLogicAnalyzerStatus()
+    }, 1500)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [logicAnalyzerSessionState, refreshLogicAnalyzerStatus])
+
+  useEffect(() => {
     if (!shouldPollMcpStatus(mcp)) {
       return
     }
@@ -92,13 +108,15 @@ export default function App() {
       <header className="titlebar">
         <div>
           <strong>EADAI Workbench</strong>
-          <small>Serial analysis workspace with dockable panels</small>
+          <small>Unified workbench with dockable telemetry and logic analyzer panels</small>
         </div>
-        <div className={`status-pill tone-${status.tone}`}>
-          <span className="status-dot" />
-          {session.port
-            ? `${session.port} · ${session.connectionState ?? 'idle'} · MCP ${mcp.isRunning ? 'ready' : 'starting'}`
-            : status.message}
+        <div className="titlebar-actions">
+          <div className={`status-pill tone-${status.tone}`}>
+            <span className="status-dot" />
+            {session.port
+              ? `${session.port} · ${session.connectionState ?? 'idle'} · MCP ${mcp.isRunning ? 'ready' : 'starting'}`
+              : status.message}
+          </div>
         </div>
       </header>
       <section className="status-strip">

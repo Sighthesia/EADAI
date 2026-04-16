@@ -1,7 +1,9 @@
+use crate::logic_analyzer::LogicAnalyzerService;
 use crate::mcp::EmbeddedMcpServer;
 use crate::model::{
-    apply_connection_snapshot, ConnectRequest, McpServerStatus, SendRequest, SessionSnapshot,
-    SourceKind, UiBusEvent, UiConnectionState, UiTransportKind,
+    apply_connection_snapshot, ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus,
+    McpServerStatus, SendRequest, SessionSnapshot, SourceKind, UiBusEvent, UiConnectionState,
+    UiTransportKind,
 };
 use eadai::bus::BusSubscription;
 use eadai::cli::{ParserKind, RunConfig};
@@ -17,6 +19,7 @@ pub const SERIAL_EVENT_NAME: &str = "serial-bus-event";
 pub struct DesktopState {
     runtime: SessionRuntimeHost,
     mcp_server: EmbeddedMcpServer,
+    logic_analyzer: LogicAnalyzerService,
     inner: Mutex<SessionState>,
 }
 
@@ -35,9 +38,11 @@ impl Default for DesktopState {
     fn default() -> Self {
         let runtime = SessionRuntimeHost::default();
         let mcp_server = EmbeddedMcpServer::new(runtime.adapter());
+        let logic_analyzer = LogicAnalyzerService::default();
         Self {
             runtime,
             mcp_server,
+            logic_analyzer,
             inner: Mutex::new(SessionState::default()),
         }
     }
@@ -59,6 +64,25 @@ impl DesktopState {
 
     pub fn mcp_status(&self) -> McpServerStatus {
         self.mcp_server.status()
+    }
+
+    pub fn logic_analyzer_status(&self) -> LogicAnalyzerStatus {
+        self.logic_analyzer.status()
+    }
+
+    pub fn refresh_logic_analyzer_devices(&self) -> Result<LogicAnalyzerStatus, String> {
+        self.logic_analyzer.refresh_devices()
+    }
+
+    pub fn start_logic_analyzer_capture(
+        &self,
+        request: LogicAnalyzerCaptureRequest,
+    ) -> Result<LogicAnalyzerStatus, String> {
+        self.logic_analyzer.start_capture(request)
+    }
+
+    pub fn stop_logic_analyzer_capture(&self) -> Result<LogicAnalyzerStatus, String> {
+        self.logic_analyzer.stop_capture()
     }
 
     pub fn connect(
