@@ -13,6 +13,7 @@ pub struct AnalysisFrame {
     pub min_value: Option<f64>,
     pub max_value: Option<f64>,
     pub mean_value: Option<f64>,
+    pub median_value: Option<f64>,
     pub rms_value: Option<f64>,
     pub variance: Option<f64>,
     pub edge_count: usize,

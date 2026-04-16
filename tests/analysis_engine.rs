@@ -28,6 +28,8 @@ fn pulse_stream_produces_waveform_metrics_and_edge_trigger() {
     assert_approx(frame.frequency_hz.expect("frequency"), 2.0, 0.2);
     assert_approx(frame.period_ms.expect("period"), 500.0, 60.0);
     assert_approx(frame.duty_cycle.expect("duty"), 40.0, 8.0);
+    assert_approx(frame.mean_value.expect("mean"), 0.4, 0.05);
+    assert_approx(frame.median_value.expect("median"), 0.0, 0.05);
     assert!(frame.variance.expect("variance") >= 0.0);
     assert!(frame.period_stability.is_some());
     assert!(frame.edge_count >= 6);
@@ -36,6 +38,31 @@ fn pulse_stream_produces_waveform_metrics_and_edge_trigger() {
             .iter()
             .any(|(rule_id, _)| rule_id == "pulse-edge-burst")
     );
+}
+
+#[test]
+fn periodic_mean_and_median_follow_latest_complete_cycle() {
+    let source = MessageSource::fake("fake://telemetry-lab", 115_200);
+    let mut engine = AnalysisEngine::with_window_ms(800);
+    let mut latest_frame = None;
+    let mut fired_rules = Vec::new();
+
+    for index in 0..21_u64 {
+        let value = if index % 5 < 2 { 1.0 } else { 0.0 };
+        if let Some(messages) = engine.ingest_line(
+            &source,
+            &LineDirection::Rx,
+            &parser("pulse_signal", value, index * 100, true),
+            index * 100,
+        ) {
+            capture_messages(&messages, &mut latest_frame, &mut fired_rules);
+        }
+    }
+
+    let frame = latest_frame.expect("analysis frame for sliding pulse stream");
+    assert_approx(frame.period_ms.expect("period"), 500.0, 60.0);
+    assert_approx(frame.mean_value.expect("mean"), 0.4, 0.05);
+    assert_approx(frame.median_value.expect("median"), 0.0, 0.05);
 }
 
 #[test]
@@ -124,8 +151,16 @@ fn imu_raw_stream_produces_fused_attitude_lines() {
         }
     }
 
-    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_roll"));
-    assert!(fused_lines.iter().any(|channel| channel == "imu_fused_pitch"));
+    assert!(
+        fused_lines
+            .iter()
+            .any(|channel| channel == "imu_fused_roll")
+    );
+    assert!(
+        fused_lines
+            .iter()
+            .any(|channel| channel == "imu_fused_pitch")
+    );
     assert!(fused_lines.iter().any(|channel| channel == "imu_fused_yaw"));
     assert!(fused_lines.iter().any(|channel| channel == "imu_fused_qw"));
     assert!(fused_lines.iter().any(|channel| channel == "imu_fused_qx"));

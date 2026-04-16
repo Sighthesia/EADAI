@@ -1,9 +1,9 @@
 use crate::ai_contract::{
     AiAdapterLimits, AiLineEventRecord, AiRecentEvent, AiRecentEventKind, AiSamplePoint,
     AiSessionSnapshot, AnalysisFramesResource, ChannelAnalysisResource, ChannelStatisticsQuery,
-    ChannelStatisticsResource, DEFAULT_CHANNEL_TRIGGER_CONTEXT_LIMIT, HistoricalAnalysisQuery,
-    HistoricalAnalysisResource, RecentEventsQuery, RecentEventsResource, TelemetryChannelSummary,
-    TelemetrySummaryResource, TriggerHistoryResource,
+    ChannelStatisticsResource, HistoricalAnalysisQuery, HistoricalAnalysisResource,
+    RecentEventsQuery, RecentEventsResource, TelemetryChannelSummary, TelemetrySummaryResource,
+    TriggerHistoryResource, DEFAULT_CHANNEL_TRIGGER_CONTEXT_LIMIT,
 };
 use crate::analysis::{AnalysisFrame, TriggerEvent};
 use crate::bus::BusSubscription;
@@ -115,6 +115,7 @@ impl AiContextAdapter {
                 min_value: None,
                 max_value: None,
                 mean_value: None,
+                median_value: None,
                 rms_value: None,
                 variance: None,
                 trend: None,
@@ -145,11 +146,22 @@ impl AiContextAdapter {
             .collect::<Vec<_>>();
         let min_value = values.iter().copied().reduce(f64::min);
         let max_value = values.iter().copied().reduce(f64::max);
-        let mean_value = Some(values.iter().sum::<f64>() / sample_count as f64);
+        let window_mean_value = Some(values.iter().sum::<f64>() / sample_count as f64);
+        let cycle_values = min_value.zip(max_value).and_then(|(min_value, max_value)| {
+            latest_cycle_values(&window_samples, min_value, max_value)
+        });
+        let mean_value = cycle_values
+            .as_ref()
+            .map(|values| values.iter().sum::<f64>() / values.len() as f64)
+            .or(window_mean_value);
+        let median_value = cycle_values
+            .as_ref()
+            .and_then(|values| compute_median(values))
+            .or_else(|| compute_median(&values));
         let rms_value = Some(
             (values.iter().map(|value| value * value).sum::<f64>() / sample_count as f64).sqrt(),
         );
-        let variance = mean_value.and_then(|mean| compute_variance(&values, mean));
+        let variance = window_mean_value.and_then(|mean| compute_variance(&values, mean));
         let time_span_ms = window_samples
             .first()
             .zip(window_samples.last())
@@ -176,6 +188,7 @@ impl AiContextAdapter {
             min_value,
             max_value,
             mean_value,
+            median_value,
             rms_value,
             variance,
             trend,
@@ -288,6 +301,81 @@ impl AiContextAdapter {
 
         RecentEventsResource { events }
     }
+}
+
+fn compute_median(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let center = sorted.len() / 2;
+
+    if sorted.len() % 2 == 0 {
+        Some((sorted[center - 1] + sorted[center]) / 2.0)
+    } else {
+        Some(sorted[center])
+    }
+}
+
+fn latest_cycle_values(
+    samples: &[AiSamplePoint],
+    min_value: f64,
+    max_value: f64,
+) -> Option<Vec<f64>> {
+    let range = max_value - min_value;
+    if samples.len() < 2 || !range.is_finite() || range < 0.2 {
+        return None;
+    }
+
+    let midpoint = min_value + (range / 2.0);
+    let hysteresis = (range * 0.1).max(0.02);
+    let upper = midpoint + hysteresis;
+    let lower = midpoint - hysteresis;
+    let mut state = samples
+        .first()
+        .map(|sample| sample.value >= midpoint)
+        .unwrap_or(false);
+    let mut rising_times = Vec::new();
+    let mut falling_times = Vec::new();
+
+    for sample in samples.iter().skip(1) {
+        let next_state = if sample.value >= upper {
+            true
+        } else if sample.value <= lower {
+            false
+        } else {
+            state
+        };
+
+        if next_state != state {
+            if next_state {
+                rising_times.push(sample.timestamp_ms);
+            } else {
+                falling_times.push(sample.timestamp_ms);
+            }
+            state = next_state;
+        }
+    }
+
+    let cycle_starts = if rising_times.len() >= 2 {
+        rising_times
+    } else if falling_times.len() >= 2 {
+        falling_times
+    } else {
+        return None;
+    };
+
+    let start_ms = cycle_starts[cycle_starts.len() - 2];
+    let end_ms = cycle_starts[cycle_starts.len() - 1];
+    let values = samples
+        .iter()
+        .filter(|sample| sample.timestamp_ms >= start_ms && sample.timestamp_ms < end_ms)
+        .map(|sample| sample.value)
+        .collect::<Vec<_>>();
+
+    (!values.is_empty()).then_some(values)
 }
 
 impl AiContextState {

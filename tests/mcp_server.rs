@@ -125,12 +125,12 @@ async fn reads_resources_and_calls_tools_over_mcp_transport() {
             CallToolRequestParam {
                 name: "query_historical_analysis".into(),
                 arguments: Some(
-                json!({
-                    "channel_id": "temp",
-                    "start_time_ms": 0,
-                    "end_time_ms": u64::MAX,
-                    "max_frames": 8
-                })
+                    json!({
+                        "channel_id": "temp",
+                        "start_time_ms": 0,
+                        "end_time_ms": u64::MAX,
+                        "max_frames": 8
+                    })
                     .as_object()
                     .expect("history arguments")
                     .clone(),
@@ -313,6 +313,7 @@ fn populated_server() -> TelemetryMcpServer {
             min_value: Some(24.0),
             max_value: Some(25.0),
             mean_value: Some(24.5),
+            median_value: Some(24.5),
             rms_value: Some(24.52),
             variance: Some(0.05),
             edge_count: 6,
@@ -337,6 +338,7 @@ fn populated_server() -> TelemetryMcpServer {
             min_value: Some(24.1),
             max_value: Some(25.1),
             mean_value: Some(24.7),
+            median_value: Some(24.7),
             rms_value: Some(24.73),
             variance: Some(0.04),
             edge_count: 6,

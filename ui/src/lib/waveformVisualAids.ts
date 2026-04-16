@@ -1,4 +1,4 @@
-export const WAVEFORM_VISUAL_AID_KEYS = ['labels', 'range', 'mean', 'median', 'slope', 'text'] as const
+export const WAVEFORM_VISUAL_AID_KEYS = ['labels', 'range', 'mean', 'median', 'period', 'slope', 'text'] as const
 
 export type WaveformVisualAidKey = (typeof WAVEFORM_VISUAL_AID_KEYS)[number]
 

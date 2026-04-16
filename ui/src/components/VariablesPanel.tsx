@@ -7,6 +7,7 @@ import {
   IMU_QUATERNION_ROLES,
   IMU_ROLE_LABELS,
 } from '../lib/imu'
+import { computeStableCycleStats } from '../lib/waveformPeriod'
 import { isWaveformVisualAidEnabled, type WaveformVisualAidKey, type WaveformVisualAidState } from '../lib/waveformVisualAids'
 import { useAppStore } from '../store/appStore'
 import type {
@@ -466,6 +467,13 @@ function buildVisualAidMenuItems(variable: VariableEntry | undefined, visualAidS
       detail: renderMedianMetric(variable),
     },
     {
+      key: 'period',
+      label: 'Period markers',
+      enabled: isWaveformVisualAidEnabled(visualAidState, channel, 'period'),
+      value: formatPeriodValue(variable),
+      detail: renderPeriodMetric(variable),
+    },
+    {
       key: 'slope',
       label: 'Slope line',
       enabled: isWaveformVisualAidEnabled(visualAidState, channel, 'slope'),
@@ -519,6 +527,23 @@ function renderMedianMetric(variable: VariableEntry) {
   return `Median ${formatNumericValue(variable, medianValue)}`
 }
 
+function formatPeriodValue(variable: VariableEntry) {
+  const periodMs = resolvePeriodValue(variable)
+  return periodMs === null ? 'No period data' : formatPeriodDuration(periodMs)
+}
+
+function renderPeriodMetric(variable: VariableEntry) {
+  const periodMs = resolvePeriodValue(variable)
+  if (periodMs === null) {
+    return variable.parserName ?? 'raw'
+  }
+
+  const frequencyHz = variable.analysis?.frequencyHz
+  return frequencyHz === undefined || frequencyHz === null
+    ? `Cycle start markers every ${formatPeriodDuration(periodMs)}`
+    : `Cycle start markers · ${frequencyHz.toFixed(2)} Hz`
+}
+
 function formatNumericValue(variable: VariableEntry, value: number) {
   const abs = Math.abs(value)
   const digits = abs >= 100 ? 1 : abs >= 10 ? 2 : 3
@@ -528,6 +553,10 @@ function formatNumericValue(variable: VariableEntry, value: number) {
 }
 
 function resolveAverageValue(variable: VariableEntry) {
+  const cycle = resolveStableCycleStats(variable)
+  if (cycle.meanValue !== null) {
+    return cycle.meanValue
+  }
   if (variable.analysis?.meanValue !== undefined && variable.analysis?.meanValue !== null) {
     return variable.analysis.meanValue
   }
@@ -538,6 +567,10 @@ function resolveAverageValue(variable: VariableEntry) {
 }
 
 function resolveMedianValue(variable: VariableEntry) {
+  const cycle = resolveStableCycleStats(variable)
+  if (cycle.medianValue !== null) {
+    return cycle.medianValue
+  }
   if (variable.analysis?.medianValue !== undefined && variable.analysis?.medianValue !== null) {
     return variable.analysis.medianValue
   }
@@ -547,6 +580,27 @@ function resolveMedianValue(variable: VariableEntry) {
     return values.length % 2 === 0 ? (values[center - 1] + values[center]) / 2 : values[center]
   }
   return Number.isFinite(variable.numericValue) ? (variable.numericValue as number) : null
+}
+
+function resolvePeriodValue(variable: VariableEntry) {
+  const cycle = resolveStableCycleStats(variable)
+  if (cycle.periodMs !== null) {
+    return cycle.periodMs
+  }
+  if (variable.analysis?.periodMs !== undefined && variable.analysis?.periodMs !== null) {
+    return variable.analysis.periodMs
+  }
+
+  const frequencyHz = variable.analysis?.frequencyHz
+  if (frequencyHz !== undefined && frequencyHz !== null && Number.isFinite(frequencyHz) && Math.abs(frequencyHz) > 1e-6) {
+    return 1000 / frequencyHz
+  }
+
+  return null
+}
+
+function resolveStableCycleStats(variable: VariableEntry) {
+  return computeStableCycleStats(variable.points, variable.analysis)
 }
 
 function renderSummaryMetric(variable: VariableEntry, mode: MetricDisplayMode) {
@@ -569,8 +623,9 @@ function renderSummaryMetric(variable: VariableEntry, mode: MetricDisplayMode) {
   if (variable.unit) {
     return normalizeUnitLabel(variable.unit)
   }
-  if (variable.analysis?.meanValue !== undefined && variable.analysis?.meanValue !== null) {
-    return `μ ${variable.analysis.meanValue.toFixed(3)}`
+  const meanValue = resolveAverageValue(variable)
+  if (meanValue !== null) {
+    return `μ ${meanValue.toFixed(3)}`
   }
   return `${variable.triggerCount} triggers`
 }
@@ -610,6 +665,20 @@ function normalizeUnitLabel(unit: string) {
     return '°F'
   }
   return unit
+}
+
+function formatPeriodDuration(periodMs: number) {
+  if (periodMs >= 1000) {
+    const seconds = periodMs / 1000
+    return `${seconds.toFixed(seconds >= 10 ? 1 : 2)} s`
+  }
+  if (periodMs >= 100) {
+    return `${periodMs.toFixed(0)} ms`
+  }
+  if (periodMs >= 10) {
+    return `${periodMs.toFixed(1)} ms`
+  }
+  return `${periodMs.toFixed(2)} ms`
 }
 
 function trendSymbol(trend: VariableEntry['trend']) {

@@ -1229,12 +1229,17 @@ button {
 
 .waveform-overlay-callout,
 .waveform-overlay-band,
+.waveform-overlay-period,
 .waveform-overlay-slope {
   fill: none;
 }
 
 .waveform-overlay-band {
   opacity: 0.95;
+}
+
+.waveform-overlay-period {
+  opacity: 0.9;
 }
 
 .waveform-overlay-latest-dot {

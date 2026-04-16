@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import uPlot from 'uplot'
+import { computeStableCycleStats } from '../lib/waveformPeriod'
 import { isWaveformVisualAidEnabled, type WaveformVisualAidState } from '../lib/waveformVisualAids'
 import { useAppStore } from '../store/appStore'
 import type { UiAnalysisPayload, VariableEntry } from '../types'
@@ -25,6 +26,13 @@ type NumericStats = {
   changeRate?: number | null
 }
 
+type PeriodStats = {
+  periodMs: number | null
+  cycleStartsMs: number[]
+  meanValue: number | null
+  medianValue: number | null
+}
+
 type PlotTrack = {
   name: string
   color: string
@@ -33,11 +41,13 @@ type PlotTrack = {
   rangeEnabled: boolean
   meanEnabled: boolean
   medianEnabled: boolean
+  periodEnabled: boolean
   slopeEnabled: boolean
   points: Array<{ timestampMs: number; value: number }>
   displayValue: string
   seriesIndex: number
   stats: NumericStats
+  period: PeriodStats
 }
 
 type TextTrack = {
@@ -280,6 +290,7 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
     rangeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'range'),
     meanEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'mean'),
     medianEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'median'),
+    periodEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'period'),
     slopeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'slope'),
   }))
 
@@ -304,7 +315,14 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
     .map((item, index) => {
       const sourcePoints = item.variable.points.length > 0 ? item.variable.points : createFallbackNumericPoint(item.variable, windowEndMs)
       const visiblePoints = sourcePoints.filter((point) => point.timestampMs >= windowStartMs)
-      const stats = resolveNumericStats(item.variable, visiblePoints, sourcePoints)
+      const cycle = computeStableCycleStats(sourcePoints, item.variable.analysis)
+      const period = {
+        periodMs: cycle.periodMs,
+        cycleStartsMs: cycle.cycleStartsMs,
+        meanValue: cycle.meanValue,
+        medianValue: cycle.medianValue,
+      }
+      const stats = resolveNumericStats(item.variable, visiblePoints, sourcePoints, period)
       return {
         name: item.name,
         color: item.color,
@@ -313,6 +331,7 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
         rangeEnabled: item.rangeEnabled,
         meanEnabled: item.meanEnabled,
         medianEnabled: item.medianEnabled,
+        periodEnabled: item.periodEnabled,
         slopeEnabled: item.slopeEnabled,
         points: visiblePoints,
         displayValue: formatDisplayValue(
@@ -321,6 +340,7 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
         ),
         seriesIndex: index + 1,
         stats,
+        period,
       }
     })
 
@@ -418,13 +438,14 @@ function resolveNumericStats(
   variable: VariableEntry,
   visiblePoints: Array<{ timestampMs: number; value: number }>,
   allPoints: Array<{ timestampMs: number; value: number }>,
+  period: PeriodStats,
 ): NumericStats {
   const analysis = variable.analysis
   const statSource = visiblePoints.length > 0 ? visiblePoints : allPoints
   const minValue = fallbackStat(statSource, 'min')
   const maxValue = fallbackStat(statSource, 'max')
-  const meanValue = analysis?.meanValue ?? fallbackStat(statSource, 'mean')
-  const medianValue = analysis?.medianValue ?? fallbackStat(statSource, 'median')
+  const meanValue = period.meanValue ?? analysis?.meanValue ?? fallbackStat(statSource, 'mean')
+  const medianValue = period.medianValue ?? analysis?.medianValue ?? fallbackStat(statSource, 'median')
 
   return {
     minValue,
@@ -536,7 +557,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
             labelsLayer,
             textTrackLayer,
             items: new Map<string, OverlayItemElements>(),
-            cursorItems: new Map<string, HTMLDivElement>(),
+            periodLines: new Map<string, SVGLineElement[]>(),
             textTrackSignature: '',
           }
 
@@ -583,7 +604,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const height = Math.max(0, Math.floor(u.over.getBoundingClientRect().height))
 
     const activeNumericTracks = model.numericTracks.filter(
-      (track) => track.labelsEnabled || track.rangeEnabled || track.meanEnabled || track.medianEnabled || track.slopeEnabled,
+      (track) => track.labelsEnabled || track.rangeEnabled || track.meanEnabled || track.medianEnabled || track.periodEnabled || track.slopeEnabled,
     )
     const activeTextTracks = model.textTracks.filter((track) => track.textEnabled)
     const textTrackSignature = activeTextTracks.map((track) => `${track.name}\u0000${track.value}\u0000${track.color}`).join('|')
@@ -625,6 +646,12 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       } else {
         elements.minLine.setAttribute('visibility', 'hidden')
         elements.maxLine.setAttribute('visibility', 'hidden')
+      }
+
+      if (track.periodEnabled && track.period.periodMs !== null) {
+        syncPeriodLines(state, u, track, width, minY, maxY, model.windowStartMs, model.windowEndMs)
+      } else {
+        hidePeriodLines(state.periodLines.get(track.name))
       }
 
       if (track.meanEnabled) {
@@ -724,6 +751,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
         element.minLine.setAttribute('visibility', 'hidden')
         element.maxLine.setAttribute('visibility', 'hidden')
         element.slopeLine.setAttribute('visibility', 'hidden')
+        hidePeriodLines(state.periodLines.get(name))
       }
     }
 
@@ -809,6 +837,46 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
 
   function getOverlayState(u: uPlot) {
     return (u as uPlot & { __waveformOverlayState?: OverlayState }).__waveformOverlayState ?? null
+  }
+
+  function syncPeriodLines(
+    state: OverlayState,
+    u: uPlot,
+    track: PlotTrack,
+    width: number,
+    minY: number,
+    maxY: number,
+    windowStartMs: number,
+    windowEndMs: number,
+  ) {
+    const lines = state.periodLines.get(track.name) ?? []
+    const cycleStarts = track.period.cycleStartsMs
+      .filter((timestampMs) => timestampMs >= windowStartMs && timestampMs <= windowEndMs)
+      .sort((left, right) => left - right)
+
+    for (let index = 0; index < cycleStarts.length; index += 1) {
+      const timestampMs = cycleStarts[index]!
+      const line = lines[index] ?? createSvgLine(state.linesLayer, 'waveform-overlay-period')
+      lines[index] = line
+      const x = safePos(u, (timestampMs - windowStartMs) / 1000, 'x', width)
+      setLine(line, x, minY, x, maxY, colorToRgba(track.color, 0.42), '4 6', 1.4)
+    }
+
+    for (let index = cycleStarts.length; index < lines.length; index += 1) {
+      lines[index]?.setAttribute('visibility', 'hidden')
+    }
+
+    state.periodLines.set(track.name, lines)
+  }
+
+  function hidePeriodLines(lines?: SVGLineElement[]) {
+    if (!lines) {
+      return
+    }
+
+    for (const line of lines) {
+      line.setAttribute('visibility', 'hidden')
+    }
   }
 
   function getOrCreateOverlayElements(state: OverlayState, name: string) {
@@ -1156,7 +1224,7 @@ type OverlayState = {
   labelsLayer: HTMLDivElement
   textTrackLayer: HTMLDivElement
   items: Map<string, OverlayItemElements>
-  cursorItems: Map<string, HTMLDivElement>
+  periodLines: Map<string, SVGLineElement[]>
   textTrackSignature: string
 }
 

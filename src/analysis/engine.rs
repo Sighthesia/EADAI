@@ -76,6 +76,8 @@ struct EdgeMetrics {
     period_ms: Option<f64>,
     period_stability: Option<f64>,
     duty_cycle: Option<f64>,
+    cycle_mean_value: Option<f64>,
+    cycle_median_value: Option<f64>,
     edge_count: usize,
     rising_edges: usize,
     falling_edges: usize,
@@ -178,12 +180,13 @@ fn compute_frame(
     let sample_count = values.len();
     let min_value = values.iter().copied().reduce(f64::min);
     let max_value = values.iter().copied().reduce(f64::max);
-    let mean_value = Some(values.iter().sum::<f64>() / sample_count as f64);
+    let window_mean_value = Some(values.iter().sum::<f64>() / sample_count as f64);
+    let window_median_value = compute_median(&values);
     let rms_value =
         Some((values.iter().map(|value| value * value).sum::<f64>() / sample_count as f64).sqrt());
     let trend = (sample_count >= 2).then_some(last.value - first.value);
     let span_ms = last.timestamp_ms.saturating_sub(first.timestamp_ms) as f64;
-    let variance = compute_variance(&values, mean_value?);
+    let variance = compute_variance(&values, window_mean_value?);
     let change_rate = if span_ms >= MIN_EDGE_SPAN_MS {
         trend.map(|delta| delta / (span_ms / 1000.0))
     } else {
@@ -191,6 +194,8 @@ fn compute_frame(
     };
 
     let edge_metrics = compute_edge_metrics(samples, min_value?, max_value?);
+    let mean_value = edge_metrics.cycle_mean_value.or(window_mean_value);
+    let median_value = edge_metrics.cycle_median_value.or(window_median_value);
     Some(AnalysisFrame {
         channel_id: channel_id.to_string(),
         window_ms,
@@ -203,6 +208,7 @@ fn compute_frame(
         min_value,
         max_value,
         mean_value,
+        median_value,
         rms_value,
         variance,
         edge_count: edge_metrics.edge_count,
@@ -226,6 +232,8 @@ fn compute_edge_metrics(
             period_ms: None,
             period_stability: None,
             duty_cycle: None,
+            cycle_mean_value: None,
+            cycle_median_value: None,
             edge_count: 0,
             rising_edges: 0,
             falling_edges: 0,
@@ -263,9 +271,9 @@ fn compute_edge_metrics(
 
         if next_state != state {
             if next_state {
-                rising_times.push(next.timestamp_ms as f64);
+                rising_times.push(next.timestamp_ms);
             } else {
-                falling_times.push(next.timestamp_ms as f64);
+                falling_times.push(next.timestamp_ms);
             }
             state = next_state;
         }
@@ -282,38 +290,48 @@ fn compute_edge_metrics(
     let duty_cycle = (span_ms >= MIN_EDGE_SPAN_MS).then_some((high_ms / span_ms) * 100.0);
     let period_stability =
         period_stability(&rising_times).or_else(|| period_stability(&falling_times));
+    let cycle_values = latest_cycle_values(&ordered, &rising_times)
+        .or_else(|| latest_cycle_values(&ordered, &falling_times));
+    let cycle_mean_value = cycle_values
+        .as_ref()
+        .map(|values| values.iter().sum::<f64>() / values.len() as f64);
+    let cycle_median_value = cycle_values
+        .as_ref()
+        .and_then(|values| compute_median(values));
 
     EdgeMetrics {
         frequency_hz,
         period_ms,
         period_stability,
         duty_cycle,
+        cycle_mean_value,
+        cycle_median_value,
         edge_count: rising_times.len() + falling_times.len(),
         rising_edges: rising_times.len(),
         falling_edges: falling_times.len(),
     }
 }
 
-fn average_period(edges: &[f64]) -> Option<f64> {
+fn average_period(edges: &[u64]) -> Option<f64> {
     if edges.len() < 2 {
         return None;
     }
 
     let deltas = edges
         .windows(2)
-        .map(|window| window[1] - window[0])
+        .map(|window| window[1].saturating_sub(window[0]) as f64)
         .collect::<Vec<_>>();
     Some(deltas.iter().sum::<f64>() / deltas.len() as f64)
 }
 
-fn period_stability(edges: &[f64]) -> Option<f64> {
+fn period_stability(edges: &[u64]) -> Option<f64> {
     if edges.len() < 3 {
         return None;
     }
 
     let periods = edges
         .windows(2)
-        .map(|window| window[1] - window[0])
+        .map(|window| window[1].saturating_sub(window[0]) as f64)
         .collect::<Vec<_>>();
     let mean = periods.iter().sum::<f64>() / periods.len() as f64;
     if mean == 0.0 {
@@ -330,6 +348,38 @@ fn period_stability(edges: &[f64]) -> Option<f64> {
         / periods.len() as f64;
 
     Some(1.0 / (1.0 + variance.sqrt() / mean.abs()))
+}
+
+fn latest_cycle_values(samples: &[SamplePoint], cycle_starts: &[u64]) -> Option<Vec<f64>> {
+    if cycle_starts.len() < 2 {
+        return None;
+    }
+
+    let start_ms = cycle_starts[cycle_starts.len() - 2];
+    let end_ms = cycle_starts[cycle_starts.len() - 1];
+    let values = samples
+        .iter()
+        .filter(|sample| sample.timestamp_ms >= start_ms && sample.timestamp_ms < end_ms)
+        .map(|sample| sample.value)
+        .collect::<Vec<_>>();
+
+    (!values.is_empty()).then_some(values)
+}
+
+fn compute_median(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let center = sorted.len() / 2;
+
+    if sorted.len() % 2 == 0 {
+        Some((sorted[center - 1] + sorted[center]) / 2.0)
+    } else {
+        Some(sorted[center])
+    }
 }
 
 fn compute_variance(values: &[f64], mean: f64) -> Option<f64> {
