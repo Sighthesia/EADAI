@@ -1,14 +1,14 @@
 use crate::logic_analyzer::LogicAnalyzerService;
 use crate::mcp::EmbeddedMcpServer;
 use crate::model::{
-    ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus, McpServerStatus, SendRequest,
-    SessionSnapshot, SourceKind, UiBusEvent, UiConnectionState, UiTransportKind,
-    apply_connection_snapshot,
+    apply_connection_snapshot, ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus,
+    McpServerStatus, SendRequest, SessionSnapshot, SourceKind, UiBusEvent, UiConnectionState,
+    UiTransportKind,
 };
 use eadai::bus::BusSubscription;
 use eadai::cli::{ParserKind, RunConfig};
 use eadai::runtime_host::{FakeRuntimeConfig, RuntimeSessionConfig, SessionRuntimeHost};
-use eadai::serial;
+use eadai::serial::{self, SerialDeviceInfo};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -49,8 +49,10 @@ impl Default for DesktopState {
 }
 
 impl DesktopState {
-    pub fn list_ports(&self) -> Result<Vec<String>, String> {
-        self.runtime.list_ports().map_err(|error| error.to_string())
+    pub fn list_ports(&self) -> Result<Vec<SerialDeviceInfo>, String> {
+        self.runtime
+            .list_visible_devices()
+            .map_err(|error| error.to_string())
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {

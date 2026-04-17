@@ -5,12 +5,15 @@ import type { SerialBusEvent } from './types'
 import { Workbench } from './components/Workbench'
 import { shouldPollMcpStatus } from './store/appStore'
 
+const SERIAL_PORT_POLL_INTERVAL_MS = 1500
+
 export default function App() {
   const bootstrap = useAppStore((state) => state.bootstrap)
   const connect = useAppStore((state) => state.connect)
   const ingestEvents = useAppStore((state) => state.ingestEvents)
   const mcp = useAppStore((state) => state.mcp)
   const refreshMcpStatus = useAppStore((state) => state.refreshMcpStatus)
+  const refreshPortsSilently = useAppStore((state) => state.refreshPortsSilently)
   const refreshLogicAnalyzerStatus = useAppStore((state) => state.refreshLogicAnalyzerStatus)
   const session = useAppStore((state) => state.session)
   const logicAnalyzerSessionState = useAppStore((state) => state.logicAnalyzer.sessionState)
@@ -74,6 +77,16 @@ export default function App() {
       }
     }
   }, [bootstrap, connect, ingestEvents])
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void refreshPortsSilently()
+    }, SERIAL_PORT_POLL_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [refreshPortsSilently])
 
   useEffect(() => {
     if (logicAnalyzerSessionState !== 'capturing') {

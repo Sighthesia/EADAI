@@ -7,12 +7,13 @@ import type {
   McpServerStatus,
   SendRequest,
   SerialBusEvent,
+  SerialDeviceInfo,
   SessionSnapshot,
 } from '../types'
 
 const SERIAL_EVENT_NAME = 'serial-bus-event'
 
-export const listSerialPorts = () => invoke<string[]>('list_serial_ports')
+export const listSerialPorts = () => invoke<SerialDeviceInfo[]>('list_serial_ports')
 
 export const getSessionSnapshot = () => invoke<SessionSnapshot>('get_session_snapshot')
 

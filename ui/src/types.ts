@@ -26,6 +26,19 @@ export interface SessionSnapshot {
   connectionState?: UiConnectionState | null
 }
 
+export type SerialDevicePortType = 'usb' | 'bluetooth' | 'pci' | 'unknown'
+
+export interface SerialDeviceInfo {
+  portName: string
+  displayName: string
+  portType: SerialDevicePortType
+  manufacturer?: string | null
+  product?: string | null
+  serialNumber?: string | null
+  vid?: number | null
+  pid?: number | null
+}
+
 export interface McpServerStatus {
   isRunning: boolean
   transport: string

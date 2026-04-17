@@ -5,7 +5,7 @@ use crate::bus::{BusSubscription, MessageBus};
 use crate::cli::RunConfig;
 use crate::error::AppError;
 use crate::fake_session::{self, FakeSessionHandle};
-use crate::serial;
+use crate::serial::{self, SerialDeviceInfo};
 use std::io::ErrorKind;
 use std::sync::{Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
@@ -160,6 +160,11 @@ impl SessionRuntimeHost {
     /// Lists serial ports using the shared backend helper.
     pub fn list_ports(&self) -> Result<Vec<String>, AppError> {
         serial::list_ports()
+    }
+
+    /// Lists UI-visible serial devices with host metadata.
+    pub fn list_visible_devices(&self) -> Result<Vec<SerialDeviceInfo>, AppError> {
+        serial::list_visible_devices()
     }
 }
 

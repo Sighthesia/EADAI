@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../store/appStore'
-import type { ConnectRequest, LogicAnalyzerConfig, LogicAnalyzerStatus, SessionSnapshot, SourceKind } from '../types'
+import type { ConnectRequest, LogicAnalyzerConfig, LogicAnalyzerStatus, SerialDeviceInfo, SessionSnapshot, SourceKind } from '../types'
 
 const FAKE_PROFILES = [
   { value: 'telemetry-lab', label: 'Telemetry Lab' },
@@ -18,6 +18,7 @@ type DeviceCard = {
   sourceKind?: SourceKind
   port?: string
   fakeProfile?: string
+  serialDevice?: SerialDeviceInfo
   title: string
   subtitle: string
   status: string
@@ -45,6 +46,7 @@ export function ConnectionPanel() {
   const logicAnalyzerConfig = useAppStore((state) => state.logicAnalyzerConfig)
   const connect = useAppStore((state) => state.connect)
   const disconnect = useAppStore((state) => state.disconnect)
+  const refreshPorts = useAppStore((state) => state.refreshPorts)
   const refreshLogicAnalyzerDevices = useAppStore((state) => state.refreshLogicAnalyzerDevices)
   const patchLogicAnalyzerConfig = useAppStore((state) => state.patchLogicAnalyzerConfig)
   const startLogicAnalyzerCapture = useAppStore((state) => state.startLogicAnalyzerCapture)
@@ -62,30 +64,32 @@ export function ConnectionPanel() {
   const isDev = import.meta.env.DEV
 
   const deviceCards = useMemo<DeviceCard[]>(() => {
-    const serialPortSet = new Set(ports)
-    if (config.sourceKind === 'serial' && config.port) {
-      serialPortSet.add(config.port)
+    const serialPortMap = new Map(ports.map((port) => [port.portName, port]))
+    if (config.sourceKind === 'serial' && config.port && !serialPortMap.has(config.port)) {
+      serialPortMap.set(config.port, buildFallbackSerialDevice(config.port))
     }
-    if (session.transport === 'serial' && session.port) {
-      serialPortSet.add(session.port)
+    if (session.transport === 'serial' && session.port && !serialPortMap.has(session.port)) {
+      serialPortMap.set(session.port, buildFallbackSerialDevice(session.port))
     }
 
-    const serialCards = Array.from(serialPortSet)
-      .sort((left, right) => left.localeCompare(right))
-      .map((portName) => {
+    const serialCards = Array.from(serialPortMap.values())
+      .sort(compareSerialDevices)
+      .map((port) => {
+        const portName = port.portName
         const meta = deviceMeta[portName]
-        const title = meta?.alias.trim() || portName
+        const title = meta?.alias.trim() || port.displayName || portName
         const connected = session.transport === 'serial' && session.port === portName && session.isRunning
         return {
           id: portName,
           kind: 'serial' as const,
           sourceKind: 'serial' as const,
           port: portName,
+          serialDevice: port,
           title,
           subtitle: portName,
           status: connected ? session.connectionState ?? 'connected' : config.port === portName ? 'armed' : 'idle',
           metric: `${session.baudRate ?? config.baudRate} baud`,
-          info: meta?.note.trim() || 'Serial telemetry transport',
+          info: meta?.note.trim() || formatSerialDeviceInfo(port),
           active: selectedDeviceId === portName,
           connected,
           editableName: title,
@@ -310,6 +314,7 @@ export function ConnectionPanel() {
               config={config}
               session={session}
               selectedCard={selectedCard}
+              refreshPorts={refreshPorts}
               patchConfig={patchConfig}
               connect={connect}
               disconnect={disconnect}
@@ -357,6 +362,7 @@ function SerialConnectionDetail({
   config,
   session,
   selectedCard,
+  refreshPorts,
   patchConfig,
   connect,
   disconnect,
@@ -364,6 +370,7 @@ function SerialConnectionDetail({
   config: ConnectRequest
   session: SessionSnapshot
   selectedCard?: DeviceCard
+  refreshPorts: () => Promise<void>
   patchConfig: (value: Partial<ConnectRequest>) => void
   connect: () => Promise<void>
   disconnect: () => Promise<void>
@@ -417,6 +424,9 @@ function SerialConnectionDetail({
         </label>
       </div>
       <div className="toolbar-row">
+        <button className="ghost-button" onClick={() => void refreshPorts()}>
+          Refresh Ports
+        </button>
         {session.isRunning ? (
           <button className="danger-button" onClick={() => void disconnect()}>
             Disconnect
@@ -437,8 +447,24 @@ function SerialConnectionDetail({
           <dd>{selectedCard?.sourceKind === 'fake' ? 'Fake Stream' : 'Serial Port'}</dd>
         </div>
         <div>
+          <dt>Port Type</dt>
+          <dd>{formatPortTypeLabel(selectedCard?.serialDevice?.portType)}</dd>
+        </div>
+        <div>
           <dt>Baud</dt>
           <dd>{session.baudRate ?? '-'}</dd>
+        </div>
+        <div>
+          <dt>Product</dt>
+          <dd>{selectedCard?.serialDevice?.product ?? '-'}</dd>
+        </div>
+        <div>
+          <dt>Manufacturer</dt>
+          <dd>{selectedCard?.serialDevice?.manufacturer ?? '-'}</dd>
+        </div>
+        <div>
+          <dt>VID:PID</dt>
+          <dd>{formatUsbIdentifier(selectedCard?.serialDevice) ?? '-'}</dd>
         </div>
       </dl>
     </section>
@@ -545,6 +571,75 @@ function readDeviceMeta(): DeviceMetaMap {
   } catch {
     return {}
   }
+}
+
+function buildFallbackSerialDevice(portName: string): SerialDeviceInfo {
+  return {
+    portName,
+    displayName: portName,
+    portType: 'unknown',
+    manufacturer: null,
+    product: null,
+    serialNumber: null,
+    vid: null,
+    pid: null,
+  }
+}
+
+function compareSerialDevices(left: SerialDeviceInfo, right: SerialDeviceInfo) {
+  return (
+    rankPortType(left.portType) - rankPortType(right.portType) ||
+    left.displayName.localeCompare(right.displayName) ||
+    left.portName.localeCompare(right.portName)
+  )
+}
+
+function rankPortType(portType: SerialDeviceInfo['portType']) {
+  switch (portType) {
+    case 'usb':
+      return 0
+    case 'bluetooth':
+      return 1
+    case 'pci':
+      return 2
+    case 'unknown':
+      return 3
+  }
+}
+
+function formatSerialDeviceInfo(device: SerialDeviceInfo) {
+  const parts = [device.product, device.manufacturer, formatUsbIdentifier(device)].filter(
+    (value): value is string => Boolean(value),
+  )
+
+  return parts.length > 0 ? parts.join(' · ') : 'Serial telemetry transport'
+}
+
+function formatPortTypeLabel(portType?: SerialDeviceInfo['portType']) {
+  switch (portType) {
+    case 'usb':
+      return 'USB serial'
+    case 'bluetooth':
+      return 'Bluetooth serial'
+    case 'pci':
+      return 'PCI serial'
+    case 'unknown':
+      return 'Generic serial'
+    default:
+      return '-'
+  }
+}
+
+function formatUsbIdentifier(device?: SerialDeviceInfo) {
+  if (device?.vid == null || device.pid == null) {
+    return null
+  }
+
+  return `${formatUsbHex(device.vid)}:${formatUsbHex(device.pid)}`
+}
+
+function formatUsbHex(value: number) {
+  return value.toString(16).padStart(4, '0').toUpperCase()
 }
 
 function clampMenuX(value: number) {

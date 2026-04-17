@@ -3,10 +3,11 @@ use crate::model::{
     SessionSnapshot,
 };
 use crate::state::DesktopState;
+use eadai::serial::SerialDeviceInfo;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
-pub fn list_serial_ports(state: State<'_, DesktopState>) -> Result<Vec<String>, String> {
+pub fn list_serial_ports(state: State<'_, DesktopState>) -> Result<Vec<SerialDeviceInfo>, String> {
     state.list_ports()
 }
 

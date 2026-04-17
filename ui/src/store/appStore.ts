@@ -44,6 +44,7 @@ import type {
   LogicAnalyzerStatus,
   McpServerStatus,
   SerialBusEvent,
+  SerialDeviceInfo,
   SessionSnapshot,
   UiAnalysisPayload,
   UiTriggerPayload,
@@ -56,7 +57,7 @@ const CHANNEL_COLORS = ['#4FC3F7', '#C792EA', '#F78C6C', '#A5E075', '#E6C07B', '
 const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
 
 type AppStore = {
-  ports: string[]
+  ports: SerialDeviceInfo[]
   session: SessionSnapshot
   mcp: McpServerStatus
   config: ConnectRequest
@@ -82,6 +83,7 @@ type AppStore = {
   bootstrap: () => Promise<void>
   refreshMcpStatus: () => Promise<void>
   refreshPorts: () => Promise<void>
+  refreshPortsSilently: () => Promise<void>
   connect: () => Promise<void>
   disconnect: () => Promise<void>
   send: () => Promise<void>
@@ -197,7 +199,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         port:
           session.transport === 'fake'
             ? state.config.port
-            : session.port ?? ports[0] ?? state.config.port,
+            : session.port ?? ports[0]?.portName ?? state.config.port,
         baudRate: session.baudRate ?? state.config.baudRate,
         sourceKind:
           session.transport === 'fake'
@@ -292,22 +294,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   refreshPorts: async () => {
     const ports = await listSerialPorts()
-    set((state) => ({
-      ports,
-      config: {
-        ...state.config,
-        port:
-          state.config.sourceKind === 'fake'
-            ? state.config.port
-            : ports.includes(state.config.port)
-              ? state.config.port
-              : ports[0] ?? '',
-      },
-      status: {
-        tone: 'neutral',
-        message: ports.length > 0 ? `Found ${ports.length} serial ports.` : 'No serial ports found.',
-      },
-    }))
+    set((state) => buildPortsRefreshState(state, ports, false))
+  },
+  refreshPortsSilently: async () => {
+    const ports = await listSerialPorts()
+    set((state) => buildPortsRefreshState(state, ports, true))
   },
   connect: async () => {
     const { config } = get()
@@ -738,6 +729,59 @@ const refreshLogicAnalyzerDevicesSafely = async () => {
     return readLogicAnalyzerStatusSafely()
   }
 }
+
+const buildPortsRefreshState = (
+  state: AppStore,
+  ports: SerialDeviceInfo[],
+  silent: boolean,
+): Partial<AppStore> => {
+  const nextState: Partial<AppStore> = {
+    ports,
+    config: {
+      ...state.config,
+      port:
+        state.config.sourceKind === 'fake'
+          ? state.config.port
+          : ports.some((port) => port.portName === state.config.port)
+            ? state.config.port
+            : ports[0]?.portName ?? '',
+    },
+  }
+
+  if (!silent) {
+    nextState.status = {
+      tone: 'neutral',
+      message: ports.length > 0 ? `Found ${ports.length} serial devices.` : 'No serial devices found.',
+    }
+    return nextState
+  }
+
+  if (sameSerialDeviceList(state.ports, ports)) {
+    return nextState
+  }
+
+  nextState.status = {
+    tone: 'neutral',
+    message: ports.length > 0 ? `Detected serial device change. ${ports.length} available.` : 'Detected serial device removal.',
+  }
+  return nextState
+}
+
+const sameSerialDeviceList = (left: SerialDeviceInfo[], right: SerialDeviceInfo[]) =>
+  left.length === right.length &&
+  left.every((device, index) => {
+    const next = right[index]
+    return (
+      device.portName === next?.portName &&
+      device.displayName === next.displayName &&
+      device.portType === next.portType &&
+      device.manufacturer === next.manufacturer &&
+      device.product === next.product &&
+      device.serialNumber === next.serialNumber &&
+      device.vid === next.vid &&
+      device.pid === next.pid
+    )
+  })
 
 const syncLogicAnalyzerConfig = (
   config: LogicAnalyzerConfig,

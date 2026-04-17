@@ -1,6 +1,8 @@
 use crate::cli::{InteractiveConfig, RunConfig, SendConfig};
 use crate::error::AppError;
 use crate::message::LinePayload;
+use serde::Serialize;
+use serialport::{SerialPortInfo as NativeSerialPortInfo, SerialPortType};
 use std::io::{ErrorKind, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -20,10 +22,74 @@ pub struct FramedLine {
     pub status: FrameStatus,
 }
 
+/// Transport type exposed by a discovered serial device.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SerialDeviceTransport {
+    Usb,
+    Bluetooth,
+    Pci,
+    Unknown,
+}
+
+/// UI-facing description of a discovered serial device.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialDeviceInfo {
+    /// OS identifier for the serial port.
+    pub port_name: String,
+    /// Friendly label used by the desktop UI.
+    pub display_name: String,
+    /// Physical transport category reported by the host.
+    pub port_type: SerialDeviceTransport,
+    /// USB manufacturer if reported by the host.
+    pub manufacturer: Option<String>,
+    /// USB product name if reported by the host.
+    pub product: Option<String>,
+    /// USB serial number if reported by the host.
+    pub serial_number: Option<String>,
+    /// USB vendor ID if reported by the host.
+    pub vid: Option<u16>,
+    /// USB product ID if reported by the host.
+    pub pid: Option<u16>,
+}
+
 /// Enumerates available serial ports.
 pub fn list_ports() -> Result<Vec<String>, AppError> {
     let ports = serialport::available_ports()?;
     Ok(ports.into_iter().map(|port| port.port_name).collect())
+}
+
+/// Enumerates visible serial devices for the desktop UI.
+///
+/// - Filters noisy Linux built-in `ttyS*` entries from the discovery list.
+/// - Preserves USB metadata so the UI can surface product names.
+pub fn list_visible_devices() -> Result<Vec<SerialDeviceInfo>, AppError> {
+    let ports = serialport::available_ports()?;
+    Ok(describe_visible_devices(ports))
+}
+
+/// Converts host port enumeration into UI-facing device descriptors.
+///
+/// - `ports`: raw ports returned by `serialport::available_ports()`.
+pub fn describe_visible_devices(ports: Vec<NativeSerialPortInfo>) -> Vec<SerialDeviceInfo> {
+    let mut devices = ports
+        .into_iter()
+        .filter(should_include_port)
+        .map(build_serial_device_info)
+        .collect::<Vec<_>>();
+
+    devices.sort_by(|left, right| {
+        let left_name = left.display_name.to_ascii_lowercase();
+        let right_name = right.display_name.to_ascii_lowercase();
+
+        port_type_rank(&left.port_type)
+            .cmp(&port_type_rank(&right.port_type))
+            .then(left_name.cmp(&right_name))
+            .then(left.port_name.cmp(&right.port_name))
+    });
+
+    devices
 }
 
 /// Opens a serial port with the configured timeout.
@@ -66,6 +132,80 @@ pub fn payload_bytes_for_text(payload: &str, append_newline: bool) -> Vec<u8> {
         bytes.push(b'\n');
     }
     bytes
+}
+
+fn build_serial_device_info(port: NativeSerialPortInfo) -> SerialDeviceInfo {
+    match port.port_type {
+        SerialPortType::UsbPort(info) => SerialDeviceInfo {
+            display_name: info
+                .product
+                .clone()
+                .or_else(|| info.manufacturer.clone())
+                .unwrap_or_else(|| port.port_name.clone()),
+            port_name: port.port_name,
+            port_type: SerialDeviceTransport::Usb,
+            manufacturer: info.manufacturer,
+            product: info.product,
+            serial_number: info.serial_number,
+            vid: Some(info.vid),
+            pid: Some(info.pid),
+        },
+        SerialPortType::BluetoothPort => SerialDeviceInfo {
+            display_name: port.port_name.clone(),
+            port_name: port.port_name,
+            port_type: SerialDeviceTransport::Bluetooth,
+            manufacturer: None,
+            product: None,
+            serial_number: None,
+            vid: None,
+            pid: None,
+        },
+        SerialPortType::PciPort => SerialDeviceInfo {
+            display_name: port.port_name.clone(),
+            port_name: port.port_name,
+            port_type: SerialDeviceTransport::Pci,
+            manufacturer: None,
+            product: None,
+            serial_number: None,
+            vid: None,
+            pid: None,
+        },
+        SerialPortType::Unknown => SerialDeviceInfo {
+            display_name: port.port_name.clone(),
+            port_name: port.port_name,
+            port_type: SerialDeviceTransport::Unknown,
+            manufacturer: None,
+            product: None,
+            serial_number: None,
+            vid: None,
+            pid: None,
+        },
+    }
+}
+
+fn should_include_port(port: &NativeSerialPortInfo) -> bool {
+    if !cfg!(target_os = "linux") {
+        return true;
+    }
+
+    match port.port_type {
+        SerialPortType::UsbPort(_) | SerialPortType::BluetoothPort => true,
+        SerialPortType::PciPort | SerialPortType::Unknown => !is_noisy_linux_tty(&port.port_name),
+    }
+}
+
+fn is_noisy_linux_tty(port_name: &str) -> bool {
+    let base_name = port_name.rsplit('/').next().unwrap_or(port_name);
+    base_name == "tty" || base_name == "ttyprintk" || base_name.starts_with("ttyS")
+}
+
+fn port_type_rank(port_type: &SerialDeviceTransport) -> u8 {
+    match port_type {
+        SerialDeviceTransport::Usb => 0,
+        SerialDeviceTransport::Bluetooth => 1,
+        SerialDeviceTransport::Pci => 2,
+        SerialDeviceTransport::Unknown => 3,
+    }
 }
 
 /// Writes payload bytes to the serial port and flushes the stream.
