@@ -6,11 +6,17 @@ mod model;
 mod state;
 
 use state::DesktopState;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn main() {
     tauri::Builder::default()
         .manage(DesktopState::default())
+        .setup(|app| {
+            app.state::<DesktopState>()
+                .start_serial_device_watcher(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_serial_ports,
             commands::get_session_snapshot,

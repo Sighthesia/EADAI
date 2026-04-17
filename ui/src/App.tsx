@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { listenSerialBus } from './lib/tauri'
+import { listenSerialBus, listenSerialDevicesChanged } from './lib/tauri'
 import { useAppStore } from './store/appStore'
 import type { SerialBusEvent } from './types'
 import { Workbench } from './components/Workbench'
 import { shouldPollMcpStatus } from './store/appStore'
 
 const SERIAL_PORT_POLL_INTERVAL_MS = 1500
+const SHOULD_POLL_SERIAL_PORTS = !navigator.userAgent.toLowerCase().includes('linux')
 
 export default function App() {
   const bootstrap = useAppStore((state) => state.bootstrap)
@@ -79,6 +80,35 @@ export default function App() {
   }, [bootstrap, connect, ingestEvents])
 
   useEffect(() => {
+    let disposed = false
+    let cleanup: (() => void) | undefined
+
+    const initialize = async () => {
+      const unlisten = await listenSerialDevicesChanged(() => {
+        void refreshPortsSilently()
+      })
+
+      if (disposed) {
+        void unlisten()
+        return
+      }
+
+      cleanup = unlisten
+    }
+
+    void initialize()
+
+    return () => {
+      disposed = true
+      cleanup?.()
+    }
+  }, [refreshPortsSilently])
+
+  useEffect(() => {
+    if (!SHOULD_POLL_SERIAL_PORTS) {
+      return
+    }
+
     const interval = window.setInterval(() => {
       void refreshPortsSilently()
     }, SERIAL_PORT_POLL_INTERVAL_MS)

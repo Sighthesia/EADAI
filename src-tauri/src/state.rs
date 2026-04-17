@@ -14,7 +14,14 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
+
+#[cfg(target_os = "linux")]
+use udev::{EventType, MonitorBuilder};
+
 pub const SERIAL_EVENT_NAME: &str = "serial-bus-event";
+pub const SERIAL_DEVICE_EVENT_NAME: &str = "serial-devices-changed";
 
 pub struct DesktopState {
     runtime: SessionRuntimeHost,
@@ -49,6 +56,10 @@ impl Default for DesktopState {
 }
 
 impl DesktopState {
+    pub fn start_serial_device_watcher(&self, app_handle: AppHandle) {
+        start_serial_device_watcher_thread(app_handle);
+    }
+
     pub fn list_ports(&self) -> Result<Vec<SerialDeviceInfo>, String> {
         self.runtime
             .list_visible_devices()
@@ -212,6 +223,62 @@ fn spawn_forwarder(
         }
     })
 }
+
+#[cfg(target_os = "linux")]
+fn start_serial_device_watcher_thread(app_handle: AppHandle) {
+    thread::spawn(move || {
+        let socket = match MonitorBuilder::new()
+            .and_then(|builder| builder.match_subsystem("tty"))
+            .and_then(|builder| builder.listen())
+        {
+            Ok(socket) => socket,
+            Err(error) => {
+                eprintln!("failed to start udev serial monitor: {error}");
+                return;
+            }
+        };
+
+        let mut descriptors = [libc::pollfd {
+            fd: socket.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        }];
+
+        loop {
+            let result = unsafe {
+                libc::poll(
+                    descriptors.as_mut_ptr(),
+                    descriptors.len() as libc::nfds_t,
+                    -1,
+                )
+            };
+
+            if result < 0 {
+                let error = std::io::Error::last_os_error();
+                eprintln!("udev serial monitor poll failed: {error}");
+                break;
+            }
+
+            if result == 0 {
+                continue;
+            }
+
+            for event in socket.iter() {
+                if !matches!(
+                    event.event_type(),
+                    EventType::Add | EventType::Change | EventType::Remove
+                ) {
+                    continue;
+                }
+
+                let _ = app_handle.emit(SERIAL_DEVICE_EVENT_NAME, ());
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn start_serial_device_watcher_thread(_app_handle: AppHandle) {}
 
 fn lock_state<'a>(state: &'a Mutex<SessionState>) -> MutexGuard<'a, SessionState> {
     match state.lock() {

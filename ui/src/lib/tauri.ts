@@ -12,6 +12,7 @@ import type {
 } from '../types'
 
 const SERIAL_EVENT_NAME = 'serial-bus-event'
+const SERIAL_DEVICE_EVENT_NAME = 'serial-devices-changed'
 
 export const listSerialPorts = () => invoke<SerialDeviceInfo[]>('list_serial_ports')
 
@@ -41,4 +42,11 @@ export const listenSerialBus = async (
 ): Promise<UnlistenFn> =>
   listen<SerialBusEvent>(SERIAL_EVENT_NAME, (event) => {
     onMessage(event.payload)
+  })
+
+export const listenSerialDevicesChanged = async (
+  onChange: () => void,
+): Promise<UnlistenFn> =>
+  listen(SERIAL_DEVICE_EVENT_NAME, () => {
+    onChange()
   })
