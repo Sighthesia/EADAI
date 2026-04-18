@@ -51,5 +51,19 @@
   ".opencode/lib/trellis-context.js": "8974c446808852152d1f9cd1165d5dad3c215e9c9206339d83fedca464f886a8",
   ".opencode/package.json": "6867538b2f6025286a70c943d15db4191d2412daa8bf7431a846b00c863f26b8",
   ".opencode/plugin/inject-subagent-context.js": "6a1257d7a2e485d3de3b0e34c40ab285dfe48e976d442288423eab23d2a0e717",
-  ".opencode/plugin/session-start.js": "ce013e3b329b954cd1317fc69d804ad69f6524ff73531b29bac8d67e6a4d8d81"
+  ".opencode/plugin/session-start.js": "ce013e3b329b954cd1317fc69d804ad69f6524ff73531b29bac8d67e6a4d8d81",
+  ".agents/skills/before-backend-dev/SKILL.md": "4537ccee0071353beee636a052c01642a27a87b6b0a73e7bc872b2501547fa64",
+  ".agents/skills/before-frontend-dev/SKILL.md": "679c1708a4d9fbad5214db299a38366581684a9383cf51a5d8ac21f890d6ba0d",
+  ".agents/skills/brainstorm/SKILL.md": "0cabc8e663a871dee6c8bbf7f149fe10f83f39835e66ad0a8d0867049aacb6f8",
+  ".agents/skills/break-loop/SKILL.md": "b19a47854ca66bde4ee03a30603480b4af2c131d5d81d752d1d28d2ef5131172",
+  ".agents/skills/check-backend/SKILL.md": "9b312cfd7a07ed036769b387d84d642cd5e20f06b88e7b6a4626705fa8beb6fa",
+  ".agents/skills/check-cross-layer/SKILL.md": "bc72df11d79a8ee809f45eae120c1cce91ab997541ce30d665af9978c83843f6",
+  ".agents/skills/check-frontend/SKILL.md": "27b75f9eea472ed104f39a65bb78ae559cfe8730c85e0742e55fd575a4a2f854",
+  ".agents/skills/create-command/SKILL.md": "5c24ca19c1cec64486f1a147e1dd4a37200270cbf3d0987dc6536f7de85a78f2",
+  ".agents/skills/finish-work/SKILL.md": "f3f77e3902021bb7d95452a6072ae3f67993bf7b7d0e172e33756a633b654bf2",
+  ".agents/skills/integrate-skill/SKILL.md": "47b7374345d8a31f9df07c5e8e875ca4fdc30d0cc45860d77df893250e2d97fc",
+  ".agents/skills/onboard/SKILL.md": "1808f578d21eae3cbcf650d6aa4cf35ac42bf466df740b830593c9bda212d51a",
+  ".agents/skills/record-session/SKILL.md": "ce27e953630a71ef989c5582790e9c8a600a2614ec668b674816c1daac73ce0a",
+  ".agents/skills/start/SKILL.md": "788e517f9e57c4ce68497c1cefabd51faa8253c681be7965915f21e6de9c5886",
+  ".agents/skills/update-spec/SKILL.md": "e014294d9ce1d40fc3b6c76074fa75c5c48d57b6a876cc8fd1ba1dc3111b1d90"
 }
