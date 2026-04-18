@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useAppStore } from '../store/appStore'
 import type { LogicAnalyzerCaptureResult } from '../types'
+import {
+  buildLogicAnalyzerCursorOverlayItems,
+  type LogicAnalyzerCursorOverlayItem,
+  type LogicAnalyzerCursorSource,
+} from '../lib/logicAnalyzerCursorOverlay'
 
 const EMPTY_CHANNEL_LABELS = ['D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7']
-
+const LOGIC_SAMPLE_WIDTH = 12
+const LOGIC_LANE_HEIGHT = 40
+const LOGIC_HIGH_Y = 9
+const LOGIC_LOW_Y = 31
 export function LogicAnalyzerPage() {
   const logicAnalyzer = useAppStore((state) => state.logicAnalyzer)
   const logicAnalyzerConfig = useAppStore((state) => state.logicAnalyzerConfig)
@@ -248,18 +256,116 @@ function DigitalWaveformView({
   visibleChannelLabels: string[]
 }) {
   const maxSamples = 96
-  const channels =
-    visibleChannelLabels.length > 0
-      ? capture.channels.filter((channel) => visibleChannelLabels.includes(channel.label))
-      : capture.channels
-  const sampleIndices = buildSampleIndices(capture.sampleCount, maxSamples)
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const trackRefs = useRef(new Map<string, HTMLDivElement | null>())
+  const channels = useMemo(
+    () =>
+      visibleChannelLabels.length > 0
+        ? capture.channels.filter((channel) => visibleChannelLabels.includes(channel.label))
+        : capture.channels,
+    [capture.channels, visibleChannelLabels],
+  )
+  const sampleIndices = useMemo(() => buildSampleIndices(capture.sampleCount, maxSamples), [capture.sampleCount])
+  const [cursorSlots, setCursorSlots] = useState<Record<string, number>>({})
+  const [overlayItems, setOverlayItems] = useState<LogicAnalyzerCursorOverlayItem[]>([])
   const previewLabel =
     capture.sampleCount > maxSamples
       ? `Previewing ${maxSamples} of ${capture.sampleCount} samples`
       : `Showing ${capture.sampleCount} samples`
+  const overlayWidth = stageRef.current?.clientWidth ?? 0
+  const overlayHeight = stageRef.current?.clientHeight ?? 0
+
+  useEffect(() => {
+    if (channels.length === 0) {
+      setCursorSlots({})
+      return
+    }
+
+    setCursorSlots((current) => {
+      const next: Record<string, number> = {}
+      for (let index = 0; index < channels.length; index += 1) {
+        const channel = channels[index]!
+        const fallbackSlot = sampleIndices.length > 1 ? Math.round(((index + 1) / (channels.length + 1)) * (sampleIndices.length - 1)) : 0
+        next[channel.label] = clamp(current[channel.label] ?? fallbackSlot, 0, Math.max(0, sampleIndices.length - 1))
+      }
+      return next
+    })
+  }, [channels, sampleIndices.length])
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current
+    if (!stage) {
+      return
+    }
+
+    const syncOverlay = () => {
+      const stageRect = stage.getBoundingClientRect()
+      const items: LogicAnalyzerCursorSource[] = []
+
+      for (let index = 0; index < channels.length; index += 1) {
+        const channel = channels[index]!
+        const track = trackRefs.current.get(channel.label)
+        if (!track) {
+          continue
+        }
+
+        const lane = track.querySelector<HTMLElement>('.logic-waveform-lane')
+        if (!lane) {
+          continue
+        }
+
+        const laneRect = lane.getBoundingClientRect()
+        const mapped = sampleIndices.map((sampleIndex) => channel.samples[sampleIndex] ?? null)
+        const activeSlot = clamp(cursorSlots[channel.label] ?? 0, 0, Math.max(0, mapped.length - 1))
+        const activeValue = mapped[activeSlot] ?? null
+        const laneRelativeLeft = laneRect.left - stageRect.left
+        const laneRelativeTop = laneRect.top - stageRect.top
+        const anchorX = laneRelativeLeft + (mapped.length > 1 ? (activeSlot / (mapped.length - 1)) * laneRect.width : 0)
+        const anchorY = laneRelativeTop + (activeValue === true ? 9 : activeValue === false ? 31 : laneRect.height / 2)
+        const sampleIndex = sampleIndices[activeSlot] ?? activeSlot
+        const currentValue = formatLogicLevel(activeValue)
+
+        items.push({
+          key: channel.label,
+          label: `${channel.label} · S${sampleIndex} · ${currentValue}`,
+          anchorX,
+          anchorY,
+          laneRect: {
+            left: laneRelativeLeft,
+            top: laneRelativeTop,
+            width: laneRect.width,
+            height: laneRect.height,
+          },
+          sampleText: `S${sampleIndex}`,
+          accentColor: '#56dfa1',
+        })
+      }
+
+      setOverlayItems(buildLogicAnalyzerCursorOverlayItems({ width: stageRect.width, height: stageRect.height }, items))
+    }
+
+    syncOverlay()
+
+    const resizeObserver = new ResizeObserver(syncOverlay)
+    resizeObserver.observe(stage)
+    for (const track of trackRefs.current.values()) {
+      if (track) {
+        resizeObserver.observe(track)
+      }
+    }
+
+    window.addEventListener('resize', syncOverlay)
+    stage.addEventListener('scroll', syncOverlay, { passive: true })
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', syncOverlay)
+      stage.removeEventListener('scroll', syncOverlay)
+    }
+  }, [channels, cursorSlots, sampleIndices])
 
   return (
-    <div className="logic-waveform-stage">
+    <div ref={stageRef} className="logic-waveform-stage">
       <div className="logic-time-axis logic-time-axis-stage">
         <span>{previewLabel}</span>
         <span>{formatSampleRate(capture.sampleRateHz)}</span>
@@ -269,13 +375,29 @@ function DigitalWaveformView({
       {channels.length > 0 ? (
         <div className="logic-waveform-list">
           {channels.map((channel, index) => (
-            <div key={channel.label} className="logic-waveform-track logic-waveform-track-stage">
+            <div
+              key={channel.label}
+              ref={(element) => {
+                if (element) {
+                  trackRefs.current.set(channel.label, element)
+                } else {
+                  trackRefs.current.delete(channel.label)
+                }
+              }}
+              className="logic-waveform-track logic-waveform-track-stage"
+            >
               <div className="logic-waveform-label">
                 <strong>{channel.label}</strong>
                 <small>CH {index + 1}</small>
               </div>
               <div className="logic-waveform-lane" aria-label={`${channel.label} digital waveform`}>
-                {renderDigitalLane(channel.samples, sampleIndices)}
+                <DigitalWaveformLane
+                  samples={channel.samples}
+                  sampleIndices={sampleIndices}
+                  onActiveSlotChange={(slot) =>
+                    setCursorSlots((current) => (current[channel.label] === slot ? current : { ...current, [channel.label]: slot }))
+                  }
+                />
               </div>
             </div>
           ))}
@@ -283,6 +405,39 @@ function DigitalWaveformView({
       ) : (
         <div className="logic-empty-state">No visible channels selected for the current capture.</div>
       )}
+
+      <div className="logic-cursor-overlay-layer" aria-hidden="true">
+        <svg className="logic-cursor-overlay" viewBox={`0 0 ${overlayWidth} ${overlayHeight}`} preserveAspectRatio="none">
+          {overlayItems.map((item) => (
+            <g key={`${item.key}-overlay`}>
+              <line
+                className="logic-cursor-overlay-guide"
+                x1={item.anchorX}
+                y1={item.laneRect.top}
+                x2={item.anchorX}
+                y2={item.laneRect.top + item.laneRect.height}
+              />
+              {item.showCallout ? (
+                <line className="logic-cursor-overlay-callout" x1={item.anchorX} y1={item.anchorY} x2={item.calloutEndX} y2={item.calloutEndY} />
+              ) : null}
+            </g>
+          ))}
+        </svg>
+        {overlayItems.map((item) => (
+          <div
+            key={`${item.key}-label`}
+            className="logic-cursor-overlay-label"
+            style={{
+              left: `${item.labelLeft}px`,
+              top: `${item.labelTop}px`,
+              width: `${item.labelWidth}px`,
+              height: `${item.labelHeight}px`,
+            }}
+          >
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </div>
 
       <small className="logic-waveform-footnote">
         Simplified staircase view from captured CSV text; null samples are treated as gaps.
@@ -304,40 +459,59 @@ function buildSampleIndices(sampleCount: number, maxSamples: number) {
   return indices.slice(0, maxSamples)
 }
 
-function renderDigitalLane(samples: Array<boolean | null>, sampleIndices: number[]) {
+function DigitalWaveformLane({
+  samples,
+  sampleIndices,
+  onActiveSlotChange,
+}: {
+  samples: Array<boolean | null>
+  sampleIndices: number[]
+  onActiveSlotChange: (slot: number) => void
+}) {
   if (sampleIndices.length === 0) {
     return <span className="logic-waveform-empty">No data</span>
   }
 
   const mapped = sampleIndices.map((index) => samples[index] ?? null)
-  const sampleWidth = 12
-  const laneHeight = 40
+  const sampleWidth = LOGIC_SAMPLE_WIDTH
+  const laneHeight = LOGIC_LANE_HEIGHT
   const laneWidth = Math.max(sampleWidth, mapped.length * sampleWidth)
-  const highY = 9
-  const lowY = 31
-  const traces = buildDigitalTracePaths(mapped, sampleWidth, highY, lowY)
+  const traces = buildDigitalTracePaths(mapped, sampleWidth, LOGIC_HIGH_Y, LOGIC_LOW_Y)
   const gaps = buildGapRects(mapped, sampleWidth)
 
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    if (bounds.width <= 0 || mapped.length === 0) {
+      return
+    }
+
+    const relativeX = clamp(event.clientX - bounds.left, 0, bounds.width)
+    const nextSlot = Math.round((relativeX / bounds.width) * (mapped.length - 1))
+    onActiveSlotChange(nextSlot)
+  }
+
   return (
-    <svg className="logic-waveform-svg" viewBox={`0 0 ${laneWidth} ${laneHeight}`} preserveAspectRatio="none" aria-hidden="true">
-      <line className="logic-waveform-rail" x1={0} y1={highY} x2={laneWidth} y2={highY} />
-      <line className="logic-waveform-rail" x1={0} y1={lowY} x2={laneWidth} y2={lowY} />
-      {gaps.map((gap, index) => (
-        <rect
-          key={`gap-${index}-${gap.x}`}
-          className="logic-waveform-gap"
-          x={gap.x}
-          y={4}
-          width={gap.width}
-          height={laneHeight - 8}
-          rx={4}
-          ry={4}
-        />
-      ))}
-      {traces.map((trace, index) => (
-        <path key={`trace-${index}`} className="logic-waveform-trace" d={trace} />
-      ))}
-    </svg>
+    <div className="logic-waveform-lane-hitbox" onPointerMove={handlePointerMove}>
+      <svg className="logic-waveform-svg" viewBox={`0 0 ${laneWidth} ${laneHeight}`} preserveAspectRatio="none" aria-hidden="true">
+        <line className="logic-waveform-rail" x1={0} y1={LOGIC_HIGH_Y} x2={laneWidth} y2={LOGIC_HIGH_Y} />
+        <line className="logic-waveform-rail" x1={0} y1={LOGIC_LOW_Y} x2={laneWidth} y2={LOGIC_LOW_Y} />
+        {gaps.map((gap, index) => (
+          <rect
+            key={`gap-${index}-${gap.x}`}
+            className="logic-waveform-gap"
+            x={gap.x}
+            y={4}
+            width={gap.width}
+            height={laneHeight - 8}
+            rx={4}
+            ry={4}
+          />
+        ))}
+        {traces.map((trace, index) => (
+          <path key={`trace-${index}`} className="logic-waveform-trace" d={trace} />
+        ))}
+      </svg>
+    </div>
   )
 }
 
@@ -394,6 +568,11 @@ function buildGapRects(samples: Array<boolean | null>, sampleWidth: number) {
   return rects
 }
 
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
 function formatSampleRate(sampleRateHz?: number | null) {
   if (!sampleRateHz || sampleRateHz <= 0) {
     return 'Sample rate unavailable'
@@ -417,4 +596,16 @@ function formatCaptureDuration(sampleCount: number, sampleRateHz?: number | null
 
   const durationMs = (sampleCount / sampleRateHz) * 1000
   return `Span ${durationMs.toFixed(durationMs >= 10 ? 2 : 3)} ms`
+}
+
+function formatLogicLevel(value: boolean | null) {
+  if (value === true) {
+    return 'High'
+  }
+
+  if (value === false) {
+    return 'Low'
+  }
+
+  return 'Gap'
 }

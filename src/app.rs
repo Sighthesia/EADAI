@@ -1,15 +1,19 @@
 use crate::analysis::AnalysisEngine;
+use crate::bmi088::{
+    self, encode_host_command, host_command_from_text, Bmi088Frame, Bmi088SessionState,
+    TelemetryPacket,
+};
 use crate::bus::MessageBus;
 use crate::cli::RunConfig;
 use crate::error::AppError;
 use crate::message::{BusMessage, ConnectionState, LinePayload, MessageSource};
 use crate::parser;
-use crate::serial::{self, LineFramer};
+use crate::serial;
 use std::cmp::min;
 use std::io::ErrorKind;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -150,7 +154,15 @@ impl App {
                     ));
 
                     let mut analysis = AnalysisEngine::new();
-                    let mut framer = LineFramer::with_max_buffer(self.config.max_frame_bytes);
+                    let mut binary_decoder =
+                        bmi088::Bmi088StreamDecoder::new(self.config.max_frame_bytes);
+                    let mut bmi088_session = Bmi088SessionState::new();
+
+                    if self.config.parser == crate::cli::ParserKind::Bmi088 {
+                        for command in bmi088_session.boot_commands() {
+                            serial::write_payload(&mut *port, &command)?;
+                        }
+                    }
 
                     loop {
                         if self.stop_signal.is_requested() {
@@ -162,23 +174,54 @@ impl App {
                             return Ok(());
                         }
 
-                        if let Err(error) = self.drain_commands(&source, &mut *port) {
+                        if let Err(error) = self.drain_commands(
+                            &source,
+                            &mut *port,
+                            &mut bmi088_session,
+                            self.config.parser == crate::cli::ParserKind::Bmi088,
+                        )
+                        {
                             self.publish_retry(&source, attempt, error.to_string(), &reconnect);
                             break;
                         }
 
-                        if let Err(error) = serial::pump_port(&mut *port, &mut framer, |line| {
-                            let parser = parser::parse_framed_line(self.config.parser, &line);
-                            publish_rx_with_analysis(
-                                &self.bus,
-                                &source,
-                                &mut analysis,
-                                line.payload,
-                                parser,
-                            );
-                        }) {
-                            self.publish_retry(&source, attempt, error.to_string(), &reconnect);
-                            break;
+                        if let Some(chunk) = serial::read_bytes(&mut *port)? {
+                            for packet in binary_decoder.push(&chunk) {
+                                match packet {
+                                    TelemetryPacket::Text(line) => {
+                                        let parser =
+                                            parser::parse_framed_line(self.config.parser, &line);
+                                        publish_rx_with_analysis(
+                                            &self.bus,
+                                            &source,
+                                            &mut analysis,
+                                            line.payload,
+                                            parser,
+                                        );
+                                    }
+                                    TelemetryPacket::Schema(schema) => {
+                                        for command in bmi088_session
+                                            .on_frame(&Bmi088Frame::Schema(schema.clone()))
+                                        {
+                                            serial::write_payload(&mut *port, &command)?;
+                                        }
+                                        publish_schema(&self.bus, &source, schema);
+                                    }
+                                    TelemetryPacket::Sample(sample) => {
+                                        bmi088_session
+                                            .on_frame(&Bmi088Frame::Sample(sample.clone()));
+                                        publish_sample(&self.bus, &source, sample);
+                                    }
+                                }
+                            }
+                        }
+
+                        if self.config.parser == crate::cli::ParserKind::Bmi088
+                            && bmi088_session.phase() == bmi088::Bmi088SessionPhase::AwaitingSchema
+                        {
+                            for command in bmi088_session.boot_commands() {
+                                serial::write_payload(&mut *port, &command)?;
+                            }
                         }
                     }
                 }
@@ -220,16 +263,33 @@ impl App {
         ));
     }
 
-    fn drain_commands<T>(&self, source: &MessageSource, port: &mut T) -> Result<(), AppError>
+    fn drain_commands<T>(
+        &self,
+        source: &MessageSource,
+        port: &mut T,
+        bmi088_session: &mut Bmi088SessionState,
+        bmi088_mode: bool,
+    ) -> Result<(), AppError>
     where
         T: std::io::Write + ?Sized,
     {
         loop {
             match self.command_rx.try_recv() {
                 Ok(RuntimeCommand::Send { payload }) => {
-                    serial::write_payload(port, &payload)?;
-                    self.bus
-                        .publish(BusMessage::tx_line(source, outbound_payload(&payload)));
+                    if bmi088_mode
+                        && let Some(command) =
+                        host_command_from_text(&String::from_utf8_lossy(&payload))
+                    {
+                        let encoded = encode_host_command(command.clone());
+                        serial::write_payload(port, &encoded)?;
+                        bmi088_session.on_host_command(command);
+                        self.bus
+                            .publish(BusMessage::tx_line(source, outbound_payload(&payload)));
+                    } else {
+                        serial::write_payload(port, &payload)?;
+                        self.bus
+                            .publish(BusMessage::tx_line(source, outbound_payload(&payload)));
+                    }
                 }
                 Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => return Ok(()),
             }
@@ -258,6 +318,14 @@ fn publish_rx_with_analysis(
             bus.publish(message);
         }
     }
+}
+
+fn publish_schema(bus: &MessageBus, source: &MessageSource, schema: bmi088::Bmi088SchemaFrame) {
+    bus.publish(BusMessage::telemetry_schema(source, schema));
+}
+
+fn publish_sample(bus: &MessageBus, source: &MessageSource, sample: bmi088::Bmi088SampleFrame) {
+    bus.publish(BusMessage::telemetry_sample(source, sample.clone()));
 }
 
 fn timestamp_ms(timestamp: SystemTime) -> u64 {

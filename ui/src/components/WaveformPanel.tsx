@@ -9,6 +9,10 @@ const MIN_TIME_WINDOW_MS = 2_000
 const MAX_TIME_WINDOW_MS = 120_000
 const DEFAULT_TIME_WINDOW_MS = 15_000
 const SLOPE_REGRESSION_POINT_COUNT = 8
+const CURSOR_LABEL_GAP_PX = 42
+const CURSOR_LABEL_MIN_CENTER_Y = 22
+const CURSOR_LABEL_MAX_WIDTH_PX = 180
+const CURSOR_CALLOUT_THRESHOLD_PX = 1
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -803,9 +807,10 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       cursorAnchors.map(({ track, anchor }) => ({
         key: track.name,
         baseY: safePos(u, anchor.value, 'y', height),
-        minY: 10,
-        maxY: Math.max(10, height - 22),
+        minY: CURSOR_LABEL_MIN_CENTER_Y,
+        maxY: Math.max(CURSOR_LABEL_MIN_CENTER_Y, height - CURSOR_LABEL_MIN_CENTER_Y),
       })),
+      CURSOR_LABEL_GAP_PX,
     )
 
     const requiredKeys = new Set<string>()
@@ -813,8 +818,12 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       requiredKeys.add(track.name)
       const element = getOrCreateOverlayElements(state, track.name)
       const cursorY = safePos(u, cursorAnchor.value, 'y', height)
-      const cursorX = clamp(cursorAnchor.x + 14, 12, Math.max(12, width - 160))
+      const cursorLabelAnchorX = cursorAnchor.x + 14
+      const cursorX = clamp(cursorLabelAnchorX, 12, Math.max(12, width - CURSOR_LABEL_MAX_WIDTH_PX - 12))
       const cursorYPlacement = cursorSlots.get(track.name) ?? cursorY
+      const shouldShowCallout =
+        Math.abs(cursorYPlacement - cursorY) > CURSOR_CALLOUT_THRESHOLD_PX ||
+        Math.abs(cursorX - cursorLabelAnchorX) > CURSOR_CALLOUT_THRESHOLD_PX
 
       element.cursorLabel.style.display = 'flex'
       element.cursorLabel.style.left = `${cursorX}px`
@@ -824,7 +833,11 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       element.cursorLabel.style.background = colorToRgba(track.color, 0.16)
       element.cursorLabel.style.color = '#f6f8fb'
       element.cursorLabel.innerHTML = renderOverlayValueLabel(track.color, track.name, formatDisplayValue(track.variable, cursorAnchor.value))
-      setLine(element.cursorCalloutLine, cursorAnchor.x, cursorY, cursorX - 6, cursorYPlacement, colorToRgba(track.color, 0.76))
+      if (shouldShowCallout) {
+        setLine(element.cursorCalloutLine, cursorAnchor.x, cursorY, cursorX - 8, cursorYPlacement, colorToRgba(track.color, 0.82), '4 4', 1.8)
+      } else {
+        element.cursorCalloutLine.setAttribute('visibility', 'hidden')
+      }
     }
 
     for (const [name, element] of state.items) {
@@ -1020,7 +1033,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     return latestPoint.value + rate * (cursorTimeSeconds - anchorX)
   }
 
-  function placeVerticalLabels(items: Array<{ key: string; baseY: number; minY: number; maxY: number }>) {
+  function placeVerticalLabels(items: Array<{ key: string; baseY: number; minY: number; maxY: number }>, gap = 18) {
     const sorted = [...items].sort((left, right) => left.baseY - right.baseY)
     const slots = new Map<string, number>()
 
@@ -1028,7 +1041,6 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       return slots
     }
 
-    const gap = 18
     const positions = sorted.map((item) => clamp(item.baseY, item.minY, item.maxY))
 
     for (let index = 1; index < sorted.length; index += 1) {

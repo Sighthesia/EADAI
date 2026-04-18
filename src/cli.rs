@@ -13,6 +13,7 @@ pub enum ParserKind {
     Auto,
     KeyValue,
     Measurements,
+    Bmi088,
 }
 
 /// CLI commands supported by the MVP binary.
@@ -87,7 +88,7 @@ where
 /// Returns CLI usage text.
 pub fn usage() -> String {
     format!(
-        "Usage:\n  eadai ports\n  eadai run --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>] [--parser <auto|key_value|measurements>] [--max-frame-bytes <bytes>]\n  eadai send --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n  eadai loopback-test --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--loopback-timeout-ms <ms>] [--no-newline]\n  eadai interactive --port <name> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n\nDefaults:\n  baud = {DEFAULT_BAUD_RATE}\n  retry-ms = {DEFAULT_RETRY_DELAY_MS}\n  read-timeout-ms = {DEFAULT_READ_TIMEOUT_MS}\n  loopback-timeout-ms = {DEFAULT_LOOPBACK_TIMEOUT_MS}\n  parser = auto\n  max-frame-bytes = {DEFAULT_MAX_FRAME_BYTES}\n"
+        "Usage:\n  eadai ports\n  eadai run --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>] [--parser <auto|key_value|measurements|bmi088>] [--max-frame-bytes <bytes>]\n  eadai send --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n  eadai loopback-test --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--loopback-timeout-ms <ms>] [--no-newline]\n  eadai interactive --port <name> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n\nDefaults:\n  baud = {DEFAULT_BAUD_RATE}\n  retry-ms = {DEFAULT_RETRY_DELAY_MS}\n  read-timeout-ms = {DEFAULT_READ_TIMEOUT_MS}\n  loopback-timeout-ms = {DEFAULT_LOOPBACK_TIMEOUT_MS}\n  parser = auto\n  max-frame-bytes = {DEFAULT_MAX_FRAME_BYTES}\n"
     )
 }
 
@@ -343,8 +344,9 @@ fn parse_parser_kind(value: &str) -> Result<ParserKind, AppError> {
         "auto" => Ok(ParserKind::Auto),
         "key_value" => Ok(ParserKind::KeyValue),
         "measurements" => Ok(ParserKind::Measurements),
+        "bmi088" => Ok(ParserKind::Bmi088),
         _ => Err(AppError::Usage(format!(
-            "Invalid parser value: {value}. Expected auto, key_value, or measurements\n\n{}",
+            "Invalid parser value: {value}. Expected auto, key_value, measurements, or bmi088\n\n{}",
             usage()
         ))),
     }

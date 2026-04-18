@@ -169,6 +169,31 @@ export interface UiTriggerPayload {
   snapshot?: UiAnalysisPayload | null
 }
 
+export interface UiTelemetrySchemaField {
+  name: string
+  unit: string
+  scaleQ: number
+}
+
+export interface UiTelemetrySchemaPayload {
+  rateHz: number
+  sampleLen: number
+  fields: UiTelemetrySchemaField[]
+}
+
+export interface UiTelemetrySampleField {
+  name: string
+  raw: number
+  value: number
+  unit?: string | null
+  scaleQ: number
+  index: number
+}
+
+export interface UiTelemetrySamplePayload {
+  fields: UiTelemetrySampleField[]
+}
+
 export type SerialBusEvent =
   | {
       kind: 'connection'
@@ -188,6 +213,18 @@ export type SerialBusEvent =
       timestampMs: number
       source: UiSource
       analysis: UiAnalysisPayload
+    }
+  | {
+      kind: 'telemetrySchema'
+      timestampMs: number
+      source: UiSource
+      schema: UiTelemetrySchemaPayload
+    }
+  | {
+      kind: 'telemetrySample'
+      timestampMs: number
+      source: UiSource
+      sample: UiTelemetrySamplePayload
     }
   | {
       kind: 'trigger'

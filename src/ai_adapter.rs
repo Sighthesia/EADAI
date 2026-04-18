@@ -453,6 +453,55 @@ impl AiContextState {
                     trigger: None,
                 });
             }
+            MessageKind::TelemetrySchema(schema) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!("schema rate={} len={}", schema.rate_hz, schema.sample_len),
+                        raw_length: schema.fields.len(),
+                        parser: crate::message::ParserMeta::parsed(
+                            "bmi088_schema",
+                            schema
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .map(|(index, field)| {
+                                    (format!("field.{index}"), field.name.clone())
+                                })
+                                .collect(),
+                        ),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
+            MessageKind::TelemetrySample(sample) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!("sample fields={}", sample.fields.len()),
+                        raw_length: sample.fields.len(),
+                        parser: crate::message::ParserMeta::parsed(
+                            "bmi088_sample",
+                            sample
+                                .fields
+                                .iter()
+                                .map(|field| (field.name.clone(), field.value.to_string()))
+                                .collect(),
+                        ),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
             MessageKind::Analysis(frame) => {
                 let summary = self
                     .telemetry

@@ -1,6 +1,6 @@
 use eadai::app::App;
 use eadai::bus::{BusSubscription, MessageBus};
-use eadai::cli::{Command, InteractiveConfig, LoopbackConfig, SendConfig, parse_args};
+use eadai::cli::{parse_args, Command, InteractiveConfig, LoopbackConfig, SendConfig};
 use eadai::error::AppError;
 use eadai::message::{LineDirection, MessageKind};
 use eadai::serial::{self, LineFramer};
@@ -180,6 +180,17 @@ fn print_messages(subscription: BusSubscription) {
                     "[trigger] channel={} rule={} severity={:?} reason={}",
                     trigger.channel_id, trigger.rule_id, trigger.severity, trigger.reason
                 );
+            }
+            MessageKind::TelemetrySchema(schema) => {
+                println!(
+                    "[telemetry-schema] rate_hz={} sample_len={} fields={}",
+                    schema.rate_hz,
+                    schema.sample_len,
+                    schema.fields.len()
+                );
+            }
+            MessageKind::TelemetrySample(sample) => {
+                println!("[telemetry-sample] fields={}", sample.fields.len());
             }
         }
     }

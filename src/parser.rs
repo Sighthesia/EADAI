@@ -22,5 +22,6 @@ pub fn parse_framed_line(parser_kind: ParserKind, line: &FramedLine) -> ParserMe
         }
         ParserKind::Measurements => crate::measurement_parser::parse_line(&line.payload.text),
         ParserKind::KeyValue => crate::key_value_parser::parse_line(&line.payload.text),
+        ParserKind::Bmi088 => ParserMeta::unparsed(),
     }
 }

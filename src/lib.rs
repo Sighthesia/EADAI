@@ -1,6 +1,7 @@
 pub mod ai_adapter;
 pub mod ai_contract;
 pub mod analysis;
+pub mod bmi088;
 pub mod app;
 pub mod bus;
 pub mod cli;

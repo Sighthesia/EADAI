@@ -1,4 +1,5 @@
 use eadai::analysis::{AnalysisFrame, TriggerEvent, TriggerSeverity};
+use eadai::bmi088::{Bmi088SampleFrame, Bmi088SchemaFrame};
 use eadai::message::{
     BusMessage, ConnectionEvent, ConnectionState, LineDirection, MessageKind, MessageSource,
     ParserMeta, TransportKind,
@@ -266,6 +267,16 @@ pub enum UiBusEvent {
         line: UiLinePayload,
         parser: UiParserMeta,
     },
+    TelemetrySchema {
+        timestamp_ms: u64,
+        source: UiSource,
+        schema: Bmi088SchemaFrame,
+    },
+    TelemetrySample {
+        timestamp_ms: u64,
+        source: UiSource,
+        sample: Bmi088SampleFrame,
+    },
     Analysis {
         timestamp_ms: u64,
         source: UiSource,
@@ -459,6 +470,16 @@ impl From<BusMessage> for UiBusEvent {
                     text: line.payload.text,
                 },
                 parser: parser.into(),
+            },
+            MessageKind::TelemetrySchema(schema) => Self::TelemetrySchema {
+                timestamp_ms,
+                source,
+                schema,
+            },
+            MessageKind::TelemetrySample(sample) => Self::TelemetrySample {
+                timestamp_ms,
+                source,
+                sample,
             },
             MessageKind::Analysis(frame) => Self::Analysis {
                 timestamp_ms,

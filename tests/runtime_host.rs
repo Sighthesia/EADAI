@@ -21,7 +21,11 @@ fn fake_session_feeds_subscription_and_shared_adapter() {
         if let Ok(message) = subscription.recv_timeout(Duration::from_millis(100))
             && matches!(
                 message.kind,
-                MessageKind::Line(_) | MessageKind::Analysis(_) | MessageKind::Trigger(_)
+                MessageKind::Line(_)
+                    | MessageKind::TelemetrySchema(_)
+                    | MessageKind::TelemetrySample(_)
+                    | MessageKind::Analysis(_)
+                    | MessageKind::Trigger(_)
             )
         {
             saw_telemetry_message = true;

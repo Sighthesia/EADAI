@@ -36,7 +36,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 56px 32px minmax(0, 1fr);
+  grid-template-rows: 56px minmax(0, 1fr) 32px;
   width: 100%;
   height: 100%;
   background:
@@ -44,12 +44,14 @@ button {
     radial-gradient(circle at top right, rgba(89, 119, 255, 0.12), transparent 28%);
 }
 
-.titlebar,
-.status-strip {
+.titlebar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 18px;
+}
+
+.titlebar {
   border-bottom: 1px solid #1f2430;
 }
 
@@ -81,13 +83,52 @@ button {
 }
 
 .status-strip {
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: var(--left-dock-settings-width, 44px) minmax(0, 1fr);
+  gap: 0;
+  min-height: 32px;
+  padding: 0;
   background: #141923;
   color: #9ba8b7;
+  border-top: 1px solid #1f2430;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.status-strip-gutter {
+  width: 100%;
+  height: 100%;
+  border-right: 1px solid #1f2430;
+  background: rgba(11, 15, 21, 0.3);
+}
+
+.status-strip-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 12px;
+}
+
+.status-strip-runtime,
+.status-strip-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-strip-runtime {
+  color: #8fa0b5;
+}
+
+.status-strip-message {
+  color: #aab5c3;
 }
 
 .workbench-shell {
   min-height: 0;
+  overflow: hidden;
 }
 
 .status-pill {
@@ -98,6 +139,13 @@ button {
   padding: 8px 12px;
   background: #191f29;
   border: 1px solid #2b3342;
+}
+
+.status-strip .status-pill {
+  gap: 6px;
+  padding: 2px 8px;
+  min-height: 22px;
+  background: #1a202a;
 }
 
 .status-pill.tone-success {
@@ -131,6 +179,25 @@ button {
 .flexlayout__tabset {
   background: #151a21;
   border: 1px solid #202733;
+}
+
+.flexlayout__border {
+  background: rgba(16, 20, 27, 0.94);
+}
+
+.flexlayout__border_inner {
+  background: #151a21;
+  border: 1px solid #202733;
+}
+
+.flexlayout__border_button {
+  color: #90a0b7;
+  background: rgba(20, 25, 33, 0.96);
+}
+
+.flexlayout__border_button--selected {
+  color: #e7edf8;
+  background: linear-gradient(180deg, rgba(73, 97, 178, 0.35), rgba(47, 61, 105, 0.4));
 }
 
 .flexlayout__tab {
@@ -381,8 +448,64 @@ button {
   width: 100%;
   height: 100%;
   background:
-    radial-gradient(circle at center, rgba(79, 124, 255, 0.12), rgba(11, 14, 19, 0.96) 40%),
+  radial-gradient(circle at center, rgba(79, 124, 255, 0.12), rgba(11, 14, 19, 0.96) 40%),
     linear-gradient(180deg, #0c1118, #090d13);
+}
+
+.logic-cursor-overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.logic-cursor-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.logic-cursor-overlay-guide,
+.logic-cursor-overlay-callout {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.logic-cursor-overlay-guide {
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.logic-cursor-overlay-callout {
+  stroke: rgba(120, 235, 180, 0.56);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+}
+
+.logic-cursor-overlay-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 10px;
+  border: 1px solid rgba(86, 223, 161, 0.36);
+  border-radius: 999px;
+  background: rgba(8, 12, 17, 0.92);
+  color: #f3f7fc;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.logic-cursor-overlay-label span {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .logic-stage-empty-state {
@@ -808,9 +931,14 @@ button {
 }
 
 .logic-waveform-lane {
+  position: relative;
   overflow: hidden;
   min-height: 40px;
   padding: 2px 0;
+}
+
+.logic-waveform-lane-hitbox {
+  width: 100%;
 }
 
 .logic-waveform-lane-placeholder {
@@ -867,6 +995,37 @@ button {
   stroke: rgba(116, 146, 246, 0.42);
   stroke-width: 1;
   stroke-dasharray: 4 3;
+}
+
+.logic-waveform-cursor-guide,
+.logic-waveform-cursor-callout {
+  fill: none;
+}
+
+.logic-waveform-cursor-guide {
+  stroke: rgba(255, 255, 255, 0.26);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.logic-waveform-cursor-callout {
+  stroke: rgba(120, 235, 180, 0.96);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.logic-waveform-cursor-label-bg {
+  fill: rgba(8, 12, 17, 0.92);
+  stroke: rgba(86, 223, 161, 0.42);
+  stroke-width: 1;
+}
+
+.logic-waveform-cursor-label-text {
+  fill: #f3f7fc;
+  font-size: 8px;
+  font-weight: 600;
 }
 
 .logic-waveform-empty,
@@ -1234,6 +1393,11 @@ button {
   fill: none;
 }
 
+.waveform-overlay-callout {
+  opacity: 1;
+  vector-effect: non-scaling-stroke;
+}
+
 .waveform-overlay-band {
   opacity: 0.95;
 }
@@ -1440,11 +1604,12 @@ button {
 .imu-stage-hud {
   position: absolute;
   left: 20px;
-  right: min(404px, 42vw);
+  right: auto;
   bottom: 20px;
   z-index: 1;
   display: grid;
   gap: 12px;
+  width: min(calc(100% - 40px), 520px);
   pointer-events: none;
 }
 
@@ -1468,7 +1633,8 @@ button {
 }
 
 .imu-attitude-grid-overlay {
-  grid-template-columns: repeat(3, minmax(0, 120px));
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 132px));
 }
 
 .imu-floating-menu {
@@ -1732,6 +1898,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
   padding: 12px;
   border-radius: 12px;
   border: 1px solid #273041;
@@ -1751,13 +1918,47 @@ button {
   backdrop-filter: blur(12px);
 }
 
+.imu-metric-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .imu-metric-tile small,
 .imu-metric-tile span {
   color: #9ba8b7;
 }
 
 .imu-metric-tile strong {
-  font-size: 20px;
+  min-width: 0;
+  font-size: clamp(16px, 2vw, 20px);
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.imu-angle-gauge {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.imu-angle-gauge-ring {
+  fill: rgba(10, 14, 20, 0.58);
+  stroke: rgba(130, 147, 170, 0.3);
+  stroke-width: 1.6;
+}
+
+.imu-angle-gauge-needle {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 2.4;
+}
+
+.imu-angle-gauge-needle-idle {
+  stroke: rgba(130, 147, 170, 0.45);
 }
 
 .imu-magnitude-bar {
@@ -1796,7 +1997,11 @@ button {
   }
 
   .imu-stage-hud {
-    right: 20px;
+    width: calc(100% - 40px);
+  }
+
+  .imu-attitude-grid-overlay {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

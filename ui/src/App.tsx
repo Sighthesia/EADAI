@@ -7,6 +7,8 @@ import { shouldPollMcpStatus } from './store/appStore'
 
 const SERIAL_PORT_POLL_INTERVAL_MS = 1500
 const SHOULD_POLL_SERIAL_PORTS = !navigator.userAgent.toLowerCase().includes('linux')
+const LEFT_DOCK_BUTTON_SELECTOR = '.flexlayout__border_left .flexlayout__mini_scrollbar_container > div'
+const LEFT_DOCK_BUTTON_WIDTH_VAR = '--left-dock-settings-width'
 
 export default function App() {
   const bootstrap = useAppStore((state) => state.bootstrap)
@@ -21,6 +23,44 @@ export default function App() {
   const status = useAppStore((state) => state.status)
   const pendingEventsRef = useRef<SerialBusEvent[]>([])
   const frameRef = useRef<number | null>(null)
+  const connectionSummary = session.port ? `${session.port} · ${session.connectionState ?? 'idle'}` : status.message
+  const runtimeSummary = `MCP ${mcp.isRunning ? 'ready' : 'starting'} · Logic ${logicAnalyzerSessionState}`
+
+  useEffect(() => {
+    const root = document.documentElement
+    const syncLeftDockButtonWidth = () => {
+      const leftDockButton = document.querySelector<HTMLElement>(LEFT_DOCK_BUTTON_SELECTOR)
+      const width = leftDockButton?.getBoundingClientRect().width ?? 44
+
+      root.style.setProperty(LEFT_DOCK_BUTTON_WIDTH_VAR, `${Math.ceil(width)}px`)
+    }
+
+    syncLeftDockButtonWidth()
+
+    const resizeObserver = new ResizeObserver(() => {
+      syncLeftDockButtonWidth()
+    })
+    const mutationObserver = new MutationObserver(() => {
+      syncLeftDockButtonWidth()
+      const leftDockButton = document.querySelector<HTMLElement>(LEFT_DOCK_BUTTON_SELECTOR)
+      if (leftDockButton) {
+        resizeObserver.observe(leftDockButton)
+      }
+    })
+
+    mutationObserver.observe(document.body, { childList: true, subtree: true, attributes: true })
+
+    const leftDockButton = document.querySelector<HTMLElement>(LEFT_DOCK_BUTTON_SELECTOR)
+    if (leftDockButton) {
+      resizeObserver.observe(leftDockButton)
+    }
+
+    return () => {
+      resizeObserver.disconnect()
+      mutationObserver.disconnect()
+      root.style.removeProperty(LEFT_DOCK_BUTTON_WIDTH_VAR)
+    }
+  }, [])
 
   useEffect(() => {
     let disposed = false
@@ -153,20 +193,20 @@ export default function App() {
           <strong>EADAI Workbench</strong>
           <small>Unified workbench with dockable telemetry and logic analyzer panels</small>
         </div>
-        <div className="titlebar-actions">
-          <div className={`status-pill tone-${status.tone}`}>
-            <span className="status-dot" />
-            {session.port
-              ? `${session.port} · ${session.connectionState ?? 'idle'} · MCP ${mcp.isRunning ? 'ready' : 'starting'}`
-              : status.message}
-          </div>
-        </div>
       </header>
-      <section className="status-strip">
-        <span>{status.message}</span>
-      </section>
       <section className="workbench-shell">
         <Workbench />
+      </section>
+      <section className="status-strip">
+        <div className="status-strip-gutter" aria-hidden="true" />
+        <div className="status-strip-body">
+          <div className={`status-pill tone-${status.tone}`}>
+            <span className="status-dot" />
+            {connectionSummary}
+          </div>
+          <span className="status-strip-runtime">{runtimeSummary}</span>
+          <span className="status-strip-message">{status.message}</span>
+        </div>
       </section>
     </main>
   )

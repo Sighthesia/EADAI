@@ -283,6 +283,40 @@ where
     }
 }
 
+/// Reads one chunk from the serial port and emits raw bytes.
+pub fn pump_bytes<T, F>(port: &mut T, mut on_bytes: F) -> Result<(), AppError>
+where
+    T: Read + ?Sized,
+    F: FnMut(&[u8]),
+{
+    let mut buffer = [0_u8; READ_BUFFER_SIZE];
+
+    match port.read(&mut buffer) {
+        Ok(0) => Ok(()),
+        Ok(count) => {
+            on_bytes(&buffer[..count]);
+            Ok(())
+        }
+        Err(error) if error.kind() == ErrorKind::TimedOut => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Reads one chunk from the serial port without framing it.
+pub fn read_bytes<T>(port: &mut T) -> Result<Option<Vec<u8>>, AppError>
+where
+    T: Read + ?Sized,
+{
+    let mut buffer = [0_u8; READ_BUFFER_SIZE];
+
+    match port.read(&mut buffer) {
+        Ok(0) => Ok(None),
+        Ok(count) => Ok(Some(buffer[..count].to_vec())),
+        Err(error) if error.kind() == ErrorKind::TimedOut => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// Stateful line framer for line-oriented protocols.
 #[derive(Clone, Debug)]
 pub struct LineFramer {

@@ -1,0 +1,44 @@
+{
+  "id": "cursor-auto-avoidance-callout",
+  "name": "cursor-auto-avoidance-callout",
+  "title": "游标自动避让与 callout 连接",
+  "description": "多个游标根据自身尺寸自动避让；当游标离数据点较远时，用 callout 线连接游标与对应数据点；交互要平滑，不遮挡主要波形；需要兼容现有逻辑分析器视图。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "logic-analyzer",
+  "priority": "P1",
+  "creator": "Sighthesia",
+  "assignee": "Sighthesia",
+  "createdAt": "2026-04-17",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 3,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

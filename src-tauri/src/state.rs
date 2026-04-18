@@ -219,6 +219,10 @@ fn spawn_forwarder(
                 apply_connection_snapshot(&mut lock_snapshot(&snapshot), connection, source);
             }
 
+            if let UiBusEvent::TelemetrySchema { source, schema, .. } = &event {
+                let _ = (source, schema);
+            }
+
             let _ = app_handle.emit(SERIAL_EVENT_NAME, &event);
         }
     })

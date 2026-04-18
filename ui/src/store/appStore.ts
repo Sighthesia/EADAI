@@ -47,6 +47,8 @@ import type {
   SerialDeviceInfo,
   SessionSnapshot,
   UiAnalysisPayload,
+  UiTelemetrySchemaPayload,
+  UiTelemetrySamplePayload,
   UiTriggerPayload,
   VariableEntry,
 } from '../types'
@@ -461,6 +463,76 @@ export const useAppStore = create<AppStore>((set, get) => ({
           if (nextSelectedChannels !== selectedChannels) {
             selectedChannels = nextSelectedChannels
             selectedChannelsChanged = true
+          }
+          continue
+        }
+
+        if (event.kind === 'telemetrySchema') {
+          const nextVariables = { ...state.variables }
+          let changed = false
+
+          event.schema.fields.forEach((field, index) => {
+            if (!nextVariables[field.name]) {
+              nextVariables[field.name] = createVariableEntry(field.name, event.timestampMs)
+              changed = true
+            }
+
+            nextVariables[field.name] = {
+              ...nextVariables[field.name],
+              name: field.name,
+              unit: field.unit,
+              parserName: 'bmi088_schema',
+              updatedAtMs: event.timestampMs,
+              sampleCount: nextVariables[field.name].sampleCount,
+            }
+
+            if (index === 0 && selectedChannels.length === 0) {
+              selectedChannels = [field.name]
+              selectedChannelsChanged = true
+            }
+          })
+
+          if (changed) {
+            variables = nextVariables
+            variablesChanged = true
+          }
+          continue
+        }
+
+        if (event.kind === 'telemetrySample') {
+          const schemaFields = event.sample.fields
+          for (const field of schemaFields) {
+            const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs)
+
+            if (!variablesChanged) {
+              variables = { ...variables }
+              variablesChanged = true
+            }
+
+            variables[field.name] = {
+              ...previous,
+              name: field.name,
+              currentValue: field.value.toFixed(field.scaleQ < 0 ? 2 : 6),
+              previousValue: previous.numericValue,
+              numericValue: field.value,
+              unit: field.unit ?? previous.unit ?? null,
+              parserName: 'bmi088_sample',
+              sampleCount: previous.sampleCount + 1,
+              updatedAtMs: event.timestampMs,
+              points: [...previous.points, { timestampMs: event.timestampMs, value: field.value }].slice(-MAX_SAMPLES_PER_CHANNEL),
+            }
+          }
+
+          const nextSelectedChannels = autoSelectChannels(selectedChannels, schemaFields[0]?.name ?? 'acc_x')
+          if (nextSelectedChannels !== selectedChannels) {
+            selectedChannels = nextSelectedChannels
+            selectedChannelsChanged = true
+          }
+
+          const nextImuQuality = computeImuQuality(variables, state)
+          if (!isSameImuQualitySnapshot(nextImuQuality, imuQuality)) {
+            imuQuality = nextImuQuality
+            imuQualityChanged = true
           }
           continue
         }

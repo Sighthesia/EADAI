@@ -123,9 +123,9 @@ export function ImuPanel() {
             <small>{formatTimestamp(orientation.timestampMs)}</small>
           </div>
           <div className="imu-attitude-grid imu-attitude-grid-overlay">
-            <MetricTile label="Roll" value={formatAngle(orientation.rollDeg)} accent="#4FC3F7" />
-            <MetricTile label="Pitch" value={formatAngle(orientation.pitchDeg)} accent="#C792EA" />
-            <MetricTile label="Yaw" value={formatAngle(orientation.yawDeg)} accent="#F78C6C" />
+            <MetricTile label="Roll" value={formatAngle(orientation.rollDeg)} angle={orientation.rollDeg} accent="#4FC3F7" />
+            <MetricTile label="Pitch" value={formatAngle(orientation.pitchDeg)} angle={orientation.pitchDeg} accent="#C792EA" />
+            <MetricTile label="Yaw" value={formatAngle(orientation.yawDeg)} angle={orientation.yawDeg} accent="#F78C6C" />
           </div>
         </div>
 
@@ -302,20 +302,45 @@ function QuaternionSourceGrid({
 function MetricTile({
   label,
   value,
+  angle,
   accent,
   secondary,
 }: {
   label: string
   value: string
+  angle: number | null
   accent: string
   secondary?: string
 }) {
   return (
     <div className="imu-metric-tile" style={{ '--imu-accent': accent } as CSSProperties}>
-      <small>{label}</small>
+      <div className="imu-metric-heading-row">
+        <small>{label}</small>
+        <AngleGauge angle={angle} accent={accent} />
+      </div>
       <strong>{value}</strong>
       {secondary ? <span>{secondary}</span> : null}
     </div>
+  )
+}
+
+function AngleGauge({ angle, accent }: { angle: number | null; accent: string }) {
+  const normalizedAngle = angle === null ? 0 : ((angle % 360) + 360) % 360
+  const rotation = normalizedAngle - 90
+
+  return (
+    <svg viewBox="0 0 32 32" className="imu-angle-gauge" aria-hidden="true">
+      <circle cx="16" cy="16" r="11.5" className="imu-angle-gauge-ring" />
+      <circle cx="16" cy="16" r="2.2" fill={accent} fillOpacity="0.92" />
+      {angle === null ? (
+        <path d="M11 16h10" className="imu-angle-gauge-needle imu-angle-gauge-needle-idle" />
+      ) : (
+        <g transform={`rotate(${rotation} 16 16)`}>
+          <path d="M16 6.5v9.5" className="imu-angle-gauge-needle" style={{ stroke: accent }} />
+          <circle cx="16" cy="6.5" r="1.7" fill={accent} />
+        </g>
+      )}
+    </svg>
   )
 }
 
@@ -360,7 +385,7 @@ function requiredMappingCount(source: ImuOrientationSource) {
 }
 
 function formatAngle(value: number | null) {
-  return value === null ? '—' : `${value.toFixed(1)}deg`
+  return value === null ? '—' : `${value.toFixed(1)}°`
 }
 
 function formatTimestamp(timestampMs: number | null) {

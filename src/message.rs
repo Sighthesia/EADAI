@@ -1,4 +1,5 @@
 use crate::analysis::{AnalysisFrame, TriggerEvent};
+use crate::bmi088::{Bmi088SampleFrame, Bmi088SchemaFrame};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::time::SystemTime;
@@ -113,6 +114,8 @@ impl ParserMeta {
 pub enum MessageKind {
     Connection(ConnectionEvent),
     Line(LineEvent),
+    TelemetrySchema(Bmi088SchemaFrame),
+    TelemetrySample(Bmi088SampleFrame),
     Analysis(AnalysisFrame),
     Trigger(TriggerEvent),
 }
@@ -182,6 +185,24 @@ impl BusMessage {
             timestamp: SystemTime::now(),
             source: source.clone(),
             kind: MessageKind::Trigger(trigger),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn telemetry_schema(source: &MessageSource, schema: Bmi088SchemaFrame) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::TelemetrySchema(schema),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn telemetry_sample(source: &MessageSource, sample: Bmi088SampleFrame) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::TelemetrySample(sample),
             parser: ParserMeta::default(),
         }
     }

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Layout, Model, TabNode } from 'flexlayout-react'
+import { Layout, Model, TabNode, type IJsonModel } from 'flexlayout-react'
 import { ConnectionPanel } from './ConnectionPanel'
 import { McpPanel } from './McpPanel'
 import { VariablesPanel } from './VariablesPanel'
@@ -8,45 +8,51 @@ import { ConsolePanel } from './ConsolePanel'
 import { ImuPanel } from './ImuPanel'
 import { LogicAnalyzerPage } from './LogicAnalyzerPage'
 
-const layoutJson = {
+const layoutJson: IJsonModel = {
   global: {
+    borderEnableAutoHide: true,
     tabEnableClose: false,
     tabEnableRename: false,
     tabSetEnableDrop: true,
     splitterSize: 6,
-    tabSetHeaderHeight: 34,
-    tabSetTabStripHeight: 34,
   },
+  borders: [
+    {
+      type: 'border',
+      location: 'left',
+      selected: 0,
+      size: 340,
+      children: [
+        { type: 'tab', name: 'Connection', component: 'connection' },
+        { type: 'tab', name: 'MCP', component: 'mcp' },
+        { type: 'tab', name: 'Variables', component: 'variables' },
+      ],
+    },
+    {
+      type: 'border',
+      location: 'right',
+      selected: 0,
+      size: 340,
+      children: [{ type: 'tab', name: 'Serial Console', component: 'console' }],
+    },
+    {
+      type: 'border',
+      location: 'bottom',
+      selected: -1,
+      size: 280,
+      children: [],
+    },
+  ],
   layout: {
     type: 'row',
     children: [
       {
         type: 'tabset',
-        weight: 24,
+        weight: 100,
         children: [
-          { type: 'tab', name: 'Connection', component: 'connection' },
-          { type: 'tab', name: 'MCP', component: 'mcp' },
-          { type: 'tab', name: 'Variables', component: 'variables' },
-        ],
-      },
-      {
-        type: 'row',
-        weight: 76,
-        children: [
-          {
-            type: 'tabset',
-            weight: 68,
-            children: [
-              { type: 'tab', name: 'Waveforms', component: 'waveforms' },
-              { type: 'tab', name: 'IMU', component: 'imu' },
-              { type: 'tab', name: 'Logic Analyzer', component: 'logicAnalyzer' },
-            ],
-          },
-          {
-            type: 'tabset',
-            weight: 32,
-            children: [{ type: 'tab', name: 'Serial Console', component: 'console' }],
-          },
+          { type: 'tab', name: 'Waveforms', component: 'waveforms' },
+          { type: 'tab', name: 'IMU', component: 'imu' },
+          { type: 'tab', name: 'Logic Analyzer', component: 'logicAnalyzer' },
         ],
       },
     ],
