@@ -4,7 +4,8 @@ use serde::Serialize;
 pub const BMI088_SOF: [u8; 2] = [0xA5, 0x5A];
 pub const BMI088_VERSION: u8 = 0x01;
 pub const BMI088_FRAME_TYPE_REQUEST: u8 = 0x01;
-pub const BMI088_FRAME_TYPE_EVENT: u8 = 0x02;
+pub const BMI088_FRAME_TYPE_RESPONSE: u8 = 0x02;
+pub const BMI088_FRAME_TYPE_EVENT: u8 = 0x03;
 
 pub const BMI088_CMD_ACK: u8 = 0x10;
 pub const BMI088_CMD_START: u8 = 0x11;
@@ -12,22 +13,26 @@ pub const BMI088_CMD_STOP: u8 = 0x12;
 pub const BMI088_CMD_REQ_SCHEMA: u8 = 0x13;
 pub const BMI088_CMD_SCHEMA: u8 = 0x80;
 pub const BMI088_CMD_SAMPLE: u8 = 0x81;
+pub const BMI088_SCHEMA_VERSION: u8 = 0x01;
+pub const BMI088_FIELD_TYPE_I16: u8 = 0x01;
 
 pub const BMI088_SAMPLE_FIELD_NAMES: [&str; 9] = [
     "acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z", "roll", "pitch", "yaw",
 ];
 pub const BMI088_SAMPLE_UNITS: [&str; 9] = [
-    "g", "g", "g", "deg/s", "deg/s", "deg/s", "deg", "deg", "deg",
+    "raw", "raw", "raw", "raw", "raw", "raw", "deg", "deg", "deg",
 ];
 pub const BMI088_SAMPLE_SCALE_Q: [i8; 9] = [0, 0, 0, 0, 0, 0, -2, -2, -2];
 
-const BMI088_HEADER_LEN: usize = 7;
-const BMI088_CRC_LEN: usize = 2;
-const BMI088_MIN_FRAME_LEN: usize = BMI088_HEADER_LEN + BMI088_CRC_LEN;
+pub const BMI088_HEADER_LEN: usize = 7;
+pub const BMI088_CRC_LEN: usize = 2;
+pub const BMI088_MIN_FRAME_LEN: usize = BMI088_HEADER_LEN + BMI088_CRC_LEN;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Bmi088FieldDescriptor {
+    pub field_id: u8,
+    pub field_type: u8,
     pub name: String,
     pub unit: String,
     pub scale_q: i8,
@@ -36,6 +41,8 @@ pub struct Bmi088FieldDescriptor {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Bmi088SchemaFrame {
+    pub seq: u8,
+    pub schema_version: u8,
     pub rate_hz: u32,
     pub sample_len: usize,
     pub fields: Vec<Bmi088FieldDescriptor>,
@@ -55,6 +62,7 @@ pub struct Bmi088SampleField {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Bmi088SampleFrame {
+    pub seq: u8,
     pub fields: Vec<Bmi088SampleField>,
 }
 
@@ -99,6 +107,7 @@ pub struct Bmi088StreamDecoder {
     buffer: Vec<u8>,
     max_buffer_bytes: usize,
     text_framer: LineFramer,
+    schema: Option<Bmi088SchemaFrame>,
 }
 
 impl Default for Bmi088SchemaFrame {
@@ -113,7 +122,10 @@ impl Bmi088SchemaFrame {
             .iter()
             .zip(BMI088_SAMPLE_UNITS.iter())
             .zip(BMI088_SAMPLE_SCALE_Q.iter())
-            .map(|((name, unit), scale_q)| Bmi088FieldDescriptor {
+            .enumerate()
+            .map(|(index, ((name, unit), scale_q))| Bmi088FieldDescriptor {
+                field_id: index as u8,
+                field_type: BMI088_FIELD_TYPE_I16,
                 name: (*name).to_string(),
                 unit: (*unit).to_string(),
                 scale_q: *scale_q,
@@ -121,6 +133,8 @@ impl Bmi088SchemaFrame {
             .collect();
 
         Self {
+            seq: 0,
+            schema_version: BMI088_SCHEMA_VERSION,
             rate_hz: 100,
             sample_len: BMI088_SAMPLE_FIELD_NAMES.len() * 2,
             fields,
@@ -129,15 +143,18 @@ impl Bmi088SchemaFrame {
 
     pub fn encode_payload(&self) -> Vec<u8> {
         let mut payload = Vec::new();
-        payload.extend_from_slice(&self.rate_hz.to_le_bytes());
-        payload.extend_from_slice(&(self.sample_len as u16).to_le_bytes());
+        payload.push(self.schema_version);
+        payload.push(self.rate_hz.min(u8::MAX as u32) as u8);
         payload.push(self.fields.len() as u8);
+        payload.push(self.sample_len.min(u8::MAX as usize) as u8);
 
         for field in &self.fields {
-            payload.push(field.name.len() as u8);
-            payload.extend_from_slice(field.name.as_bytes());
+            payload.push(field.field_id);
+            payload.push(field.field_type);
             payload.push(field.scale_q as u8);
+            payload.push(field.name.len() as u8);
             payload.push(field.unit.len() as u8);
+            payload.extend_from_slice(field.name.as_bytes());
             payload.extend_from_slice(field.unit.as_bytes());
         }
 
@@ -172,7 +189,7 @@ impl Bmi088SampleFrame {
             })
             .collect();
 
-        Ok(Self { fields })
+        Ok(Self { seq: 0, fields })
     }
 
     pub fn fields(&self) -> &[Bmi088SampleField] {
@@ -188,9 +205,9 @@ impl Bmi088SessionState {
         }
     }
 
-    pub fn boot_commands(&mut self) -> Vec<Vec<u8>> {
+    pub fn boot_commands(&mut self) -> Vec<Bmi088HostCommand> {
         self.phase = Bmi088SessionPhase::AwaitingSchema;
-        vec![encode_host_command(Bmi088HostCommand::ReqSchema)]
+        vec![Bmi088HostCommand::ReqSchema]
     }
 
     pub fn phase(&self) -> Bmi088SessionPhase {
@@ -201,15 +218,12 @@ impl Bmi088SessionState {
         self.schema.as_ref()
     }
 
-    pub fn on_frame(&mut self, frame: &Bmi088Frame) -> Vec<Vec<u8>> {
+    pub fn on_frame(&mut self, frame: &Bmi088Frame) -> Vec<Bmi088HostCommand> {
         match frame {
             Bmi088Frame::Schema(schema) => {
                 self.schema = Some(schema.clone());
                 self.phase = Bmi088SessionPhase::AwaitingAck;
-                vec![
-                    encode_host_command(Bmi088HostCommand::Ack),
-                    encode_host_command(Bmi088HostCommand::Start),
-                ]
+                vec![Bmi088HostCommand::Ack, Bmi088HostCommand::Start]
             }
             Bmi088Frame::Sample(_) => {
                 self.phase = Bmi088SessionPhase::Streaming;
@@ -246,6 +260,7 @@ impl Bmi088StreamDecoder {
             buffer: Vec::new(),
             max_buffer_bytes: max_buffer_bytes.max(1),
             text_framer: LineFramer::new(),
+            schema: None,
         }
     }
 
@@ -270,7 +285,7 @@ impl Bmi088StreamDecoder {
                     break;
                 }
 
-                let payload_len = u16::from_le_bytes([self.buffer[5], self.buffer[6]]) as usize;
+                let payload_len = self.buffer[6] as usize;
                 let frame_len = BMI088_HEADER_LEN + payload_len + BMI088_CRC_LEN;
                 if frame_len > self.max_buffer_bytes {
                     self.buffer.drain(..1);
@@ -282,9 +297,10 @@ impl Bmi088StreamDecoder {
                 }
 
                 let frame = self.buffer[..frame_len].to_vec();
-                match decode_binary_frame(&frame) {
+                match decode_binary_frame_with_schema(&frame, self.schema.as_ref()) {
                     Ok(Bmi088Frame::Schema(schema)) => {
                         self.buffer.drain(..frame_len);
+                        self.schema = Some(schema.clone());
                         packets.push(TelemetryPacket::Schema(schema));
                     }
                     Ok(Bmi088Frame::Sample(sample)) => {
@@ -337,7 +353,27 @@ pub fn encode_host_command(command: Bmi088HostCommand) -> Vec<u8> {
         Bmi088HostCommand::ReqSchema => BMI088_CMD_REQ_SCHEMA,
     };
 
-    encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, &[])
+    encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, 0, &[])
+}
+
+pub fn encode_host_command_with_seq(command: Bmi088HostCommand, seq: u8) -> Vec<u8> {
+    let command_code = match command {
+        Bmi088HostCommand::Ack => BMI088_CMD_ACK,
+        Bmi088HostCommand::Start => BMI088_CMD_START,
+        Bmi088HostCommand::Stop => BMI088_CMD_STOP,
+        Bmi088HostCommand::ReqSchema => BMI088_CMD_REQ_SCHEMA,
+    };
+
+    encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, seq, &[])
+}
+
+pub fn host_command_label(command: &Bmi088HostCommand) -> &'static str {
+    match command {
+        Bmi088HostCommand::Ack => "ACK",
+        Bmi088HostCommand::Start => "START",
+        Bmi088HostCommand::Stop => "STOP",
+        Bmi088HostCommand::ReqSchema => "REQ_SCHEMA",
+    }
 }
 
 pub fn host_command_from_text(text: &str) -> Option<Bmi088HostCommand> {
@@ -351,11 +387,11 @@ pub fn host_command_from_text(text: &str) -> Option<Bmi088HostCommand> {
 }
 
 pub fn encode_schema_frame(schema: &Bmi088SchemaFrame) -> Vec<u8> {
-    encode_frame(
-        BMI088_FRAME_TYPE_EVENT,
-        BMI088_CMD_SCHEMA,
-        &schema.encode_payload(),
-    )
+    encode_schema_frame_with_seq(schema, schema.seq)
+}
+
+pub fn encode_schema_frame_with_seq(schema: &Bmi088SchemaFrame, seq: u8) -> Vec<u8> {
+    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SCHEMA, seq, &schema.encode_payload())
 }
 
 pub fn encode_sample_frame(sample: &Bmi088SampleFrame) -> Vec<u8> {
@@ -363,7 +399,15 @@ pub fn encode_sample_frame(sample: &Bmi088SampleFrame) -> Vec<u8> {
     for field in &sample.fields {
         payload.extend_from_slice(&field.raw.to_le_bytes());
     }
-    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SAMPLE, &payload)
+    encode_sample_frame_with_seq(sample, sample.seq)
+}
+
+pub fn encode_sample_frame_with_seq(sample: &Bmi088SampleFrame, seq: u8) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(sample.fields.len() * 2);
+    for field in &sample.fields {
+        payload.extend_from_slice(&field.raw.to_le_bytes());
+    }
+    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SAMPLE, seq, &payload)
 }
 
 pub fn default_schema() -> Bmi088SchemaFrame {
@@ -389,6 +433,13 @@ pub fn default_sample(sample_index: u64) -> Bmi088SampleFrame {
 }
 
 pub fn decode_binary_frame(frame: &[u8]) -> Result<Bmi088Frame, Bmi088DecodeError> {
+    decode_binary_frame_with_schema(frame, None)
+}
+
+pub fn decode_binary_frame_with_schema(
+    frame: &[u8],
+    schema: Option<&Bmi088SchemaFrame>,
+) -> Result<Bmi088Frame, Bmi088DecodeError> {
     if frame.len() < BMI088_MIN_FRAME_LEN {
         return Err(Bmi088DecodeError::MalformedFrame(
             "frame too short".to_string(),
@@ -402,7 +453,7 @@ pub fn decode_binary_frame(frame: &[u8]) -> Result<Bmi088Frame, Bmi088DecodeErro
         return Err(Bmi088DecodeError::InvalidVersion);
     }
 
-    let payload_len = u16::from_le_bytes([frame[5], frame[6]]) as usize;
+    let payload_len = frame[6] as usize;
     let expected_len = BMI088_HEADER_LEN + payload_len + BMI088_CRC_LEN;
     if frame.len() != expected_len {
         return Err(Bmi088DecodeError::MalformedFrame(
@@ -411,22 +462,23 @@ pub fn decode_binary_frame(frame: &[u8]) -> Result<Bmi088Frame, Bmi088DecodeErro
     }
 
     let crc = u16::from_le_bytes([frame[expected_len - 2], frame[expected_len - 1]]);
-    let calculated_crc = crc16_ccitt(&frame[2..expected_len - 2]);
+    let calculated_crc = crc16_ccitt(&frame[..expected_len - 2]);
     if crc != calculated_crc {
         return Err(Bmi088DecodeError::InvalidCrc);
     }
 
     let frame_type = frame[3];
     let command = frame[4];
+    let seq = frame[5];
     let payload = &frame[BMI088_HEADER_LEN..expected_len - 2];
 
     match (frame_type, command) {
         (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SCHEMA) => {
-            Ok(Bmi088Frame::Schema(decode_schema_payload(payload)?))
+            Ok(Bmi088Frame::Schema(decode_schema_payload_with_seq(seq, payload)?))
         }
-        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SAMPLE) => {
-            Ok(Bmi088Frame::Sample(decode_sample_payload(payload)?))
-        }
+        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SAMPLE) => Ok(Bmi088Frame::Sample(
+            decode_sample_payload_with_schema_and_seq(payload, schema.unwrap_or(&default_schema()), seq)?,
+        )),
         _ => Err(Bmi088DecodeError::MalformedFrame(
             "unsupported command".to_string(),
         )),
@@ -434,23 +486,50 @@ pub fn decode_binary_frame(frame: &[u8]) -> Result<Bmi088Frame, Bmi088DecodeErro
 }
 
 pub fn decode_schema_payload(payload: &[u8]) -> Result<Bmi088SchemaFrame, Bmi088DecodeError> {
-    if payload.len() < 7 {
+    decode_schema_payload_with_seq(0, payload)
+}
+
+pub fn decode_schema_payload_with_seq(
+    seq: u8,
+    payload: &[u8],
+) -> Result<Bmi088SchemaFrame, Bmi088DecodeError> {
+    if payload.len() < 4 {
         return Err(Bmi088DecodeError::MalformedFrame(
             "schema payload too short".to_string(),
         ));
     }
 
-    let rate_hz = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
-    let sample_len = u16::from_le_bytes([payload[4], payload[5]]) as usize;
-    let field_count = payload[6] as usize;
-    let mut offset = 7;
+    if payload[0] != BMI088_SCHEMA_VERSION {
+        return Err(Bmi088DecodeError::MalformedFrame(
+            "unsupported schema version".to_string(),
+        ));
+    }
+
+    let rate_hz = payload[1] as u32;
+    let field_count = payload[2] as usize;
+    let sample_len = payload[3] as usize;
+    let mut offset = 4;
     let mut fields = Vec::with_capacity(field_count);
 
     for _ in 0..field_count {
-        let name_len = *payload.get(offset).ok_or_else(|| {
-            Bmi088DecodeError::MalformedFrame("missing field name length".to_string())
-        })? as usize;
-        offset += 1;
+        if payload.len() < offset + 5 {
+            return Err(Bmi088DecodeError::MalformedFrame(
+                "field descriptor too short".to_string(),
+            ));
+        }
+
+        let _field_id = payload[offset];
+        let field_type = payload[offset + 1];
+        if field_type != BMI088_FIELD_TYPE_I16 {
+            return Err(Bmi088DecodeError::MalformedFrame(
+                "unsupported field type".to_string(),
+            ));
+        }
+        let scale_q = payload[offset + 2] as i8;
+        let name_len = payload[offset + 3] as usize;
+        let unit_len = payload[offset + 4] as usize;
+        offset += 5;
+
         let name_bytes = payload.get(offset..offset + name_len).ok_or_else(|| {
             Bmi088DecodeError::MalformedFrame("missing field name bytes".to_string())
         })?;
@@ -459,17 +538,6 @@ pub fn decode_schema_payload(payload: &[u8]) -> Result<Bmi088SchemaFrame, Bmi088
         })?;
         offset += name_len;
 
-        let scale_q = *payload
-            .get(offset)
-            .ok_or_else(|| Bmi088DecodeError::MalformedFrame("missing scale_q".to_string()))?
-            as i8;
-        offset += 1;
-
-        let unit_len = *payload
-            .get(offset)
-            .ok_or_else(|| Bmi088DecodeError::MalformedFrame("missing unit length".to_string()))?
-            as usize;
-        offset += 1;
         let unit_bytes = payload
             .get(offset..offset + unit_len)
             .ok_or_else(|| Bmi088DecodeError::MalformedFrame("missing unit bytes".to_string()))?;
@@ -478,6 +546,8 @@ pub fn decode_schema_payload(payload: &[u8]) -> Result<Bmi088SchemaFrame, Bmi088
         offset += unit_len;
 
         fields.push(Bmi088FieldDescriptor {
+            field_id: fields.len() as u8,
+            field_type,
             name,
             unit,
             scale_q,
@@ -490,7 +560,15 @@ pub fn decode_schema_payload(payload: &[u8]) -> Result<Bmi088SchemaFrame, Bmi088
         ));
     }
 
+    if sample_len != fields.len() * 2 {
+        return Err(Bmi088DecodeError::SchemaMismatch(
+            "sample length does not match i16 field count".to_string(),
+        ));
+    }
+
     Ok(Bmi088SchemaFrame {
+        seq,
+        schema_version: BMI088_SCHEMA_VERSION,
         rate_hz,
         sample_len,
         fields,
@@ -499,6 +577,21 @@ pub fn decode_schema_payload(payload: &[u8]) -> Result<Bmi088SchemaFrame, Bmi088
 
 pub fn decode_sample_payload(payload: &[u8]) -> Result<Bmi088SampleFrame, Bmi088DecodeError> {
     let schema = default_schema();
+    decode_sample_payload_with_schema_and_seq(payload, &schema, 0)
+}
+
+pub fn decode_sample_payload_with_schema(
+    payload: &[u8],
+    schema: &Bmi088SchemaFrame,
+) -> Result<Bmi088SampleFrame, Bmi088DecodeError> {
+    decode_sample_payload_with_schema_and_seq(payload, schema, 0)
+}
+
+pub fn decode_sample_payload_with_schema_and_seq(
+    payload: &[u8],
+    schema: &Bmi088SchemaFrame,
+    seq: u8,
+) -> Result<Bmi088SampleFrame, Bmi088DecodeError> {
     if payload.len() != schema.sample_len {
         return Err(Bmi088DecodeError::SchemaMismatch(
             "sample length does not match expected schema".to_string(),
@@ -516,7 +609,71 @@ pub fn decode_sample_payload(payload: &[u8]) -> Result<Bmi088SampleFrame, Bmi088
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<_>>();
 
-    Bmi088SampleFrame::from_raw_values(&schema, &raw_values)
+    let mut sample = Bmi088SampleFrame::from_raw_values(&schema, &raw_values)?;
+    sample.seq = seq;
+    Ok(sample)
+}
+
+pub fn decode_sample_raw_values(payload: &[u8]) -> Result<Vec<i16>, Bmi088DecodeError> {
+    if payload.len() % 2 != 0 {
+        return Err(Bmi088DecodeError::MalformedFrame(
+            "sample payload must contain i16 values".to_string(),
+        ));
+    }
+
+    Ok(payload
+        .chunks_exact(2)
+        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect())
+}
+
+pub fn frame_len_from_payload_len(payload_len: u8) -> usize {
+    BMI088_HEADER_LEN + payload_len as usize + BMI088_CRC_LEN
+}
+
+pub fn frame_len(frame: &[u8]) -> Result<usize, Bmi088DecodeError> {
+    if frame.len() < BMI088_MIN_FRAME_LEN {
+        return Err(Bmi088DecodeError::MalformedFrame(
+            "frame too short".to_string(),
+        ));
+    }
+
+    Ok(frame_len_from_payload_len(frame[6]))
+}
+
+pub fn decode_frame_envelope(
+    frame: &[u8],
+) -> Result<(u8, u8, u8, &[u8]), Bmi088DecodeError> {
+    if frame.len() < BMI088_MIN_FRAME_LEN {
+        return Err(Bmi088DecodeError::MalformedFrame(
+            "frame too short".to_string(),
+        ));
+    }
+    if frame[0..2] != BMI088_SOF {
+        return Err(Bmi088DecodeError::InvalidSof);
+    }
+    if frame[2] != BMI088_VERSION {
+        return Err(Bmi088DecodeError::InvalidVersion);
+    }
+
+    let expected_len = frame_len(frame)?;
+    if frame.len() != expected_len {
+        return Err(Bmi088DecodeError::MalformedFrame(
+            "length mismatch".to_string(),
+        ));
+    }
+
+    let crc = u16::from_le_bytes([frame[expected_len - 2], frame[expected_len - 1]]);
+    let calculated_crc = crc16_ccitt(&frame[..expected_len - 2]);
+    if crc != calculated_crc {
+        return Err(Bmi088DecodeError::InvalidCrc);
+    }
+
+    Ok((frame[3], frame[4], frame[5], &frame[BMI088_HEADER_LEN..expected_len - 2]))
+}
+
+pub fn find_sof(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(2).position(|window| window == BMI088_SOF)
 }
 
 pub fn crc16_ccitt(bytes: &[u8]) -> u16 {
@@ -540,21 +697,19 @@ pub fn scale_raw(raw: i16, scale_q: i8) -> f64 {
     (raw as f64) * 10f64.powi(scale_q as i32)
 }
 
-fn encode_frame(frame_type: u8, command: u8, payload: &[u8]) -> Vec<u8> {
+fn encode_frame(frame_type: u8, command: u8, seq: u8, payload: &[u8]) -> Vec<u8> {
     let mut frame = Vec::with_capacity(BMI088_HEADER_LEN + payload.len() + BMI088_CRC_LEN);
+    let payload_len = u8::try_from(payload.len()).expect("BMI088 payload length exceeds u8");
     frame.extend_from_slice(&BMI088_SOF);
     frame.push(BMI088_VERSION);
     frame.push(frame_type);
     frame.push(command);
-    frame.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    frame.push(seq);
+    frame.push(payload_len);
     frame.extend_from_slice(payload);
-    let crc = crc16_ccitt(&frame[2..]);
+    let crc = crc16_ccitt(&frame);
     frame.extend_from_slice(&crc.to_le_bytes());
     frame
-}
-
-fn find_sof(buffer: &[u8]) -> Option<usize> {
-    buffer.windows(2).position(|window| window == BMI088_SOF)
 }
 
 fn normalize_signed_angle_deg(value: f64) -> f64 {
