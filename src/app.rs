@@ -1,19 +1,20 @@
 use crate::analysis::AnalysisEngine;
 use crate::bmi088::{
-    self, encode_host_command, host_command_from_text, Bmi088Frame, Bmi088SessionState,
-    TelemetryPacket,
+    self, Bmi088Frame, Bmi088HostCommand, Bmi088SessionState, TelemetryPacket, encode_host_command,
+    host_command_from_text, host_command_label,
 };
 use crate::bus::MessageBus;
 use crate::cli::RunConfig;
 use crate::error::AppError;
-use crate::message::{BusMessage, ConnectionState, LinePayload, MessageSource};
+use crate::message::{BusMessage, ConnectionState, LinePayload, MessageSource, ParserMeta};
 use crate::parser;
 use crate::serial;
+use std::collections::BTreeMap;
 use std::cmp::min;
 use std::io::ErrorKind;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -21,6 +22,7 @@ const RETRY_SLEEP_SLICE_MS: u64 = 100;
 
 enum RuntimeCommand {
     Send { payload: Vec<u8> },
+    SendBmi088 { command: Bmi088HostCommand },
 }
 
 #[derive(Clone, Debug)]
@@ -32,6 +34,17 @@ impl RuntimeCommandHandle {
     pub fn send_payload(&self, payload: Vec<u8>) -> Result<(), AppError> {
         self.sender
             .send(RuntimeCommand::Send { payload })
+            .map_err(|_| {
+                AppError::Io(std::io::Error::new(
+                    ErrorKind::BrokenPipe,
+                    "runtime command channel is closed",
+                ))
+            })
+    }
+
+    pub fn send_bmi088_command(&self, command: Bmi088HostCommand) -> Result<(), AppError> {
+        self.sender
+            .send(RuntimeCommand::SendBmi088 { command })
             .map_err(|_| {
                 AppError::Io(std::io::Error::new(
                     ErrorKind::BrokenPipe,
@@ -160,7 +173,13 @@ impl App {
 
                     if self.config.parser == crate::cli::ParserKind::Bmi088 {
                         for command in bmi088_session.boot_commands() {
-                            serial::write_payload(&mut *port, &command)?;
+                            send_bmi088_command(
+                                &self.bus,
+                                &source,
+                                &mut *port,
+                                &mut bmi088_session,
+                                command,
+                            )?;
                         }
                     }
 
@@ -179,8 +198,7 @@ impl App {
                             &mut *port,
                             &mut bmi088_session,
                             self.config.parser == crate::cli::ParserKind::Bmi088,
-                        )
-                        {
+                        ) {
                             self.publish_retry(&source, attempt, error.to_string(), &reconnect);
                             break;
                         }
@@ -203,7 +221,13 @@ impl App {
                                         for command in bmi088_session
                                             .on_frame(&Bmi088Frame::Schema(schema.clone()))
                                         {
-                                            serial::write_payload(&mut *port, &command)?;
+                                            send_bmi088_command(
+                                                &self.bus,
+                                                &source,
+                                                &mut *port,
+                                                &mut bmi088_session,
+                                                command,
+                                            )?;
                                         }
                                         publish_schema(&self.bus, &source, schema);
                                     }
@@ -220,7 +244,13 @@ impl App {
                             && bmi088_session.phase() == bmi088::Bmi088SessionPhase::AwaitingSchema
                         {
                             for command in bmi088_session.boot_commands() {
-                                serial::write_payload(&mut *port, &command)?;
+                                send_bmi088_command(
+                                    &self.bus,
+                                    &source,
+                                    &mut *port,
+                                    &mut bmi088_session,
+                                    command,
+                                )?;
                             }
                         }
                     }
@@ -278,23 +308,48 @@ impl App {
                 Ok(RuntimeCommand::Send { payload }) => {
                     if bmi088_mode
                         && let Some(command) =
-                        host_command_from_text(&String::from_utf8_lossy(&payload))
+                            host_command_from_text(&String::from_utf8_lossy(&payload))
                     {
-                        let encoded = encode_host_command(command.clone());
-                        serial::write_payload(port, &encoded)?;
-                        bmi088_session.on_host_command(command);
-                        self.bus
-                            .publish(BusMessage::tx_line(source, outbound_payload(&payload)));
+                        send_bmi088_command(&self.bus, source, port, bmi088_session, command)?;
                     } else {
                         serial::write_payload(port, &payload)?;
                         self.bus
                             .publish(BusMessage::tx_line(source, outbound_payload(&payload)));
                     }
                 }
+                Ok(RuntimeCommand::SendBmi088 { command }) => {
+                    send_bmi088_command(&self.bus, source, port, bmi088_session, command)?;
+                }
                 Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => return Ok(()),
             }
         }
     }
+}
+
+fn send_bmi088_command<T>(
+    bus: &MessageBus,
+    source: &MessageSource,
+    port: &mut T,
+    bmi088_session: &mut Bmi088SessionState,
+    command: Bmi088HostCommand,
+) -> Result<(), AppError>
+where
+    T: std::io::Write + ?Sized,
+{
+    let encoded = encode_host_command(command.clone());
+    serial::write_payload(port, &encoded)?;
+    bmi088_session.on_host_command(command.clone());
+    bus.publish(
+        BusMessage::tx_line(
+            source,
+            LinePayload {
+                text: host_command_label(&command).to_string(),
+                raw: encoded,
+            },
+        )
+        .with_parser(bmi088_command_parser_meta(&command)),
+    );
+    Ok(())
 }
 
 fn publish_rx_with_analysis(
@@ -321,11 +376,63 @@ fn publish_rx_with_analysis(
 }
 
 fn publish_schema(bus: &MessageBus, source: &MessageSource, schema: bmi088::Bmi088SchemaFrame) {
-    bus.publish(BusMessage::telemetry_schema(source, schema));
+    let parser = ParserMeta::parsed(
+        "bmi088_schema",
+        bmi088_payload_fields(&[
+            ("command", "SCHEMA".to_string()),
+            ("rate_hz", schema.rate_hz.to_string()),
+            ("sample_len", schema.sample_len.to_string()),
+            ("field_count", schema.fields.len().to_string()),
+            (
+                "field_order",
+                schema
+                    .fields
+                    .iter()
+                    .map(|field| field.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+        ]),
+    );
+    bus.publish(BusMessage::telemetry_schema(source, schema).with_parser(parser));
 }
 
 fn publish_sample(bus: &MessageBus, source: &MessageSource, sample: bmi088::Bmi088SampleFrame) {
-    bus.publish(BusMessage::telemetry_sample(source, sample.clone()));
+    let parser = ParserMeta::parsed(
+        "bmi088_sample",
+        bmi088_payload_fields(&[
+            ("command", "SAMPLE".to_string()),
+            ("field_count", sample.fields.len().to_string()),
+            (
+                "field_order",
+                sample
+                    .fields
+                    .iter()
+                    .map(|field| field.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+        ]),
+    );
+    bus.publish(BusMessage::telemetry_sample(source, sample).with_parser(parser));
+}
+
+fn bmi088_command_parser_meta(command: &Bmi088HostCommand) -> ParserMeta {
+    ParserMeta::parsed(
+        "bmi088_command",
+        bmi088_payload_fields(&[
+            ("command", host_command_label(command).to_string()),
+            ("frame_type", "REQUEST".to_string()),
+            ("payload_len", "0".to_string()),
+        ]),
+    )
+}
+
+fn bmi088_payload_fields(entries: &[(&str, String)]) -> BTreeMap<String, String> {
+    entries
+        .iter()
+        .map(|(key, value)| ((*key).to_string(), value.clone()))
+        .collect()
 }
 
 fn timestamp_ms(timestamp: SystemTime) -> u64 {

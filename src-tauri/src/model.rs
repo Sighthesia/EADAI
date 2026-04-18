@@ -1,8 +1,11 @@
 use eadai::analysis::{AnalysisFrame, TriggerEvent, TriggerSeverity};
-use eadai::bmi088::{Bmi088SampleFrame, Bmi088SchemaFrame};
+use eadai::bmi088::{
+    Bmi088HostCommand, Bmi088SampleFrame, Bmi088SchemaFrame, encode_sample_frame,
+    encode_schema_frame,
+};
 use eadai::message::{
     BusMessage, ConnectionEvent, ConnectionState, LineDirection, MessageKind, MessageSource,
-    ParserMeta, TransportKind,
+    ParserMeta, ParserStatus, TransportKind,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,6 +37,32 @@ pub struct ConnectRequest {
 pub struct SendRequest {
     pub payload: String,
     pub append_newline: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bmi088CommandRequest {
+    pub command: UiBmi088HostCommand,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum UiBmi088HostCommand {
+    Ack,
+    Start,
+    Stop,
+    ReqSchema,
+}
+
+impl From<UiBmi088HostCommand> for Bmi088HostCommand {
+    fn from(value: UiBmi088HostCommand) -> Self {
+        match value {
+            UiBmi088HostCommand::Ack => Self::Ack,
+            UiBmi088HostCommand::Start => Self::Start,
+            UiBmi088HostCommand::Stop => Self::Stop,
+            UiBmi088HostCommand::ReqSchema => Self::ReqSchema,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -197,7 +226,16 @@ pub struct UiSource {
 #[serde(rename_all = "camelCase")]
 pub struct UiParserMeta {
     pub parser_name: Option<String>,
+    pub status: UiParserStatus,
     pub fields: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UiParserStatus {
+    Unparsed,
+    Parsed,
+    Malformed,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -215,6 +253,7 @@ pub struct UiLinePayload {
     pub direction: UiLineDirection,
     pub text: String,
     pub raw_length: usize,
+    pub raw: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -271,11 +310,15 @@ pub enum UiBusEvent {
         timestamp_ms: u64,
         source: UiSource,
         schema: Bmi088SchemaFrame,
+        raw_frame: Vec<u8>,
+        parser: UiParserMeta,
     },
     TelemetrySample {
         timestamp_ms: u64,
         source: UiSource,
         sample: Bmi088SampleFrame,
+        raw_frame: Vec<u8>,
+        parser: UiParserMeta,
     },
     Analysis {
         timestamp_ms: u64,
@@ -384,11 +427,22 @@ impl From<ParserMeta> for UiParserMeta {
     fn from(value: ParserMeta) -> Self {
         Self {
             parser_name: value.parser_name,
+            status: value.status.into(),
             fields: value
                 .fields
                 .into_iter()
                 .map(|(key, value)| (normalize_parser_key(&key), value))
                 .collect(),
+        }
+    }
+}
+
+impl From<ParserStatus> for UiParserStatus {
+    fn from(value: ParserStatus) -> Self {
+        match value {
+            ParserStatus::Unparsed => Self::Unparsed,
+            ParserStatus::Parsed => Self::Parsed,
+            ParserStatus::Malformed => Self::Malformed,
         }
     }
 }
@@ -468,18 +522,23 @@ impl From<BusMessage> for UiBusEvent {
                     direction: line.direction.into(),
                     raw_length: line.payload.raw.len(),
                     text: line.payload.text,
+                    raw: line.payload.raw,
                 },
                 parser: parser.into(),
             },
             MessageKind::TelemetrySchema(schema) => Self::TelemetrySchema {
                 timestamp_ms,
                 source,
+                raw_frame: encode_schema_frame(&schema),
                 schema,
+                parser: parser.into(),
             },
             MessageKind::TelemetrySample(sample) => Self::TelemetrySample {
                 timestamp_ms,
                 source,
+                raw_frame: encode_sample_frame(&sample),
                 sample,
+                parser: parser.into(),
             },
             MessageKind::Analysis(frame) => Self::Analysis {
                 timestamp_ms,

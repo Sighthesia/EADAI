@@ -1,9 +1,9 @@
 use crate::ai_contract::{
     AiAdapterLimits, AiLineEventRecord, AiRecentEvent, AiRecentEventKind, AiSamplePoint,
     AiSessionSnapshot, AnalysisFramesResource, ChannelAnalysisResource, ChannelStatisticsQuery,
-    ChannelStatisticsResource, HistoricalAnalysisQuery, HistoricalAnalysisResource,
-    RecentEventsQuery, RecentEventsResource, TelemetryChannelSummary, TelemetrySummaryResource,
-    TriggerHistoryResource, DEFAULT_CHANNEL_TRIGGER_CONTEXT_LIMIT,
+    ChannelStatisticsResource, DEFAULT_CHANNEL_TRIGGER_CONTEXT_LIMIT, HistoricalAnalysisQuery,
+    HistoricalAnalysisResource, RecentEventsQuery, RecentEventsResource, TelemetryChannelSummary,
+    TelemetrySummaryResource, TriggerHistoryResource,
 };
 use crate::analysis::{AnalysisFrame, TriggerEvent};
 use crate::bus::BusSubscription;

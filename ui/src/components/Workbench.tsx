@@ -7,6 +7,8 @@ import { WaveformPanel } from './WaveformPanel'
 import { ConsolePanel } from './ConsolePanel'
 import { ImuPanel } from './ImuPanel'
 import { LogicAnalyzerPage } from './LogicAnalyzerPage'
+import { ProtocolPanel } from './ProtocolPanel'
+import { ScriptHookPanel } from './ScriptHookPanel'
 
 const layoutJson: IJsonModel = {
   global: {
@@ -32,8 +34,12 @@ const layoutJson: IJsonModel = {
       type: 'border',
       location: 'right',
       selected: 0,
-      size: 340,
-      children: [{ type: 'tab', name: 'Serial Console', component: 'console' }],
+      size: 360,
+      children: [
+        { type: 'tab', name: 'Serial Console', component: 'console' },
+        { type: 'tab', name: 'Protocol', component: 'protocol' },
+        { type: 'tab', name: 'Script Hooks', component: 'scriptHooks' },
+      ],
     },
     {
       type: 'border',
@@ -87,6 +93,10 @@ function factory(node: TabNode) {
       return <LogicAnalyzerPage />
     case 'console':
       return <ConsolePanel />
+    case 'protocol':
+      return <ProtocolPanel />
+    case 'scriptHooks':
+      return <ScriptHookPanel />
     default:
       return null
   }

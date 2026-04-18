@@ -1,6 +1,6 @@
 use crate::model::{
-    ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus, McpServerStatus, SendRequest,
-    SessionSnapshot,
+    Bmi088CommandRequest, ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus,
+    McpServerStatus, SendRequest, SessionSnapshot,
 };
 use crate::state::DesktopState;
 use eadai::serial::SerialDeviceInfo;
@@ -65,4 +65,12 @@ pub fn disconnect_serial(state: State<'_, DesktopState>) -> Result<SessionSnapsh
 #[tauri::command]
 pub fn send_serial(state: State<'_, DesktopState>, request: SendRequest) -> Result<(), String> {
     state.send(request)
+}
+
+#[tauri::command]
+pub fn send_bmi088_command(
+    state: State<'_, DesktopState>,
+    request: Bmi088CommandRequest,
+) -> Result<(), String> {
+    state.send_bmi088_command(request)
 }

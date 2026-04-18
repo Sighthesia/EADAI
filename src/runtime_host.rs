@@ -1,6 +1,7 @@
 use crate::ai_adapter::AiContextAdapter;
 use crate::ai_contract::AiSessionSnapshot;
 use crate::app::{App, RuntimeCommandHandle, StopSignal};
+use crate::bmi088::Bmi088HostCommand;
 use crate::bus::{BusSubscription, MessageBus};
 use crate::cli::RunConfig;
 use crate::error::AppError;
@@ -157,6 +158,34 @@ impl SessionRuntimeHost {
         running.control.send_payload(payload)
     }
 
+    /// Sends one BMI088 host command through the active runtime session.
+    pub fn send_bmi088_command(&self, command: Bmi088HostCommand) -> Result<(), AppError> {
+        let snapshot = self.adapter.session_snapshot();
+        let connection = snapshot.connection.ok_or_else(|| {
+            AppError::Io(std::io::Error::new(
+                ErrorKind::NotConnected,
+                "runtime session is not connected",
+            ))
+        })?;
+
+        if connection.state != crate::message::ConnectionState::Connected {
+            return Err(AppError::Io(std::io::Error::new(
+                ErrorKind::NotConnected,
+                "runtime session is not connected",
+            )));
+        }
+
+        let state = lock_state(&self.inner);
+        let running = state.running.as_ref().ok_or_else(|| {
+            AppError::Io(std::io::Error::new(
+                ErrorKind::NotConnected,
+                "runtime session is not running",
+            ))
+        })?;
+
+        running.control.send_bmi088_command(command)
+    }
+
     /// Lists serial ports using the shared backend helper.
     pub fn list_ports(&self) -> Result<Vec<String>, AppError> {
         serial::list_ports()
@@ -181,6 +210,15 @@ impl RuntimeControl {
             Self::Serial { command_handle, .. } => command_handle.send_payload(payload),
             Self::Fake(handle) => handle
                 .send_payload(payload)
+                .map_err(|error| AppError::Io(std::io::Error::new(ErrorKind::BrokenPipe, error))),
+        }
+    }
+
+    fn send_bmi088_command(&self, command: Bmi088HostCommand) -> Result<(), AppError> {
+        match self {
+            Self::Serial { command_handle, .. } => command_handle.send_bmi088_command(command),
+            Self::Fake(handle) => handle
+                .send_payload(crate::bmi088::encode_host_command(command))
                 .map_err(|error| AppError::Io(std::io::Error::new(ErrorKind::BrokenPipe, error))),
         }
     }

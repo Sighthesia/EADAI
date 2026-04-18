@@ -1,6 +1,6 @@
 use eadai::app::App;
 use eadai::bus::{BusSubscription, MessageBus};
-use eadai::cli::{parse_args, Command, InteractiveConfig, LoopbackConfig, SendConfig};
+use eadai::cli::{Command, InteractiveConfig, LoopbackConfig, SendConfig, parse_args};
 use eadai::error::AppError;
 use eadai::message::{LineDirection, MessageKind};
 use eadai::serial::{self, LineFramer};

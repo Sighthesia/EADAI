@@ -18,6 +18,12 @@ export interface SendRequest {
   appendNewline: boolean
 }
 
+export type Bmi088HostCommand = 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA'
+
+export interface Bmi088CommandRequest {
+  command: Bmi088HostCommand
+}
+
 export interface SessionSnapshot {
   isRunning: boolean
   transport?: UiTransportKind | null
@@ -121,6 +127,7 @@ export interface UiSource {
 
 export interface UiParserMeta {
   parserName?: string | null
+  status: 'unparsed' | 'parsed' | 'malformed'
   fields: Record<string, string>
 }
 
@@ -135,6 +142,64 @@ export interface UiLinePayload {
   direction: UiLineDirection
   text: string
   rawLength: number
+  raw: number[]
+}
+
+export interface UiTelemetrySchemaField {
+  name: string
+  unit: string
+  scaleQ: number
+}
+
+export interface UiTelemetrySchemaPayload {
+  rateHz: number
+  sampleLen: number
+  fields: UiTelemetrySchemaField[]
+  rawFrame: number[]
+}
+
+export interface UiTelemetrySampleField {
+  name: string
+  raw: number
+  value: number
+  unit?: string | null
+  scaleQ: number
+  index: number
+}
+
+export interface UiTelemetrySamplePayload {
+  fields: UiTelemetrySampleField[]
+  rawFrame: number[]
+}
+
+export type UiProtocolHandshakePhase = 'awaitingSchema' | 'awaitingAck' | 'awaitingStart' | 'streaming' | 'stopped'
+
+export interface UiProtocolHandshakeEvent {
+  timestampMs: number
+  direction: 'tx' | 'rx'
+  command: 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA' | 'SCHEMA' | 'SAMPLE'
+  note: string
+  parserStatus: 'unparsed' | 'parsed' | 'malformed'
+}
+
+export interface UiProtocolSnapshot {
+  active: boolean
+  parserName: string
+  transportLabel: string
+  baudRate: number
+  phase: UiProtocolHandshakePhase
+  schema?: UiTelemetrySchemaPayload | null
+  lastPacketKind?: 'schema' | 'sample' | 'command' | null
+  lastPacketRawFrame?: number[] | null
+  lastSchemaAtMs?: number | null
+  lastSampleAtMs?: number | null
+  lastHandshakeAtMs?: number | null
+  timeline: UiProtocolHandshakeEvent[]
+}
+
+export interface UiScriptHookExample {
+  name: string
+  snippet: string
 }
 
 export interface UiAnalysisPayload {
@@ -169,31 +234,6 @@ export interface UiTriggerPayload {
   snapshot?: UiAnalysisPayload | null
 }
 
-export interface UiTelemetrySchemaField {
-  name: string
-  unit: string
-  scaleQ: number
-}
-
-export interface UiTelemetrySchemaPayload {
-  rateHz: number
-  sampleLen: number
-  fields: UiTelemetrySchemaField[]
-}
-
-export interface UiTelemetrySampleField {
-  name: string
-  raw: number
-  value: number
-  unit?: string | null
-  scaleQ: number
-  index: number
-}
-
-export interface UiTelemetrySamplePayload {
-  fields: UiTelemetrySampleField[]
-}
-
 export type SerialBusEvent =
   | {
       kind: 'connection'
@@ -219,12 +259,14 @@ export type SerialBusEvent =
       timestampMs: number
       source: UiSource
       schema: UiTelemetrySchemaPayload
+      parser: UiParserMeta
     }
   | {
       kind: 'telemetrySample'
       timestampMs: number
       source: UiSource
       sample: UiTelemetrySamplePayload
+      parser: UiParserMeta
     }
   | {
       kind: 'trigger'
@@ -237,7 +279,9 @@ export interface ConsoleEntry {
   id: string
   direction: UiLineDirection
   text: string
+  raw: number[]
   timestampMs: number
+  parser?: UiParserMeta | null
 }
 
 export interface SamplePoint {

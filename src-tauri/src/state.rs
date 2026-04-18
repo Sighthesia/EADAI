@@ -1,9 +1,9 @@
 use crate::logic_analyzer::LogicAnalyzerService;
 use crate::mcp::EmbeddedMcpServer;
 use crate::model::{
-    apply_connection_snapshot, ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus,
-    McpServerStatus, SendRequest, SessionSnapshot, SourceKind, UiBusEvent, UiConnectionState,
-    UiTransportKind,
+    apply_connection_snapshot, Bmi088CommandRequest, ConnectRequest, LogicAnalyzerCaptureRequest,
+    LogicAnalyzerStatus, McpServerStatus, SendRequest, SessionSnapshot, SourceKind, UiBusEvent,
+    UiConnectionState, UiTransportKind,
 };
 use eadai::bus::BusSubscription;
 use eadai::cli::{ParserKind, RunConfig};
@@ -153,6 +153,12 @@ impl DesktopState {
                 &request.payload,
                 request.append_newline,
             ))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn send_bmi088_command(&self, request: Bmi088CommandRequest) -> Result<(), String> {
+        self.runtime
+            .send_bmi088_command(request.command.into())
             .map_err(|error| error.to_string())
     }
 }

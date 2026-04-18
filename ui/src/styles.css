@@ -232,6 +232,125 @@ button {
   gap: 14px;
 }
 
+.protocol-panel,
+.script-hook-panel {
+  padding: 14px;
+  gap: 14px;
+}
+
+.protocol-summary-grid,
+.script-hook-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.protocol-card,
+.protocol-command-card,
+.protocol-schema-card,
+.protocol-timeline-card,
+.protocol-raw-card,
+.script-hook-card {
+  border: 1px solid #202733;
+  border-radius: 12px;
+  background: rgba(18, 22, 30, 0.96);
+  padding: 12px;
+}
+
+.protocol-schema-header,
+.protocol-timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.protocol-field-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.protocol-command-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.protocol-command-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 108px;
+}
+
+.protocol-command-button small {
+  color: #9ba8b7;
+  font-size: 11px;
+}
+
+.protocol-command-button.recommended {
+  border-color: #3966f6;
+  background: linear-gradient(180deg, rgba(43, 92, 246, 0.18), rgba(24, 29, 38, 0.96));
+  box-shadow: 0 0 0 1px rgba(79, 124, 255, 0.28) inset;
+}
+
+.protocol-command-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.protocol-field-pill {
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(24, 29, 38, 0.96);
+  border: 1px solid #243041;
+}
+
+.protocol-timeline {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.protocol-timeline-item {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(24, 29, 38, 0.96);
+  border: 1px solid #243041;
+}
+
+.protocol-timeline-item p,
+.protocol-raw-card pre,
+.script-hook-card pre,
+.protocol-card pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.protocol-empty {
+  color: #8892a0;
+}
+
+.console-toolbar-row {
+  justify-content: flex-start;
+}
+
+.console-display-switch {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.console-command-strip {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .connection-stack {
   display: flex;
   flex-direction: column;
@@ -2153,12 +2272,112 @@ button {
 }
 
 .console-line {
-  display: grid;
-  grid-template-columns: 40px 84px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid #181e28;
+}
+
+.console-line-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.console-line-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.console-line-summary {
+  color: #8892a0;
+  font-size: 12px;
+}
+
+.console-frame-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #243041;
+  background: rgba(17, 22, 30, 0.96);
+}
+
+.console-frame-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.console-frame-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, auto));
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.console-frame-grid span {
+  color: #8892a0;
+}
+
+.console-frame-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #5d3236;
+  background: rgba(92, 35, 43, 0.18);
+  color: #ffb8bf;
+}
+
+.console-payload-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #243041;
+  background: rgba(15, 20, 28, 0.92);
+}
+
+.console-payload-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.console-payload-note {
+  color: #9ba8b7;
+  font-size: 12px;
+}
+
+.console-payload-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.console-payload-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #202733;
+  background: rgba(21, 26, 34, 0.92);
+}
+
+.console-payload-item span {
+  color: #9ba8b7;
 }
 
 .console-line.rx .console-badge {
@@ -2170,9 +2389,14 @@ button {
 }
 
 .console-line code {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: block;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(20, 25, 33, 0.88);
+  border: 1px solid #202733;
 }
 
 .trend-up {

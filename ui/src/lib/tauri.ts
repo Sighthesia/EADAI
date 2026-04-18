@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
+  Bmi088CommandRequest,
   ConnectRequest,
   LogicAnalyzerCaptureRequest,
   LogicAnalyzerStatus,
@@ -36,6 +37,9 @@ export const connectSerial = (request: ConnectRequest) =>
 export const disconnectSerial = () => invoke<SessionSnapshot>('disconnect_serial')
 
 export const sendSerial = (request: SendRequest) => invoke<void>('send_serial', { request })
+
+export const sendBmi088Command = (request: Bmi088CommandRequest) =>
+  invoke<void>('send_bmi088_command', { request })
 
 export const listenSerialBus = async (
   onMessage: (event: SerialBusEvent) => void,

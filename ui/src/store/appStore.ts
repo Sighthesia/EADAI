@@ -22,12 +22,14 @@ import {
   getSessionSnapshot,
   listSerialPorts,
   refreshLogicAnalyzerDevices,
+  sendBmi088Command,
   sendSerial,
   startLogicAnalyzerCapture,
   stopLogicAnalyzerCapture,
 } from '../lib/tauri'
 import type {
   AppStatus,
+  Bmi088HostCommand,
   ConnectRequest,
   ConsoleEntry,
   ImuAttitudeMap,
@@ -47,6 +49,11 @@ import type {
   SerialDeviceInfo,
   SessionSnapshot,
   UiAnalysisPayload,
+  UiLineDirection,
+  UiParserMeta,
+  UiProtocolHandshakeEvent,
+  UiProtocolSnapshot,
+  UiScriptHookExample,
   UiTelemetrySchemaPayload,
   UiTelemetrySamplePayload,
   UiTriggerPayload,
@@ -57,6 +64,16 @@ const MAX_CONSOLE_ENTRIES = 400
 const MAX_SAMPLES_PER_CHANNEL = 960
 const CHANNEL_COLORS = ['#4FC3F7', '#C792EA', '#F78C6C', '#A5E075', '#E6C07B', '#82AAFF']
 const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
+const BMI088_PROTOCOL_NAME = 'bmi088_uart4'
+const BMI088_PROTOCOL_SCRIPT = `// BMI088 UART4 schema-first telemetry
+onSchema((fields, rateHz, sampleLen) => {
+  console.log('schema', { rateHz, sampleLen, fields })
+})
+
+onSample((record) => {
+  console.log('sample', record)
+})`
+const PROTOCOL_TIMELINE_LIMIT = 64
 
 type AppStore = {
   ports: SerialDeviceInfo[]
@@ -65,7 +82,9 @@ type AppStore = {
   config: ConnectRequest
   appendNewline: boolean
   commandInput: string
+  consoleDisplayMode: 'text' | 'hex' | 'binary'
   consoleEntries: ConsoleEntry[]
+  protocol: UiProtocolSnapshot
   variables: Record<string, VariableEntry>
   selectedChannels: string[]
   visualAidState: WaveformVisualAidState
@@ -81,6 +100,7 @@ type AppStore = {
   status: AppStatus
   setCommandInput: (value: string) => void
   setAppendNewline: (value: boolean) => void
+  setConsoleDisplayMode: (value: 'text' | 'hex' | 'binary') => void
   patchConfig: (value: Partial<ConnectRequest>) => void
   bootstrap: () => Promise<void>
   refreshMcpStatus: () => Promise<void>
@@ -89,6 +109,7 @@ type AppStore = {
   connect: () => Promise<void>
   disconnect: () => Promise<void>
   send: () => Promise<void>
+  sendBmi088Command: (command: Bmi088HostCommand) => Promise<void>
   ingestEvent: (event: SerialBusEvent) => void
   ingestEvents: (events: SerialBusEvent[]) => void
   toggleChannel: (channel: string) => void
@@ -107,6 +128,8 @@ type AppStore = {
   startLogicAnalyzerCapture: () => Promise<void>
   stopLogicAnalyzerCapture: () => Promise<void>
   colorForChannel: (channel: string) => string
+  protocolScript: string
+  protocolHookExamples: UiScriptHookExample[]
 }
 
 const defaultStatus = (): AppStatus => ({
@@ -151,7 +174,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   appendNewline: true,
   commandInput: '',
+  consoleDisplayMode: 'text' as const,
   consoleEntries: [],
+  protocol: defaultProtocolSnapshot(),
+  protocolScript: BMI088_PROTOCOL_SCRIPT,
+  protocolHookExamples: createProtocolHookExamples(),
   variables: {},
   selectedChannels: [],
   visualAidState: readWaveformVisualAidState(),
@@ -182,6 +209,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   status: defaultStatus(),
   setCommandInput: (value) => set({ commandInput: value }),
   setAppendNewline: (value) => set({ appendNewline: value }),
+  setConsoleDisplayMode: (value) => set({ consoleDisplayMode: value }),
   patchConfig: (value) => set((state) => ({ config: { ...state.config, ...value } })),
   bootstrap: async () => {
     const [ports, session, mcp, logicAnalyzer] = await Promise.all([
@@ -353,6 +381,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
       status: { tone: 'success', message: `Sent ${payload}.` },
     })
   },
+  sendBmi088Command: async (command) => {
+    await sendBmi088Command({ command })
+    set({
+      status: { tone: 'success', message: `Sent BMI088 ${command}.` },
+    })
+  },
   ingestEvent: (event) => get().ingestEvents([event]),
   ingestEvents: (events) => {
     if (events.length === 0) {
@@ -370,6 +404,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       let imuQuality = state.imuQuality
       let session = state.session
       let status = state.status
+      let protocol = state.protocol
       let variablesChanged = false
       let selectedChannelsChanged = false
       let imuChannelMapChanged = false
@@ -379,6 +414,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       let consoleChanged = false
       let sessionChanged = false
       let statusChanged = false
+      let protocolChanged = false
 
       for (const event of events) {
         if (event.kind === 'connection') {
@@ -393,14 +429,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
             tone: connectionTone(event.connection.state),
             message: connectionMessage(event),
           }
+          protocol = ingestProtocolConnection(protocol, event)
           sessionChanged = true
           statusChanged = true
+          protocolChanged = true
           continue
         }
 
         if (event.kind === 'line') {
-          consoleEntries = [...consoleEntries, asConsoleEntry(event)].slice(-MAX_CONSOLE_ENTRIES)
+          const consoleEntry = asConsoleEntry(event)
+          consoleEntries = [...consoleEntries, consoleEntry].slice(-MAX_CONSOLE_ENTRIES)
           consoleChanged = true
+
+          protocol = ingestProtocolLine(protocol, event)
+          protocolChanged = true
 
           const channelId = event.parser.fields.channelId
           const rawValue = event.parser.fields.value
@@ -468,6 +510,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
 
         if (event.kind === 'telemetrySchema') {
+          protocol = ingestProtocolSchema(protocol, event)
+          protocolChanged = true
+
           const nextVariables = { ...state.variables }
           let changed = false
 
@@ -500,6 +545,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
 
         if (event.kind === 'telemetrySample') {
+          protocol = ingestProtocolSample(protocol, event)
+          protocolChanged = true
+
           const schemaFields = event.sample.fields
           for (const field of schemaFields) {
             const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs)
@@ -613,6 +661,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       if (statusChanged) {
         nextState.status = status
       }
+      if (protocolChanged) {
+        nextState.protocol = protocol
+      }
 
       return nextState as AppStore
     })
@@ -708,6 +759,8 @@ const asConsoleEntry = (event: Extract<SerialBusEvent, { kind: 'line' }>): Conso
   direction: event.line.direction,
   text: event.line.text,
   timestampMs: event.timestampMs,
+  raw: event.line.raw,
+  parser: event.parser,
 })
 
 const createVariableEntry = (channelId: string, updatedAtMs: number): VariableEntry => ({
@@ -723,6 +776,197 @@ const createVariableEntry = (channelId: string, updatedAtMs: number): VariableEn
   latestTrigger: null,
   triggerCount: 0,
 })
+
+function createProtocolHookExamples(): UiScriptHookExample[] {
+  return [
+  {
+    name: 'Schema callback',
+    snippet: `onSchema((fields, rateHz, sampleLen) => {
+  console.log('BMI088 schema', { rateHz, sampleLen, fields })
+})`,
+  },
+  {
+    name: 'Sample callback',
+    snippet: `onSample((record) => {
+  const { roll, pitch, yaw } = record
+  console.log('BMI088 sample', { roll, pitch, yaw })
+})`,
+  },
+  ]
+}
+
+function defaultProtocolSnapshot(): UiProtocolSnapshot {
+  return {
+    active: false,
+    parserName: BMI088_PROTOCOL_NAME,
+    transportLabel: 'BMI088 UART4',
+    baudRate: 100000,
+    phase: 'stopped',
+    schema: null,
+    lastPacketKind: null,
+    lastPacketRawFrame: null,
+    lastSchemaAtMs: null,
+    lastSampleAtMs: null,
+    lastHandshakeAtMs: null,
+    timeline: [],
+  }
+}
+
+const ingestProtocolConnection = (
+  protocol: UiProtocolSnapshot,
+  event: Extract<SerialBusEvent, { kind: 'connection' }>,
+): UiProtocolSnapshot => {
+  const nextPhase =
+    event.connection.state === 'connected'
+      ? 'awaitingSchema'
+      : event.connection.state === 'stopped'
+        ? 'stopped'
+        : protocol.phase
+
+  const timeline = appendProtocolTimeline(protocol.timeline, {
+    timestampMs: event.timestampMs,
+    direction: 'rx',
+    command: event.connection.state === 'stopped' ? 'STOP' : 'REQ_SCHEMA',
+    note: connectionMessage(event),
+    parserStatus: 'unparsed',
+  })
+
+  return {
+    ...protocol,
+    active: event.connection.state !== 'stopped',
+    transportLabel: event.source.transport === 'fake' ? 'Fake BMI088 stream' : 'BMI088 UART4',
+    baudRate: event.source.baudRate,
+    phase: nextPhase,
+    timeline,
+    lastHandshakeAtMs: event.timestampMs,
+  }
+}
+
+const ingestProtocolLine = (
+  protocol: UiProtocolSnapshot,
+  event: Extract<SerialBusEvent, { kind: 'line' }>,
+): UiProtocolSnapshot => {
+  const parserName = event.parser.parserName ?? protocol.parserName
+  const command = protocolCommandFromLine(event.line.text)
+  const isHandshake = parserName === 'bmi088_command' || command !== null
+
+  if (!isHandshake) {
+    return protocol
+  }
+
+  const nextPhase = command === 'ACK' ? 'awaitingStart' : command === 'START' ? 'streaming' : command === 'STOP' ? 'stopped' : protocol.phase
+
+  return {
+    ...protocol,
+    active: true,
+    parserName,
+    phase: nextPhase,
+    lastPacketKind: 'command' as const,
+    lastPacketRawFrame: event.line.raw,
+    lastHandshakeAtMs: event.timestampMs,
+    timeline: appendProtocolTimeline(protocol.timeline, {
+      timestampMs: event.timestampMs,
+      direction: event.line.direction,
+      command: command ?? 'REQ_SCHEMA',
+      note: protocolCommandNote(command ?? event.line.text),
+      parserStatus: event.parser.status,
+    }),
+  }
+}
+
+const ingestProtocolSchema = (
+  protocol: UiProtocolSnapshot,
+  event: Extract<SerialBusEvent, { kind: 'telemetrySchema' }>,
+): UiProtocolSnapshot => ({
+  ...protocol,
+  active: true,
+  parserName: event.parser.parserName ?? protocol.parserName,
+  phase: 'awaitingAck' as const,
+  schema: {
+    rateHz: event.schema.rateHz,
+    sampleLen: event.schema.sampleLen,
+    fields: event.schema.fields,
+    rawFrame: event.schema.rawFrame,
+  },
+  lastPacketKind: 'schema' as const,
+  lastPacketRawFrame: event.schema.rawFrame,
+  lastSchemaAtMs: event.timestampMs,
+  lastHandshakeAtMs: event.timestampMs,
+  timeline: appendProtocolTimeline(protocol.timeline, {
+    timestampMs: event.timestampMs,
+    direction: 'rx',
+    command: 'SCHEMA',
+    note: `Schema ${event.schema.fields.length} fields @ ${event.schema.rateHz} Hz`,
+    parserStatus: event.parser.status,
+  }),
+})
+
+const ingestProtocolSample = (
+  protocol: UiProtocolSnapshot,
+  event: Extract<SerialBusEvent, { kind: 'telemetrySample' }>,
+): UiProtocolSnapshot => ({
+  ...protocol,
+  active: true,
+  parserName: event.parser.parserName ?? protocol.parserName,
+  phase: 'streaming' as const,
+  lastPacketKind: 'sample' as const,
+  lastPacketRawFrame: event.sample.rawFrame,
+  lastSampleAtMs: event.timestampMs,
+  lastHandshakeAtMs: event.timestampMs,
+  timeline: appendProtocolTimeline(protocol.timeline, {
+    timestampMs: event.timestampMs,
+    direction: 'rx',
+    command: 'SAMPLE',
+    note: `Sample ${event.sample.fields.length} fields`,
+    parserStatus: event.parser.status,
+  }),
+})
+
+const appendProtocolTimeline = (timeline: UiProtocolHandshakeEvent[], next: UiProtocolHandshakeEvent) =>
+  [...timeline, next].slice(-PROTOCOL_TIMELINE_LIMIT)
+
+const protocolCommandFromLine = (text: string): UiProtocolHandshakeEvent['command'] | null => {
+  const normalized = text.trim().toUpperCase()
+  if (normalized === 'ACK' || normalized === 'START' || normalized === 'STOP' || normalized === 'REQ_SCHEMA') {
+    return normalized
+  }
+  return null
+}
+
+const protocolCommandNote = (command: string) => {
+  switch (command) {
+    case 'ACK':
+      return 'Host acknowledgement'
+    case 'START':
+      return 'Start streaming'
+    case 'STOP':
+      return 'Stop streaming'
+    case 'REQ_SCHEMA':
+      return 'Request schema'
+    default:
+      return command
+  }
+}
+
+const connectionMessage = (event: Extract<SerialBusEvent, { kind: 'connection' }>) => {
+  const sourceLabel = event.source.transport === 'fake' ? 'fake stream' : 'serial'
+  const label = `${event.source.port} @ ${event.source.baudRate} (${sourceLabel})`
+
+  switch (event.connection.state) {
+    case 'connected':
+      return `Connected to ${label}.`
+    case 'connecting':
+      return `Connecting to ${label} (attempt ${event.connection.attempt}).`
+    case 'waitingRetry':
+      return event.connection.reason
+        ? `Retrying ${label}: ${event.connection.reason}`
+        : `Retrying ${label}.`
+    case 'stopped':
+      return `Stopped ${label}.`
+    default:
+      return `Session is ${event.connection.state}.`
+  }
+}
 
 const applyAnalysis = (
   variable: VariableEntry,
@@ -884,26 +1128,6 @@ const parseLogicSamplerate = (value: string) => {
 }
 
 export const shouldPollMcpStatus = (mcp: McpServerStatus) => !mcp.isRunning && !mcp.lastError
-
-const connectionMessage = (event: Extract<SerialBusEvent, { kind: 'connection' }>) => {
-  const sourceLabel = event.source.transport === 'fake' ? 'fake stream' : 'serial'
-  const label = `${event.source.port} @ ${event.source.baudRate} (${sourceLabel})`
-
-  switch (event.connection.state) {
-    case 'connected':
-      return `Connected to ${label}.`
-    case 'connecting':
-      return `Connecting to ${label} (attempt ${event.connection.attempt}).`
-    case 'waitingRetry':
-      return event.connection.reason
-        ? `Retrying ${label}: ${event.connection.reason}`
-        : `Retrying ${label}.`
-    case 'stopped':
-      return `Stopped ${label}.`
-    default:
-      return `Session is ${event.connection.state}.`
-  }
-}
 
 const severityTone = (severity: UiTriggerPayload['severity']): AppStatus['tone'] => {
   switch (severity) {

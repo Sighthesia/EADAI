@@ -28,6 +28,7 @@ pub fn main() {
             commands::connect_serial,
             commands::disconnect_serial,
             commands::send_serial,
+            commands::send_bmi088_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running EADAI desktop app");
