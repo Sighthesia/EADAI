@@ -425,6 +425,7 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
   const plotStartMs = timestamps[0] ?? dataWindowStartMs
   const normalizedTimestamps = timestamps.map((timestamp) => (timestamp - plotStartMs) / 1000)
   const plotSpanSeconds = Math.max((windowEndMs - plotStartMs) / 1000, 1)
+  const showPoints = normalizedTimestamps.length <= 240
   const data: Array<number[] | Array<number | null>> = [normalizedTimestamps]
   const plotSeries = [{ label: 'time' } as uPlot.Series]
 
@@ -435,7 +436,7 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
       label: item.name,
       stroke: item.color,
       width: 2,
-      points: { show: false },
+      points: { show: showPoints, size: 4, width: 1 },
     } as uPlot.Series)
   }
 
