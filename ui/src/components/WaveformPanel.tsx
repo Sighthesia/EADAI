@@ -113,10 +113,12 @@ export function WaveformPanel() {
 
       <div className={`waveform-floating-menu ${menuOpen ? '' : 'collapsed'}`}>
         <div className="waveform-floating-top">
-          <div className="waveform-floating-heading">
-            <strong>Waveform Controls</strong>
-            <small>{selectedVariables.length > 0 ? 'Pan with mouse wheel; tune the overlay controls here.' : 'Select variables to start plotting.'}</small>
-          </div>
+          {menuOpen ? (
+            <div className="waveform-floating-heading">
+              <strong>Waveform Controls</strong>
+              <small>{selectedVariables.length > 0 ? 'Pan with mouse wheel; tune the overlay controls here.' : 'Select variables to start plotting.'}</small>
+            </div>
+          ) : null}
           <button type="button" className="ghost-button waveform-floating-toggle" onClick={() => setMenuOpen((value) => !value)}>
             {menuOpen ? 'Hide' : 'Waveforms'}
           </button>
