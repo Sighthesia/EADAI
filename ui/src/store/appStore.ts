@@ -572,6 +572,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
           for (const field of schemaFields) {
             const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs)
+            const nextNumericValue = field.value
 
             variables[field.name] = {
               ...previous,
@@ -1015,6 +1016,14 @@ const trendFromDelta = (delta: number | null | undefined) => {
     return 'down' as const
   }
   return 'flat' as const
+}
+
+const resolveTrendFromValues = (previousValue: number | undefined, nextValue: number | undefined) => {
+  if (previousValue === undefined || previousValue === null || nextValue === undefined || nextValue === null) {
+    return 'flat' as const
+  }
+
+  return trendFromDelta(nextValue - previousValue)
 }
 
 const connectionTone = (state: SessionSnapshot['connectionState']): AppStatus['tone'] => {
