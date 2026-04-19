@@ -31,6 +31,7 @@ Use this skill when debugging schema-first binary serial links, mixed text/binar
 | Schema | host 仍按旧字段布局/旧版本解码 |
 | Decode | endian、signedness、scale、字段顺序错误 |
 | UI contract | 后端已解析，但 message/store/UI 绑定错层 |
+| Time axis | 样本已经到 UI，但时间戳字段命名不一致或窗口策略让曲线看起来像被裁掉 |
 
 ## Correct Architecture Split
 把职责切开：
@@ -61,11 +62,22 @@ Use this skill when debugging schema-first binary serial links, mixed text/binar
 - 在 UI 边界记录“收到了多少 schema/sample 事件”，不要回退到看原始二进制猜问题。
 - 原始日志必须有上限；高频流不要全量 dump。
 
+## Cross-Layer Event Contract
+- Rust/Tauri 到 TypeScript 的事件桥接，不要假设 `rename_all = "camelCase"` 会覆盖 enum struct variant 的内部字段；如果前端按 `timestampMs`、`rawFrame` 读字段，Rust 侧要显式保证字段名也按 camelCase 序列化。
+- 当现象是“sampleCount 在涨，但波形时间点为 0”时，优先怀疑事件字段命名合同漂移，而不是先怀疑图表库。
+- 结构化事件中的关键时间字段需要在 Rust 和 TS 两边保持一一对应，并为它们写 focused test。
+
+## Short-History Windows
+- 高速流在握手完成后才开始积累样本时，默认固定时间窗会让短历史数据全部右对齐，看起来像左边被裁切。
+- 如果当前历史长度小于可视窗口，优先按“真实首个样本时间 -> 最新样本时间”铺满；只有历史足够长后再回到滚动窗口。
+- 当问题只出现在 handshake 后的二进制流、而 fake profile 正常时，不要先怀疑 CSS，先检查时间轴起点是不是被固定到整窗左边界。
+
 ## Verification Checklist
 - 能在冷启动下看到首个控制帧/boot schema。
 - 能在重连后重新握手，而不是只在第一次连接成功。
 - 坏 CRC、坏长度、坏 SOF 时，解析器能重新找回帧边界。
 - sample decode 使用最新 schema，而不是硬编码旧字段顺序。
+- UI 里的 sample 点数和时间戳都要验证，不要只看 sampleCount/numericValue。
 - `cargo test` 中有 focused protocol tests，而不是只靠手工串口观察。
 
 ## Anti-Patterns
