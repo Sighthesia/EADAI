@@ -248,7 +248,13 @@ function WavePlot({
             {
               stroke: '#5f6b7a',
               grid: { stroke: '#20242d' },
-              values: (_, ticks) => ticks.map((tick) => `${tick.toFixed(tick >= 10 ? 0 : 1)}s`),
+              values: (_, ticks) => {
+                const visibleSpanSeconds = Math.max(modelRef.current?.xMax ?? model.xMax, 0)
+                return ticks.map((tick) => {
+                  const elapsedSeconds = Math.max(0, visibleSpanSeconds - tick)
+                  return `${elapsedSeconds.toFixed(elapsedSeconds >= 10 ? 0 : 1)}s`
+                })
+              },
             },
             { stroke: '#5f6b7a', grid: { stroke: '#20242d' } },
           ],
