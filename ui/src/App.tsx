@@ -11,9 +11,6 @@ const LEFT_DOCK_BUTTON_SELECTOR = '.flexlayout__border_left .flexlayout__mini_sc
 const LEFT_DOCK_BUTTON_WIDTH_VAR = '--left-dock-settings-width'
 
 export default function App() {
-  const bootstrap = useAppStore((state) => state.bootstrap)
-  const connect = useAppStore((state) => state.connect)
-  const ingestEvents = useAppStore((state) => state.ingestEvents)
   const mcp = useAppStore((state) => state.mcp)
   const refreshMcpStatus = useAppStore((state) => state.refreshMcpStatus)
   const refreshPortsSilently = useAppStore((state) => state.refreshPortsSilently)
@@ -74,7 +71,7 @@ export default function App() {
 
       const queuedEvents = pendingEventsRef.current
       pendingEventsRef.current = []
-      ingestEvents(queuedEvents)
+      useAppStore.getState().ingestEvents(queuedEvents)
     }
 
     const queueEvent = (event: SerialBusEvent) => {
@@ -92,11 +89,11 @@ export default function App() {
       }
       cleanup = unlisten
 
-      await bootstrap()
+      await useAppStore.getState().bootstrap()
 
       const currentState = useAppStore.getState()
       if (!disposed && !currentState.session.isRunning && currentState.config.sourceKind === 'fake') {
-        await connect()
+        await useAppStore.getState().connect()
       }
     }
 
@@ -114,10 +111,10 @@ export default function App() {
       if (pendingEventsRef.current.length > 0) {
         const queuedEvents = pendingEventsRef.current
         pendingEventsRef.current = []
-        ingestEvents(queuedEvents)
+        useAppStore.getState().ingestEvents(queuedEvents)
       }
     }
-  }, [bootstrap, connect, ingestEvents])
+  }, [])
 
   useEffect(() => {
     let disposed = false

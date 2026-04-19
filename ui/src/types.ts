@@ -155,7 +155,6 @@ export interface UiTelemetrySchemaPayload {
   rateHz: number
   sampleLen: number
   fields: UiTelemetrySchemaField[]
-  rawFrame: number[]
 }
 
 export interface UiTelemetrySampleField {
@@ -169,7 +168,6 @@ export interface UiTelemetrySampleField {
 
 export interface UiTelemetrySamplePayload {
   fields: UiTelemetrySampleField[]
-  rawFrame: number[]
 }
 
 export type UiProtocolHandshakePhase = 'awaitingSchema' | 'awaitingAck' | 'awaitingStart' | 'streaming' | 'stopped'
@@ -259,6 +257,7 @@ export type SerialBusEvent =
       timestampMs: number
       source: UiSource
       schema: UiTelemetrySchemaPayload
+      rawFrame: number[]
       parser: UiParserMeta
     }
   | {
@@ -266,6 +265,7 @@ export type SerialBusEvent =
       timestampMs: number
       source: UiSource
       sample: UiTelemetrySamplePayload
+      rawFrame: number[]
       parser: UiParserMeta
     }
   | {

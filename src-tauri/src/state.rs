@@ -194,7 +194,7 @@ fn runtime_config(request: &ConnectRequest) -> RuntimeSessionConfig {
             baud_rate: request.baud_rate,
             retry_delay: Duration::from_millis(request.retry_ms),
             read_timeout: Duration::from_millis(request.read_timeout_ms),
-            parser: ParserKind::Auto,
+            parser: ParserKind::Bmi088,
             max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
         }),
         SourceKind::Fake => RuntimeSessionConfig::Fake(FakeRuntimeConfig {

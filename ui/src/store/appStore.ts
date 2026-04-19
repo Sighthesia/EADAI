@@ -349,6 +349,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const session = await connectSerial(request)
     set({
       session,
+      variables: {},
+      selectedChannels: [],
+      protocol: defaultProtocolSnapshot(),
+      imuQuality: {
+        level: 'idle',
+        label: 'No IMU data',
+        details: 'Waiting for mapped IMU samples.',
+        timestampMs: null,
+      },
       status: {
         tone: 'neutral',
         message:
@@ -365,6 +374,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
       status: { tone: 'neutral', message: 'Serial session stopped.' },
       variables: {},
       selectedChannels: [],
+      protocol: defaultProtocolSnapshot(),
+      imuQuality: {
+        level: 'idle',
+        label: 'No IMU data',
+        details: 'Waiting for mapped IMU samples.',
+        timestampMs: null,
+      },
     })
   },
   send: async () => {
@@ -549,13 +565,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
           protocolChanged = true
 
           const schemaFields = event.sample.fields
+          if (!variablesChanged) {
+            variables = { ...variables }
+            variablesChanged = true
+          }
+
           for (const field of schemaFields) {
             const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs)
-
-            if (!variablesChanged) {
-              variables = { ...variables }
-              variablesChanged = true
-            }
 
             variables[field.name] = {
               ...previous,
@@ -800,7 +816,7 @@ function defaultProtocolSnapshot(): UiProtocolSnapshot {
     active: false,
     parserName: BMI088_PROTOCOL_NAME,
     transportLabel: 'BMI088 UART4',
-    baudRate: 100000,
+    baudRate: 115200,
     phase: 'stopped',
     schema: null,
     lastPacketKind: null,
@@ -886,10 +902,9 @@ const ingestProtocolSchema = (
     rateHz: event.schema.rateHz,
     sampleLen: event.schema.sampleLen,
     fields: event.schema.fields,
-    rawFrame: event.schema.rawFrame,
   },
   lastPacketKind: 'schema' as const,
-  lastPacketRawFrame: event.schema.rawFrame,
+  lastPacketRawFrame: event.rawFrame,
   lastSchemaAtMs: event.timestampMs,
   lastHandshakeAtMs: event.timestampMs,
   timeline: appendProtocolTimeline(protocol.timeline, {
@@ -910,7 +925,7 @@ const ingestProtocolSample = (
   parserName: event.parser.parserName ?? protocol.parserName,
   phase: 'streaming' as const,
   lastPacketKind: 'sample' as const,
-  lastPacketRawFrame: event.sample.rawFrame,
+  lastPacketRawFrame: event.rawFrame,
   lastSampleAtMs: event.timestampMs,
   lastHandshakeAtMs: event.timestampMs,
   timeline: appendProtocolTimeline(protocol.timeline, {

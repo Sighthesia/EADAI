@@ -69,6 +69,10 @@ type PlotModel = {
   textTracks: TextTrack[]
   windowStartMs: number
   windowEndMs: number
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
 }
 
 export function WaveformPanel() {
@@ -234,7 +238,10 @@ function WavePlot({
           width: size.width,
           height: size.height,
           padding: [12, 16, 12, 16],
-          scales: { x: { time: false } },
+          scales: {
+            x: { time: false, auto: false },
+            y: { auto: false },
+          },
           axes: [
             {
               stroke: '#5f6b7a',
@@ -266,8 +273,14 @@ function WavePlot({
   }, [size])
 
   useEffect(() => {
-    plotRef.current?.setData(model.data)
-  }, [model.data])
+    if (!plotRef.current) {
+      return
+    }
+
+    plotRef.current.setData(model.data)
+    plotRef.current.setScale('x', { min: model.xMin, max: model.xMax })
+    plotRef.current.setScale('y', { min: model.yMin, max: model.yMax })
+  }, [model.data, model.xMin, model.xMax, model.yMin, model.yMax])
 
   useEffect(() => {
     plotRef.current?.redraw()
@@ -312,13 +325,13 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
       : Date.now()
 
   const windowEndMs = latestTimestampMs
-  const windowStartMs = windowEndMs - timeWindowMs
+  const dataWindowStartMs = windowEndMs - timeWindowMs
 
   const numericTracks = tracks
     .filter(({ variable }) => isNumericVariable(variable))
     .map((item, index) => {
       const sourcePoints = item.variable.points.length > 0 ? item.variable.points : createFallbackNumericPoint(item.variable, windowEndMs)
-      const visiblePoints = sourcePoints.filter((point) => point.timestampMs >= windowStartMs)
+      const visiblePoints = sourcePoints.filter((point) => point.timestampMs >= dataWindowStartMs)
       const cycle = computeStableCycleStats(sourcePoints, item.variable.analysis)
       const period = {
         periodMs: cycle.periodMs,
@@ -373,12 +386,18 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
       ] as uPlot.Series[],
       numericTracks,
       textTracks,
-      windowStartMs,
+      windowStartMs: dataWindowStartMs,
       windowEndMs,
+      xMin: 0,
+      xMax: 1,
+      yMin: 0,
+      yMax: 1,
     }
   }
 
-  const normalizedTimestamps = timestamps.map((timestamp) => (timestamp - windowStartMs) / 1000)
+  const plotStartMs = timestamps[0] ?? dataWindowStartMs
+  const normalizedTimestamps = timestamps.map((timestamp) => (timestamp - plotStartMs) / 1000)
+  const plotSpanSeconds = Math.max((windowEndMs - plotStartMs) / 1000, 1)
   const showPoints = normalizedTimestamps.length <= 240
   const data: Array<number[] | Array<number | null>> = [normalizedTimestamps]
   const plotSeries = [{ label: 'time' } as uPlot.Series]
@@ -394,13 +413,19 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
     } as uPlot.Series)
   }
 
+  const yRange = resolveYRange(numericTracks)
+
   return {
     data: data as unknown as uPlot.AlignedData,
     series: plotSeries,
     numericTracks,
     textTracks,
-    windowStartMs,
+    windowStartMs: plotStartMs,
     windowEndMs,
+    xMin: 0,
+    xMax: plotSpanSeconds,
+    yMin: yRange.min,
+    yMax: yRange.max,
   }
 }
 
@@ -436,6 +461,37 @@ function createFallbackNumericPoint(variable: VariableEntry, timestampMs: number
   }
 
   return [{ timestampMs, value: variable.numericValue as number }]
+}
+
+function resolveYRange(tracks: PlotTrack[]) {
+  const values = tracks.flatMap((track) => track.points.map((point) => point.value))
+
+  if (values.length === 0) {
+    return { min: 0, max: 1 }
+  }
+
+  let min = Math.min(...values)
+  let max = Math.max(...values)
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { min: 0, max: 1 }
+  }
+
+  if (min === max) {
+    const padding = Math.max(Math.abs(min) * 0.08, 1)
+    return { min: min - padding, max: max + padding }
+  }
+
+  const span = max - min
+  const padding = Math.max(span * 0.08, 0.5)
+  min -= padding
+  max += padding
+
+  if (min === max) {
+    return { min: min - 1, max: max + 1 }
+  }
+
+  return { min, max }
 }
 
 function resolveNumericStats(

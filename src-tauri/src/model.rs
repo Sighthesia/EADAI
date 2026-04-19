@@ -293,7 +293,7 @@ pub struct UiTriggerPayload {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum UiBusEvent {
     Connection {
         timestamp_ms: u64,
