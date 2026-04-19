@@ -13,6 +13,13 @@ const CURSOR_LABEL_GAP_PX = 42
 const CURSOR_LABEL_MIN_CENTER_Y = 22
 const CURSOR_LABEL_MAX_WIDTH_PX = 180
 const CURSOR_CALLOUT_THRESHOLD_PX = 1
+const CURSOR_SMOOTHING_X = 0.45
+const CURSOR_SMOOTHING_Y = 0.2
+const CURSOR_SNAP_DISTANCE_PX = 120
+const CURSOR_ANIMATION_EPSILON_PX = 0.5
+const LATEST_SMOOTHING_X = 1
+const LATEST_SMOOTHING_Y = 1
+const CURSOR_DEBUG_LOG_INTERVAL_MS = 500
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -192,6 +199,7 @@ function WavePlot({
   const plotRef = useRef<uPlot | null>(null)
   const structureKeyRef = useRef('')
   const modelRef = useRef<PlotModel | null>(null)
+  const yScaleAnimationRef = useRef<YScaleAnimationState | null>(null)
   const [size, setSize] = useState({ width: 900, height: 440 })
   const model = useMemo(() => buildPlotModel(selectedVariables, visualAidState, timeWindowMs), [selectedVariables, timeWindowMs, visualAidState])
   const structureKey = useMemo(() => (model.numericTracks.length === 0 ? '__empty__' : model.numericTracks.map((item) => item.name).join('|')), [model.numericTracks])
@@ -264,13 +272,22 @@ function WavePlot({
         model.data,
         hostRef.current,
       )
+      yScaleAnimationRef.current = {
+        currentMin: model.yMin,
+        currentMax: model.yMax,
+        targetMin: model.yMin,
+        targetMax: model.yMax,
+        frameId: null,
+      }
       structureKeyRef.current = structureKey
     }
 
     return () => {
       if (!hostRef.current?.isConnected) {
+        stopYScaleAnimation(yScaleAnimationRef.current)
         plotRef.current?.destroy()
         plotRef.current = null
+        yScaleAnimationRef.current = null
         structureKeyRef.current = ''
       }
     }
@@ -296,8 +313,10 @@ function WavePlot({
 
   useEffect(
     () => () => {
+      stopYScaleAnimation(yScaleAnimationRef.current)
       plotRef.current?.destroy()
       plotRef.current = null
+      yScaleAnimationRef.current = null
       structureKeyRef.current = ''
     },
     [],
@@ -406,7 +425,6 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
   const plotStartMs = timestamps[0] ?? dataWindowStartMs
   const normalizedTimestamps = timestamps.map((timestamp) => (timestamp - plotStartMs) / 1000)
   const plotSpanSeconds = Math.max((windowEndMs - plotStartMs) / 1000, 1)
-  const showPoints = normalizedTimestamps.length <= 240
   const data: Array<number[] | Array<number | null>> = [normalizedTimestamps]
   const plotSeries = [{ label: 'time' } as uPlot.Series]
 
@@ -417,7 +435,7 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
       label: item.name,
       stroke: item.color,
       width: 2,
-      points: showPoints ? { show: true, size: 4, width: 1 } : { show: false },
+      points: { show: false },
     } as uPlot.Series)
   }
 
@@ -500,6 +518,35 @@ function resolveYRange(tracks: PlotTrack[]) {
   }
 
   return { min, max }
+}
+
+function syncAnimatedYScale(
+  plot: uPlot,
+  stateRef: MutableRefObject<YScaleAnimationState | null>,
+  nextMin: number,
+  nextMax: number,
+) {
+  const current = stateRef.current
+  plot.setScale('y', { min: nextMin, max: nextMax })
+  if (!current) {
+    stateRef.current = {
+      currentMin: nextMin,
+      currentMax: nextMax,
+      targetMin: nextMin,
+      targetMax: nextMax,
+      frameId: null,
+    }
+    return
+  }
+
+  current.currentMin = nextMin
+  current.currentMax = nextMax
+  current.targetMin = nextMin
+  current.targetMax = nextMax
+}
+
+function stopYScaleAnimation(_state: YScaleAnimationState | null) {
+  return
 }
 
 function resolveNumericStats(
@@ -624,25 +671,42 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
           u.over.appendChild(overlayRoot)
 
           const state = {
+            plot: u,
             overlayRoot,
             linesLayer,
             labelsLayer,
             textTrackLayer,
             items: new Map<string, OverlayItemElements>(),
+            cursorAnimations: new Map<string, CursorAnimationState>(),
+            cursorFrameId: null,
+            latestAnimations: new Map<string, LatestAnimationState>(),
+            latestFrameId: null,
             periodLines: new Map<string, SVGLineElement[]>(),
             textTrackSignature: '',
+            debugLogIntervalId: window.setInterval(() => {
+              logOverlayMotionDebug(state)
+            }, CURSOR_DEBUG_LOG_INTERVAL_MS),
           }
 
             ; (u as uPlot & { __waveformOverlayState?: typeof state }).__waveformOverlayState = state
           syncOverlayItems(u)
         },
       ],
-      setSize: [syncOverlaySize, syncOverlayItems],
-      draw: [syncOverlayItems],
+      setSize: [syncOverlaySize, syncOverlayItems, syncOverlayCursor],
+      draw: [syncOverlayItems, syncOverlayCursor],
       setCursor: [syncOverlayCursor],
       destroy: [
         (u) => {
           const state = getOverlayState(u)
+          if (state && state.cursorFrameId !== null) {
+            cancelAnimationFrame(state.cursorFrameId)
+          }
+          if (state && state.latestFrameId !== null) {
+            cancelAnimationFrame(state.latestFrameId)
+          }
+          if (state) {
+            window.clearInterval(state.debugLogIntervalId)
+          }
           state?.overlayRoot.remove()
           delete (u as uPlot & { __waveformOverlayState?: unknown }).__waveformOverlayState
         },
@@ -681,8 +745,6 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const activeTextTracks = model.textTracks.filter((track) => track.textEnabled)
     const textTrackSignature = activeTextTracks.map((track) => `${track.name}\u0000${track.value}\u0000${track.color}`).join('|')
 
-    const sortedByMean = [...activeNumericTracks].sort((left, right) => left.stats.meanValue - right.stats.meanValue)
-    const latestSlots = placeVerticalLabels(sortedByMean.map((item) => ({ key: item.name, baseY: safePos(u, getLatestValue(item), 'y', height), minY: 10, maxY: Math.max(10, height - 22) })))
     const measurementSlots = placeVerticalLabels(
       activeNumericTracks.flatMap((track) => {
         const slots: Array<{ key: string; baseY: number; minY: number; maxY: number }> = []
@@ -766,19 +828,19 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       if (latestPoint) {
         const latestX = safePos(u, (latestPoint.timestampMs - model.windowStartMs) / 1000, 'x', width)
         const latestY = safePos(u, latestPoint.value, 'y', height)
-        const latestLabelY = latestSlots.get(track.name) ?? latestY
         const latestLabelX = latestX > width - 170 ? Math.max(12, latestX - 150) : Math.min(width - 150, latestX + 12)
+        const latestLabelY = latestY
 
         if (track.labelsEnabled) {
-          setCircle(elements.latestDot, latestX, latestY, 3.5, track.color)
           elements.latestLabel.style.display = 'flex'
-          elements.latestLabel.style.left = `${latestLabelX}px`
-          elements.latestLabel.style.top = `${latestLabelY}px`
-          elements.latestLabel.style.transform = 'translateY(-50%)'
           elements.latestLabel.style.borderColor = colorToRgba(track.color, 0.4)
           elements.latestLabel.style.background = colorToRgba(track.color, 0.14)
           elements.latestLabel.style.color = '#f3f7fc'
           elements.latestLabel.innerHTML = renderOverlayValueLabel(track.color, track.name, track.displayValue)
+          elements.latestLabel.style.left = `${latestLabelX}px`
+          elements.latestLabel.style.top = `${latestLabelY}px`
+          elements.latestLabel.style.transform = 'translateY(-50%)'
+          setCircle(elements.latestDot, latestX, latestY, 3.5, track.color)
         } else {
           elements.latestDot.setAttribute('r', '0')
           elements.latestLabel.style.display = 'none'
@@ -824,6 +886,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
         element.maxLine.setAttribute('visibility', 'hidden')
         element.slopeLine.setAttribute('visibility', 'hidden')
         hidePeriodLines(state.periodLines.get(name))
+        state.latestAnimations.delete(name)
       }
     }
 
@@ -859,9 +922,11 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const height = Math.max(0, Math.floor(u.over.getBoundingClientRect().height))
 
     if (left == null || top == null || left < 0 || top < 0 || idx === null) {
+      stopCursorAnimation(state)
       for (const element of state.items.values()) {
         element.cursorLabel.style.display = 'none'
         element.cursorCalloutLine.setAttribute('visibility', 'hidden')
+        element.cursorDot.setAttribute('visibility', 'hidden')
       }
       return
     }
@@ -871,49 +936,39 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       track,
       anchor: resolveCursorAnchor(u, track, model.windowStartMs, width),
     }))
-    const cursorSlots = placeVerticalLabels(
-      cursorAnchors.map(({ track, anchor }) => ({
-        key: track.name,
-        baseY: safePos(u, anchor.value, 'y', height),
-        minY: CURSOR_LABEL_MIN_CENTER_Y,
-        maxY: Math.max(CURSOR_LABEL_MIN_CENTER_Y, height - CURSOR_LABEL_MIN_CENTER_Y),
-      })),
-      CURSOR_LABEL_GAP_PX,
-    )
-
     const requiredKeys = new Set<string>()
     for (const { track, anchor: cursorAnchor } of cursorAnchors) {
       requiredKeys.add(track.name)
       const element = getOrCreateOverlayElements(state, track.name)
-      const cursorY = safePos(u, cursorAnchor.value, 'y', height)
       const cursorLabelAnchorX = cursorAnchor.x + 14
       const cursorX = clamp(cursorLabelAnchorX, 12, Math.max(12, width - CURSOR_LABEL_MAX_WIDTH_PX - 12))
-      const cursorYPlacement = cursorSlots.get(track.name) ?? cursorY
-      const shouldShowCallout =
-        Math.abs(cursorYPlacement - cursorY) > CURSOR_CALLOUT_THRESHOLD_PX ||
-        Math.abs(cursorX - cursorLabelAnchorX) > CURSOR_CALLOUT_THRESHOLD_PX
 
       element.cursorLabel.style.display = 'flex'
-      element.cursorLabel.style.left = `${cursorX}px`
-      element.cursorLabel.style.top = `${cursorYPlacement}px`
-      element.cursorLabel.style.transform = 'translateY(-50%)'
       element.cursorLabel.style.borderColor = colorToRgba(track.color, 0.42)
       element.cursorLabel.style.background = colorToRgba(track.color, 0.16)
       element.cursorLabel.style.color = '#f6f8fb'
       element.cursorLabel.innerHTML = renderOverlayValueLabel(track.color, track.name, formatDisplayValue(track.variable, cursorAnchor.value))
-      if (shouldShowCallout) {
-        setLine(element.cursorCalloutLine, cursorAnchor.x, cursorY, cursorX - 8, cursorYPlacement, colorToRgba(track.color, 0.82), '4 4', 1.8)
-      } else {
-        element.cursorCalloutLine.setAttribute('visibility', 'hidden')
-      }
+      updateCursorAnimationTarget(state, track.name, {
+        color: track.color,
+        anchorX: cursorAnchor.x,
+        labelX: cursorX,
+        value: cursorAnchor.value,
+      })
     }
 
     for (const [name, element] of state.items) {
       if (!requiredKeys.has(name)) {
+        state.cursorAnimations.delete(name)
+        state.latestAnimations.delete(name)
         element.cursorLabel.style.display = 'none'
         element.cursorCalloutLine.setAttribute('visibility', 'hidden')
+        element.cursorDot.setAttribute('visibility', 'hidden')
+        element.latestLabel.style.display = 'none'
+        element.latestDot.setAttribute('r', '0')
       }
     }
+
+    ensureCursorAnimationFrame(state)
   }
 
   function getOverlayState(u: uPlot) {
@@ -989,6 +1044,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const maxLine = createSvgLine(state.linesLayer, 'waveform-overlay-band')
     const slopeLine = createSvgLine(state.linesLayer, 'waveform-overlay-slope')
     const latestDot = createSvgCircle(state.linesLayer, 'waveform-overlay-latest-dot')
+    const cursorDot = createSvgCircle(state.linesLayer, 'waveform-overlay-cursor-dot')
 
     const elements: OverlayItemElements = {
       leftLabel,
@@ -1004,11 +1060,278 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       maxLine,
       slopeLine,
       latestDot,
+      cursorDot,
     }
 
     state.labelsLayer.append(leftLabel, latestLabel, cursorLabel, meanLabel, medianLabel)
     state.items.set(name, elements)
     return elements
+  }
+
+  function updateCursorAnimationTarget(state: OverlayState, name: string, next: OverlayAnimationTarget) {
+    const current = state.cursorAnimations.get(name)
+    if (!current) {
+      state.cursorAnimations.set(name, {
+        currentX: next.labelX,
+        currentValue: next.value,
+        target: next,
+      })
+      return
+    }
+
+    current.target = next
+    if (Math.abs(current.currentX - next.labelX) > CURSOR_SNAP_DISTANCE_PX) {
+      current.currentX = next.labelX
+    }
+    if (Math.abs(current.currentValue - next.value) > CURSOR_SNAP_DISTANCE_PX) {
+      current.currentValue = next.value
+    }
+  }
+
+  function updateLatestAnimationTarget(state: OverlayState, name: string, next: OverlayAnimationTarget) {
+    const current = state.latestAnimations.get(name)
+    if (!current) {
+      state.latestAnimations.set(name, {
+        currentAnchorX: next.anchorX,
+        currentX: next.labelX,
+        currentLabelValue: next.value,
+        target: next,
+      })
+      return
+    }
+
+    current.target = next
+    if (Math.abs(current.currentAnchorX - next.anchorX) > CURSOR_SNAP_DISTANCE_PX) {
+      current.currentAnchorX = next.anchorX
+    }
+    if (Math.abs(current.currentX - next.labelX) > CURSOR_SNAP_DISTANCE_PX) {
+      current.currentX = next.labelX
+    }
+    if (Math.abs(current.currentLabelValue - next.value) > CURSOR_SNAP_DISTANCE_PX) {
+      current.currentLabelValue = next.value
+    }
+  }
+
+  function ensureCursorAnimationFrame(state: OverlayState) {
+    if (state.cursorFrameId !== null) {
+      return
+    }
+
+    const tick = () => {
+      state.cursorFrameId = null
+      let needsNextFrame = false
+      const height = Math.max(0, Math.floor(state.plot.over.getBoundingClientRect().height))
+      const slotInputs: Array<{ key: string; baseY: number; minY: number; maxY: number }> = []
+
+      for (const [name, animation] of state.cursorAnimations) {
+        const baseY = safePos(state.plot, animation.currentValue, 'y', height)
+        slotInputs.push({
+          key: name,
+          baseY,
+          minY: CURSOR_LABEL_MIN_CENTER_Y,
+          maxY: Math.max(CURSOR_LABEL_MIN_CENTER_Y, height - CURSOR_LABEL_MIN_CENTER_Y),
+        })
+      }
+
+      const cursorSlots = placeVerticalLabels(slotInputs, CURSOR_LABEL_GAP_PX)
+
+      for (const [name, animation] of state.cursorAnimations) {
+        const element = state.items.get(name)
+        if (!element) {
+          continue
+        }
+
+        const nextX = stepCursorValue(animation.currentX, animation.target.labelX, CURSOR_SMOOTHING_X)
+        const nextValue = stepCursorValue(animation.currentValue, animation.target.value, CURSOR_SMOOTHING_Y)
+        const settledX = Math.abs(nextX - animation.target.labelX) <= CURSOR_ANIMATION_EPSILON_PX
+        const settledValue = Math.abs(nextValue - animation.target.value) <= CURSOR_ANIMATION_EPSILON_PX
+
+        animation.currentX = settledX ? animation.target.labelX : nextX
+        animation.currentValue = settledValue ? animation.target.value : nextValue
+
+        renderCursorAnimationFrame(state.plot, element, animation, cursorSlots.get(name))
+
+        if (!settledX || !settledValue) {
+          needsNextFrame = true
+        }
+      }
+
+      if (needsNextFrame) {
+        ensureCursorAnimationFrame(state)
+      }
+    }
+
+    state.cursorFrameId = requestAnimationFrame(tick)
+  }
+
+  function ensureLatestAnimationFrame(state: OverlayState) {
+    if (state.latestFrameId !== null) {
+      return
+    }
+
+    const tick = () => {
+      state.latestFrameId = null
+      let needsNextFrame = false
+      const height = Math.max(0, Math.floor(state.plot.over.getBoundingClientRect().height))
+      const slotInputs: Array<{ key: string; baseY: number; minY: number; maxY: number }> = []
+
+      for (const [name, animation] of state.latestAnimations) {
+        const baseY = safePos(state.plot, animation.currentLabelValue, 'y', height)
+        slotInputs.push({
+          key: name,
+          baseY,
+          minY: 10,
+          maxY: Math.max(10, height - 22),
+        })
+      }
+
+      const latestSlots = placeVerticalLabels(slotInputs)
+
+      for (const [name, animation] of state.latestAnimations) {
+        const element = state.items.get(name)
+        if (!element) {
+          continue
+        }
+
+        const nextAnchorX = stepCursorValue(animation.currentAnchorX, animation.target.anchorX, LATEST_SMOOTHING_X)
+        const nextX = stepCursorValue(animation.currentX, animation.target.labelX, LATEST_SMOOTHING_X)
+        const nextLabelValue = stepCursorValue(animation.currentLabelValue, animation.target.value, LATEST_SMOOTHING_Y)
+        const settledAnchorX = Math.abs(nextAnchorX - animation.target.anchorX) <= CURSOR_ANIMATION_EPSILON_PX
+        const settledX = Math.abs(nextX - animation.target.labelX) <= CURSOR_ANIMATION_EPSILON_PX
+        const settledLabelValue = Math.abs(nextLabelValue - animation.target.value) <= CURSOR_ANIMATION_EPSILON_PX
+
+        animation.currentAnchorX = settledAnchorX ? animation.target.anchorX : nextAnchorX
+        animation.currentX = settledX ? animation.target.labelX : nextX
+        animation.currentLabelValue = settledLabelValue ? animation.target.value : nextLabelValue
+
+        renderLatestAnimationFrame(state.plot, element, animation, latestSlots.get(name))
+
+        if (!settledAnchorX || !settledX || !settledLabelValue) {
+          needsNextFrame = true
+        }
+      }
+
+      if (needsNextFrame) {
+        ensureLatestAnimationFrame(state)
+      }
+    }
+
+    state.latestFrameId = requestAnimationFrame(tick)
+  }
+
+  function stopCursorAnimation(state: OverlayState) {
+    if (state.cursorFrameId !== null) {
+      cancelAnimationFrame(state.cursorFrameId)
+      state.cursorFrameId = null
+    }
+  }
+
+  function stopLatestAnimation(state: OverlayState) {
+    if (state.latestFrameId !== null) {
+      cancelAnimationFrame(state.latestFrameId)
+      state.latestFrameId = null
+    }
+  }
+
+  function renderCursorAnimationFrame(plot: uPlot, element: OverlayItemElements, animation: CursorAnimationState, slotY?: number) {
+    const { target } = animation
+    const height = Math.max(0, Math.floor(plot.over.getBoundingClientRect().height))
+    const anchorY = safePos(plot, animation.currentValue, 'y', height)
+    const labelY = slotY ?? anchorY
+    const shouldShowCallout =
+      Math.abs(labelY - anchorY) > CURSOR_CALLOUT_THRESHOLD_PX ||
+      Math.abs(animation.currentX - (target.anchorX + 14)) > CURSOR_CALLOUT_THRESHOLD_PX
+
+    element.cursorLabel.style.left = `${animation.currentX}px`
+    element.cursorLabel.style.top = `${labelY}px`
+    element.cursorLabel.style.transform = 'translateY(-50%)'
+    setCircle(element.cursorDot, target.anchorX, anchorY, 4.5, target.color)
+
+    if (shouldShowCallout) {
+      setLine(element.cursorCalloutLine, target.anchorX, anchorY, animation.currentX - 8, labelY, colorToRgba(target.color, 0.82), '4 4', 1.8)
+    } else {
+      element.cursorCalloutLine.setAttribute('visibility', 'hidden')
+    }
+  }
+
+  function renderLatestAnimationFrame(plot: uPlot, element: OverlayItemElements, animation: LatestAnimationState, slotY?: number) {
+    const height = Math.max(0, Math.floor(plot.over.getBoundingClientRect().height))
+    const anchorY = safePos(plot, animation.target.value, 'y', height)
+    const labelY = slotY ?? safePos(plot, animation.currentLabelValue, 'y', height)
+    element.latestDot.setAttribute('cx', `${animation.currentAnchorX}`)
+    element.latestDot.setAttribute('cy', `${anchorY}`)
+    element.latestDot.setAttribute('r', '3.5')
+    element.latestDot.setAttribute('fill', animation.target.color)
+    element.latestDot.setAttribute('visibility', 'visible')
+
+    element.latestLabel.style.left = `${animation.currentX}px`
+    element.latestLabel.style.top = `${labelY}px`
+    element.latestLabel.style.transform = 'translateY(-50%)'
+  }
+
+  function stepCursorValue(current: number, target: number, smoothing: number) {
+    return current + (target - current) * smoothing
+  }
+
+  function logOverlayMotionDebug(state: OverlayState) {
+    const latestEntry = state.latestAnimations.entries().next().value as [string, LatestAnimationState] | undefined
+    const cursorEntry = state.cursorAnimations.entries().next().value as [string, CursorAnimationState] | undefined
+
+    if (!latestEntry && !cursorEntry) {
+      return
+    }
+
+    const payload: Record<string, unknown> = {}
+
+    if (latestEntry) {
+      const [name, animation] = latestEntry
+      payload.latest = {
+        name,
+        currentAnchorX: roundDebug(animation.currentAnchorX),
+        targetAnchorX: roundDebug(animation.target.anchorX),
+        dAnchorX: roundDebug(animation.target.anchorX - animation.currentAnchorX),
+        currentX: roundDebug(animation.currentX),
+        targetX: roundDebug(animation.target.labelX),
+        dx: roundDebug(animation.target.labelX - animation.currentX),
+        currentValue: roundDebug(animation.currentLabelValue),
+        targetValue: roundDebug(animation.target.value),
+        dValue: roundDebug(animation.target.value - animation.currentLabelValue),
+      }
+    }
+
+    if (cursorEntry) {
+      const [name, animation] = cursorEntry
+      payload.cursor = {
+        name,
+        currentX: roundDebug(animation.currentX),
+        targetX: roundDebug(animation.target.labelX),
+        dx: roundDebug(animation.target.labelX - animation.currentX),
+        currentValue: roundDebug(animation.currentValue),
+        targetValue: roundDebug(animation.target.value),
+        dValue: roundDebug(animation.target.value - animation.currentValue),
+      }
+    }
+
+    console.info(`[waveform-overlay-motion] ${formatDebugPayload(payload)}`)
+  }
+
+  function roundDebug(value: number) {
+    return Math.round(value * 100) / 100
+  }
+
+  function formatDebugPayload(payload: Record<string, unknown>) {
+    const latest = formatDebugEntry('latest', payload.latest)
+    const cursor = formatDebugEntry('cursor', payload.cursor)
+    return [latest, cursor].filter(Boolean).join(' | ')
+  }
+
+  function formatDebugEntry(label: string, value: unknown) {
+    if (!value || typeof value !== 'object') {
+      return ''
+    }
+
+    const entry = value as Record<string, unknown>
+    return `${label}(name=${entry.name}, currentAnchorX=${entry.currentAnchorX ?? '-'}, targetAnchorX=${entry.targetAnchorX ?? '-'}, dAnchorX=${entry.dAnchorX ?? '-'}, currentX=${entry.currentX}, targetX=${entry.targetX}, dx=${entry.dx}, currentValue=${entry.currentValue}, targetValue=${entry.targetValue}, dValue=${entry.dValue})`
   }
 
   function setLine(line: SVGLineElement, x1: number, y1: number, x2: number, y2: number, stroke: string, dash?: string, width = 1.6) {
@@ -1296,16 +1619,51 @@ type OverlayItemElements = {
   maxLine: SVGLineElement
   slopeLine: SVGLineElement
   latestDot: SVGCircleElement
+  cursorDot: SVGCircleElement
 }
 
 type OverlayState = {
+  plot: uPlot
   overlayRoot: HTMLDivElement
   linesLayer: SVGSVGElement
   labelsLayer: HTMLDivElement
   textTrackLayer: HTMLDivElement
   items: Map<string, OverlayItemElements>
+  cursorAnimations: Map<string, CursorAnimationState>
+  cursorFrameId: number | null
+  latestAnimations: Map<string, LatestAnimationState>
+  latestFrameId: number | null
   periodLines: Map<string, SVGLineElement[]>
   textTrackSignature: string
+  debugLogIntervalId: number
+}
+
+type OverlayAnimationTarget = {
+  color: string
+  anchorX: number
+  labelX: number
+  value: number
+}
+
+type CursorAnimationState = {
+  currentX: number
+  currentValue: number
+  target: OverlayAnimationTarget
+}
+
+type LatestAnimationState = {
+  currentAnchorX: number
+  currentX: number
+  currentLabelValue: number
+  target: OverlayAnimationTarget
+}
+
+type YScaleAnimationState = {
+  currentMin: number
+  currentMax: number
+  targetMin: number
+  targetMax: number
+  frameId: number | null
 }
 
 function normalizeUnitLabel(unit: string) {

@@ -240,9 +240,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       },
       status: session.isRunning
         ? {
-            tone: 'success',
-            message: `Session on ${session.port ?? 'serial'} is ${session.connectionState ?? 'running'}.`,
-          }
+          tone: 'success',
+          message: `Session on ${session.port ?? 'serial'} is ${session.connectionState ?? 'running'}.`,
+        }
         : defaultStatus(),
     }))
   },
@@ -340,10 +340,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const request =
       config.sourceKind === 'fake'
         ? {
-            ...config,
-            port: fakePortLabel(config.fakeProfile ?? DEFAULT_FAKE_PROFILE),
-            fakeProfile: config.fakeProfile ?? DEFAULT_FAKE_PROFILE,
-          }
+          ...config,
+          port: fakePortLabel(config.fakeProfile ?? DEFAULT_FAKE_PROFILE),
+          fakeProfile: config.fakeProfile ?? DEFAULT_FAKE_PROFILE,
+        }
         : config
 
     const session = await connectSerial(request)
@@ -485,6 +485,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             currentValue: rawValue,
             previousValue: previous.numericValue,
             numericValue: Number.isFinite(numericValue) ? numericValue : previous.numericValue,
+            trend: resolveTrendFromValues(previous.numericValue, Number.isFinite(numericValue) ? numericValue : previous.numericValue),
             unit: event.parser.fields.unit ?? previous.unit ?? null,
             parserName: event.parser.parserName,
             sampleCount: previous.sampleCount + 1,
@@ -579,7 +580,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
               name: field.name,
               currentValue: field.value.toFixed(field.scaleQ < 0 ? 2 : 6),
               previousValue: previous.numericValue,
-              numericValue: field.value,
+              numericValue: nextNumericValue,
+              trend: resolveTrendFromValues(previous.numericValue, nextNumericValue),
               unit: field.unit ?? previous.unit ?? null,
               parserName: 'bmi088_sample',
               sampleCount: previous.sampleCount + 1,
@@ -796,19 +798,19 @@ const createVariableEntry = (channelId: string, updatedAtMs: number): VariableEn
 
 function createProtocolHookExamples(): UiScriptHookExample[] {
   return [
-  {
-    name: 'Schema callback',
-    snippet: `onSchema((fields, rateHz, sampleLen) => {
+    {
+      name: 'Schema callback',
+      snippet: `onSchema((fields, rateHz, sampleLen) => {
   console.log('BMI088 schema', { rateHz, sampleLen, fields })
 })`,
-  },
-  {
-    name: 'Sample callback',
-    snippet: `onSample((record) => {
+    },
+    {
+      name: 'Sample callback',
+      snippet: `onSample((record) => {
   const { roll, pitch, yaw } = record
   console.log('BMI088 sample', { roll, pitch, yaw })
 })`,
-  },
+    },
   ]
 }
 

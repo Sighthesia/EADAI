@@ -59,6 +59,7 @@ const METRIC_DISPLAY_LABELS: Record<MetricDisplayMode, string> = {
   mixed: 'Mixed',
 }
 const METRIC_DISPLAY_STORAGE_KEY = 'eadai:variables:metricDisplayMode'
+const TREND_REGRESSION_POINT_COUNT = 8
 
 export function VariablesPanel() {
   const variables = useAppStore((state) => state.variables)
@@ -631,11 +632,54 @@ function renderSummaryMetric(variable: VariableEntry, mode: MetricDisplayMode) {
 }
 
 const trendLabel = (variable: VariableEntry, mode: MetricDisplayMode) => {
-  if (variable.analysis?.changeRate !== undefined && variable.analysis?.changeRate !== null) {
+  const changeRate = resolveChangeRateValue(variable)
+  if (changeRate !== null) {
     const prefix = mode === 'text' ? trendWord(variable.trend) : trendSymbol(variable.trend)
-    return `${prefix} ${Math.abs(variable.analysis.changeRate).toFixed(2)}/s`
+    return `${prefix} ${Math.abs(changeRate).toFixed(2)}/s`
   }
   return mode === 'text' ? trendWord(variable.trend) : trendSymbol(variable.trend)
+}
+
+function resolveChangeRateValue(variable: VariableEntry) {
+  if (variable.analysis?.changeRate !== undefined && variable.analysis?.changeRate !== null) {
+    return variable.analysis.changeRate
+  }
+
+  const trendPoints = variable.points.slice(-TREND_REGRESSION_POINT_COUNT)
+
+  if (trendPoints.length >= 3) {
+    const originTimestampMs = trendPoints[0].timestampMs
+    let sumX = 0
+    let sumY = 0
+    let sumXY = 0
+    let sumXX = 0
+
+    for (const point of trendPoints) {
+      const x = (point.timestampMs - originTimestampMs) / 1000
+      const y = point.value
+      sumX += x
+      sumY += y
+      sumXY += x * y
+      sumXX += x * x
+    }
+
+    const count = trendPoints.length
+    const denominator = count * sumXX - sumX * sumX
+    if (Number.isFinite(denominator) && Math.abs(denominator) > 1e-6) {
+      return (count * sumXY - sumX * sumY) / denominator
+    }
+  }
+
+  if (trendPoints.length >= 2) {
+    const previousPoint = trendPoints[trendPoints.length - 2]
+    const latestPoint = trendPoints[trendPoints.length - 1]
+    const deltaSeconds = (latestPoint.timestampMs - previousPoint.timestampMs) / 1000
+    if (Number.isFinite(deltaSeconds) && Math.abs(deltaSeconds) > 1e-6) {
+      return (latestPoint.value - previousPoint.value) / deltaSeconds
+    }
+  }
+
+  return null
 }
 
 function formatPrimaryValue(variable: VariableEntry) {
