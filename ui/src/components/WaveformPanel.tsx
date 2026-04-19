@@ -600,6 +600,10 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
           const overlayRoot = document.createElement('div')
           overlayRoot.className = 'waveform-overlay'
 
+          u.root.querySelectorAll<HTMLElement>('.u-cursor-pt').forEach((element) => {
+            element.style.display = 'none'
+          })
+
           const linesLayer = document.createElementNS(SVG_NS, 'svg')
           linesLayer.classList.add('waveform-overlay-lines')
           linesLayer.setAttribute('aria-hidden', 'true')
