@@ -266,7 +266,7 @@ function WavePlot({
         structureKeyRef.current = ''
       }
     }
-}, [model.data, model.series, size, structureKey])
+  }, [model.data, model.series, size, structureKey])
 
   useEffect(() => {
     plotRef.current?.setSize(size)
@@ -621,7 +621,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
             textTrackSignature: '',
           }
 
-          ;(u as uPlot & { __waveformOverlayState?: typeof state }).__waveformOverlayState = state
+            ; (u as uPlot & { __waveformOverlayState?: typeof state }).__waveformOverlayState = state
           syncOverlayItems(u)
         },
       ],
@@ -788,7 +788,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
           maxValue,
         )
         if (clipped) {
-          setLine(elements.slopeLine, safePos(u, clipped.startX, 'x', width), safePos(u, clipped.startY, 'y', height), safePos(u, clipped.endX, 'x', width), safePos(u, clipped.endY, 'y', height), colorToRgba(track.color, 0.82), undefined, 2.2)
+          setLine(elements.slopeLine, safePos(u, clipped.startX, 'x', width), safePos(u, clipped.startY, 'y', height), safePos(u, clipped.endX, 'x', width), safePos(u, clipped.endY, 'y', height), colorToRgba(track.color, 0.82), '4 4', 2.2)
         } else {
           elements.slopeLine.setAttribute('visibility', 'hidden')
         }
