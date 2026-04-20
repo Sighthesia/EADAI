@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   IMU_ATTITUDE_LABELS,
   IMU_ATTITUDE_ROLES,
@@ -12,12 +12,14 @@ import {
   countMappedImuQuaternionChannels,
 } from '../lib/imu'
 import {
+  buildMotionTrajectory,
+  buildImuCoordinateScene,
   buildOrientationFromAngles,
   buildOrientationFromQuaternion,
   buildOrientationFromRaw,
-  buildOrientationPreview,
   buildVector,
 } from '../lib/imu-view'
+import { ImuStageScene } from './ImuStageScene'
 import { SourceChoiceGroup } from './SourceChoiceGroup'
 import { useAppStore } from '../store/appStore'
 import type {
@@ -48,6 +50,15 @@ const SOURCE_OPTIONS: Array<{ value: ImuOrientationSource; label: string; descri
   },
 ]
 
+const MIN_IMU_ZOOM = 0.75
+const MAX_IMU_ZOOM = 2.5
+const DEFAULT_IMU_ZOOM = 1
+const AXIS_FALLBACK_COLORS = {
+  accelX: '#4FC3F7',
+  accelY: '#C792EA',
+  accelZ: '#F78C6C',
+} satisfies Record<'accelX' | 'accelY' | 'accelZ', string>
+
 export function ImuPanel() {
   const variables = useAppStore((state) => state.variables)
   const imuChannelMap = useAppStore((state) => state.imuChannelMap)
@@ -64,19 +75,34 @@ export function ImuPanel() {
   const calibrateImuFromCurrentState = useAppStore((state) => state.calibrateImuFromCurrentState)
   const resetImuCalibration = useAppStore((state) => state.resetImuCalibration)
   const autoMapImuChannels = useAppStore((state) => state.autoMapImuChannels)
+  const colorForChannel = useAppStore((state) => state.colorForChannel)
+  const stageShellRef = useRef<HTMLDivElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(true)
+  const [zoom, setZoom] = useState(DEFAULT_IMU_ZOOM)
   const channelOptions = useMemo(() => Object.keys(variables).sort(), [variables])
   const accel = useMemo(() => buildVector(variables, imuChannelMap, 'accel'), [imuChannelMap, variables])
+  const trajectory = useMemo(
+    () => buildMotionTrajectory(variables, imuChannelMap, imuOrientationSource, imuAttitudeMap, imuQuaternionMap),
+    [imuAttitudeMap, imuChannelMap, imuOrientationSource, imuQuaternionMap, variables],
+  )
   const orientation = useMemo(
     () =>
       imuOrientationSource === 'directAngles'
         ? buildOrientationFromAngles(variables, imuAttitudeMap)
         : imuOrientationSource === 'directQuaternion'
           ? buildOrientationFromQuaternion(variables, imuQuaternionMap)
-        : buildOrientationFromRaw(variables, imuChannelMap, accel),
+          : buildOrientationFromRaw(variables, imuChannelMap, accel),
     [accel, imuAttitudeMap, imuChannelMap, imuOrientationSource, imuQuaternionMap, variables],
   )
-  const preview = useMemo(() => buildOrientationPreview(orientation), [orientation])
+  const coordinateScene = useMemo(() => buildImuCoordinateScene(), [])
+  const axisColors = useMemo(
+    () => ({
+      accelX: imuChannelMap.accelX ? colorForChannel(imuChannelMap.accelX) : AXIS_FALLBACK_COLORS.accelX,
+      accelY: imuChannelMap.accelY ? colorForChannel(imuChannelMap.accelY) : AXIS_FALLBACK_COLORS.accelY,
+      accelZ: imuChannelMap.accelZ ? colorForChannel(imuChannelMap.accelZ) : AXIS_FALLBACK_COLORS.accelZ,
+    }),
+    [colorForChannel, imuChannelMap.accelX, imuChannelMap.accelY, imuChannelMap.accelZ],
+  )
   const mappedCount =
     imuOrientationSource === 'directAngles'
       ? countMappedImuAttitudeChannels(imuAttitudeMap)
@@ -84,37 +110,50 @@ export function ImuPanel() {
         ? countMappedImuQuaternionChannels(imuQuaternionMap)
         : countMappedImuChannels(imuChannelMap)
 
+  useEffect(() => {
+    const host = stageShellRef.current
+    if (!host) {
+      return
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) {
+        return
+      }
+
+      if (target.closest('.imu-floating-menu')) {
+        return
+      }
+
+      event.preventDefault()
+      setZoom((value) => clampZoom(value * (event.deltaY < 0 ? 1.08 : 0.92)))
+    }
+
+    host.addEventListener('wheel', onWheel, { passive: false })
+    return () => host.removeEventListener('wheel', onWheel)
+  }, [])
+
+  const hasStageContent = Boolean(trajectory || orientation.quaternion || orientation.rollDeg !== null || orientation.pitchDeg !== null || orientation.yawDeg !== null)
+
   return (
     <section className="panel imu-panel">
-      <div className="imu-stage-shell">
-        {preview ? (
-          <svg viewBox="0 0 280 220" className="imu-stage imu-stage-surface" aria-label="IMU orientation preview">
-            <circle cx="140" cy="110" r="78" className="imu-stage-ring" />
-            <line x1="140" y1="24" x2="140" y2="196" className="imu-stage-grid" />
-            <line x1="54" y1="110" x2="226" y2="110" className="imu-stage-grid" />
-            {preview.edges.map((edge) => (
-              <line
-                key={edge.key}
-                x1={edge.from.x}
-                y1={edge.from.y}
-                x2={edge.to.x}
-                y2={edge.to.y}
-                className="imu-stage-cube"
-              />
-            ))}
-            {preview.axes.map((axis) => (
-              <g key={axis.key}>
-                <line x1={140} y1={110} x2={axis.point.x} y2={axis.point.y} stroke={axis.color} strokeWidth="3" />
-                <circle cx={axis.point.x} cy={axis.point.y} r="4" fill={axis.color} />
-                <text x={axis.point.x + 8} y={axis.point.y + 4} fill={axis.color} className="imu-axis-label">
-                  {axis.label}
-                </text>
-              </g>
-            ))}
-          </svg>
-        ) : (
-          <div className="imu-empty-state imu-stage-surface">{emptyStateMessage(imuOrientationSource)}</div>
-        )}
+      <div className="imu-stage-shell" ref={stageShellRef}>
+        <ImuStageScene
+          zoom={zoom}
+          coordinateScene={coordinateScene}
+          orientation={orientation}
+          trajectory={trajectory}
+          axisColors={axisColors}
+        />
+
+        {!hasStageContent ? (
+          <div className="imu-empty-state imu-stage-surface">
+            <div>{emptyStateMessage(imuOrientationSource)}</div>
+            <small>Stage keeps a readable fallback grid until full motion data arrives.</small>
+            {trajectory ? <small>{trajectory.sampleCount} trajectory samples ready</small> : null}
+          </div>
+        ) : null}
 
         <div className="imu-stage-hud">
           <div className="imu-stage-meta">
@@ -151,7 +190,9 @@ export function ImuPanel() {
                 </div>
                 <div className="imu-floating-chip-row">
                   <span className={`status-pill tone-${imuQuality.level}`}>{imuQuality.label}</span>
-                  <span className="imu-chip">{mappedCount}/{requiredMappingCount(imuOrientationSource)} mapped</span>
+                  <span className="imu-chip">
+                    {mappedCount}/{requiredMappingCount(imuOrientationSource)} mapped
+                  </span>
                   <span className="imu-chip">{imuMapMode}</span>
                 </div>
                 <p className="imu-floating-copy">{imuQuality.details}</p>
@@ -185,6 +226,31 @@ export function ImuPanel() {
                 ) : (
                   <RawSourceGrid channelOptions={channelOptions} map={imuChannelMap} onChange={setImuChannel} />
                 )}
+              </section>
+
+              <section className="imu-floating-section">
+                <div className="imu-floating-section-header">
+                  <strong>Stage Zoom</strong>
+                  <small>{Math.round(zoom * 100)}%</small>
+                </div>
+                <div className="imu-controls-row">
+                  <button type="button" className="ghost-button imu-zoom-button" onClick={() => setZoom((value) => clampZoom(value * 1.12))} aria-label="Zoom in">
+                    +
+                  </button>
+                  <input
+                    className="imu-zoom-slider"
+                    type="range"
+                    min={MIN_IMU_ZOOM}
+                    max={MAX_IMU_ZOOM}
+                    step={0.01}
+                    value={zoom}
+                    onChange={(event) => setZoom(clampZoom(Number(event.target.value)))}
+                    aria-label="IMU stage zoom"
+                  />
+                  <button type="button" className="ghost-button imu-zoom-button" onClick={() => setZoom((value) => clampZoom(value / 1.12))} aria-label="Zoom out">
+                    −
+                  </button>
+                </div>
               </section>
 
               <section className="imu-floating-section">
@@ -393,4 +459,8 @@ function formatTimestamp(timestampMs: number | null) {
     return 'Awaiting samples'
   }
   return `${(timestampMs / 1000).toFixed(2)}s`
+}
+
+function clampZoom(value: number) {
+  return Math.min(MAX_IMU_ZOOM, Math.max(MIN_IMU_ZOOM, value))
 }

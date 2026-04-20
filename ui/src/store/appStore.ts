@@ -27,6 +27,7 @@ import {
   startLogicAnalyzerCapture,
   stopLogicAnalyzerCapture,
 } from '../lib/tauri'
+import { clampWaveformWindowMs, DEFAULT_WAVEFORM_WINDOW_MS } from '../lib/waveformWindow'
 import type {
   AppStatus,
   Bmi088HostCommand,
@@ -87,6 +88,7 @@ type AppStore = {
   protocol: UiProtocolSnapshot
   variables: Record<string, VariableEntry>
   selectedChannels: string[]
+  waveformWindowMs: number
   visualAidState: WaveformVisualAidState
   imuChannelMap: ImuChannelMap
   imuAttitudeMap: ImuAttitudeMap
@@ -101,6 +103,7 @@ type AppStore = {
   setCommandInput: (value: string) => void
   setAppendNewline: (value: boolean) => void
   setConsoleDisplayMode: (value: 'text' | 'hex' | 'binary') => void
+  setWaveformWindowMs: (value: number | ((current: number) => number)) => void
   patchConfig: (value: Partial<ConnectRequest>) => void
   bootstrap: () => Promise<void>
   refreshMcpStatus: () => Promise<void>
@@ -181,6 +184,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   protocolHookExamples: createProtocolHookExamples(),
   variables: {},
   selectedChannels: [],
+  waveformWindowMs: DEFAULT_WAVEFORM_WINDOW_MS,
   visualAidState: readWaveformVisualAidState(),
   imuChannelMap: createEmptyImuChannelMap(),
   imuAttitudeMap: createEmptyImuAttitudeMap(),
@@ -210,6 +214,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setCommandInput: (value) => set({ commandInput: value }),
   setAppendNewline: (value) => set({ appendNewline: value }),
   setConsoleDisplayMode: (value) => set({ consoleDisplayMode: value }),
+  setWaveformWindowMs: (value) =>
+    set((state) => ({
+      waveformWindowMs: clampWaveformWindowMs(typeof value === 'function' ? value(state.waveformWindowMs) : value),
+    })),
   patchConfig: (value) => set((state) => ({ config: { ...state.config, ...value } })),
   bootstrap: async () => {
     const [ports, session, mcp, logicAnalyzer] = await Promise.all([

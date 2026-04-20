@@ -1717,6 +1717,7 @@ button {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  touch-action: none;
 }
 
 .imu-stage-surface {
@@ -1724,6 +1725,10 @@ button {
   inset: 0;
   width: 100%;
   height: 100%;
+  background:
+    radial-gradient(circle at 50% 44%, rgba(90, 145, 255, 0.18), rgba(11, 14, 19, 0.96) 42%),
+    radial-gradient(circle at 50% 56%, rgba(76, 201, 240, 0.08), transparent 58%),
+    linear-gradient(180deg, #0c1118, #090d13);
 }
 
 .imu-stage-hud {
@@ -1982,8 +1987,9 @@ button {
 }
 
 .imu-stage-ring {
-  stroke: #283244;
-  stroke-width: 1.5;
+  stroke: rgba(74, 90, 114, 0.92);
+  stroke-width: 1.6;
+  filter: drop-shadow(0 0 10px rgba(79, 124, 255, 0.08));
 }
 
 .imu-stage-grid {
@@ -1991,10 +1997,82 @@ button {
   stroke-width: 1;
 }
 
+.imu-stage-plane-hint {
+  fill: rgba(17, 23, 31, 0.26);
+  stroke: rgba(120, 138, 162, 0.2);
+  stroke-dasharray: 6 6;
+  stroke-width: 1;
+}
+
+.imu-coordinate-grid {
+  fill: none;
+  stroke: rgba(120, 138, 162, 0.28);
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.imu-coordinate-grid-major {
+  stroke: rgba(145, 165, 190, 0.36);
+}
+
+.imu-coordinate-axis {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.08));
+}
+
+.imu-motion-segment {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.imu-motion-trail {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.08));
+}
+
+.imu-motion-point {
+  vector-effect: non-scaling-stroke;
+}
+
+.imu-motion-point-latest {
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.22));
+}
+
 .imu-stage-cube {
   stroke: #90a0b7;
   stroke-opacity: 0.7;
   stroke-width: 2;
+}
+
+.imu-current-position-halo {
+  fill: none;
+  stroke-width: 2;
+  stroke-opacity: 0.34;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.16));
+}
+
+.imu-current-position-core {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1;
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.2));
+}
+
+.imu-current-position-dot {
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.28));
+}
+
+.imu-current-position-cross {
+  stroke-width: 1.2;
+  stroke-opacity: 0.65;
+  vector-effect: non-scaling-stroke;
 }
 
 .imu-axis-label {
@@ -2012,6 +2090,10 @@ button {
   background: linear-gradient(180deg, #0c1118, #090d13);
   text-align: center;
   padding: 20px;
+}
+
+.imu-empty-state small {
+  color: #9ba8b7;
 }
 
 .imu-attitude-grid,
@@ -2062,6 +2144,23 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.imu-controls-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.imu-zoom-button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+}
+
+.imu-zoom-slider {
+  width: 100%;
 }
 
 .imu-angle-gauge {

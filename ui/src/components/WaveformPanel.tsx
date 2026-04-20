@@ -2,12 +2,10 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'rea
 import uPlot from 'uplot'
 import { computeStableCycleStats } from '../lib/waveformPeriod'
 import { isWaveformVisualAidEnabled, type WaveformVisualAidState } from '../lib/waveformVisualAids'
+import { formatWaveformWindowMs, MAX_WAVEFORM_WINDOW_MS, MIN_WAVEFORM_WINDOW_MS, scaleWaveformWindowMs } from '../lib/waveformWindow'
 import { useAppStore } from '../store/appStore'
 import type { UiAnalysisPayload, VariableEntry } from '../types'
 
-const MIN_TIME_WINDOW_MS = 2_000
-const MAX_TIME_WINDOW_MS = 120_000
-const DEFAULT_TIME_WINDOW_MS = 15_000
 const SLOPE_REGRESSION_POINT_COUNT = 8
 const CURSOR_LABEL_GAP_PX = 42
 const CURSOR_LABEL_MIN_CENTER_Y = 22
@@ -1238,7 +1236,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const { target } = animation
     const height = Math.max(0, Math.floor(plot.over.getBoundingClientRect().height))
     const anchorY = safePos(plot, target.value, 'y', height)
-    const labelY = slotY ?? safePos(plot, animation.currentValue, 'y', height)
+    const labelY = slotY ?? safePos(plot, target.value, 'y', height)
     const shouldShowCallout =
       Math.abs(labelY - anchorY) > CURSOR_CALLOUT_THRESHOLD_PX ||
       Math.abs(animation.currentX - (target.anchorX + 14)) > CURSOR_CALLOUT_THRESHOLD_PX
