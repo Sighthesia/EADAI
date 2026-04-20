@@ -1237,8 +1237,8 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
   function renderCursorAnimationFrame(plot: uPlot, element: OverlayItemElements, animation: CursorAnimationState, slotY?: number) {
     const { target } = animation
     const height = Math.max(0, Math.floor(plot.over.getBoundingClientRect().height))
-    const anchorY = safePos(plot, animation.currentValue, 'y', height)
-    const labelY = slotY ?? anchorY
+    const anchorY = safePos(plot, target.value, 'y', height)
+    const labelY = slotY ?? safePos(plot, animation.currentValue, 'y', height)
     const shouldShowCallout =
       Math.abs(labelY - anchorY) > CURSOR_CALLOUT_THRESHOLD_PX ||
       Math.abs(animation.currentX - (target.anchorX + 14)) > CURSOR_CALLOUT_THRESHOLD_PX
