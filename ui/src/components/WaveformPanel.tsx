@@ -85,7 +85,8 @@ export function WaveformPanel() {
   const selectedChannels = useAppStore((state) => state.selectedChannels)
   const colorForChannel = useAppStore((state) => state.colorForChannel)
   const visualAidState = useAppStore((state) => state.visualAidState)
-  const [timeWindowMs, setTimeWindowMs] = useState(DEFAULT_TIME_WINDOW_MS)
+  const timeWindowMs = useAppStore((state) => state.waveformWindowMs)
+  const setTimeWindowMs = useAppStore((state) => state.setWaveformWindowMs)
   const [menuOpen, setMenuOpen] = useState(true)
 
   const selectedVariables = useMemo<SelectedVariable[]>(
@@ -150,8 +151,8 @@ export function WaveformPanel() {
                   <span>Visible span</span>
                   <input
                     type="range"
-                    min={MIN_TIME_WINDOW_MS}
-                    max={MAX_TIME_WINDOW_MS}
+                    min={MIN_WAVEFORM_WINDOW_MS}
+                    max={MAX_WAVEFORM_WINDOW_MS}
                     step={1_000}
                     value={timeWindowMs}
                     onChange={(event) => setTimeWindowMs(Number(event.target.value))}
@@ -459,7 +460,7 @@ function scaleTimeWindow(current: number, factor: number) {
 }
 
 function clampTimeWindow(value: number) {
-  return Math.min(MAX_TIME_WINDOW_MS, Math.max(MIN_TIME_WINDOW_MS, value))
+  return Math.min(MAX_WAVEFORM_WINDOW_MS, Math.max(MIN_WAVEFORM_WINDOW_MS, value))
 }
 
 function isNumericVariable(variable: VariableEntry) {
@@ -1683,12 +1684,5 @@ function normalizeUnitLabel(unit: string) {
 }
 
 function formatTimeWindow(timeWindowMs: number) {
-  if (timeWindowMs < 10_000) {
-    return `${(timeWindowMs / 1000).toFixed(1)}s`
-  }
-  if (timeWindowMs < 60_000) {
-    return `${Math.round(timeWindowMs / 1000)}s`
-  }
-  const minutes = timeWindowMs / 60_000
-  return `${minutes.toFixed(minutes >= 10 ? 0 : 1)}m`
+  return formatWaveformWindowMs(timeWindowMs)
 }

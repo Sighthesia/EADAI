@@ -4,6 +4,7 @@ import { ConnectionPanel } from './ConnectionPanel'
 import { McpPanel } from './McpPanel'
 import { VariablesPanel } from './VariablesPanel'
 import { WaveformPanel } from './WaveformPanel'
+import { FrequencySpectrumPage } from './FrequencySpectrumPage'
 import { ConsolePanel } from './ConsolePanel'
 import { ImuPanel } from './ImuPanel'
 import { LogicAnalyzerPage } from './LogicAnalyzerPage'
@@ -57,6 +58,7 @@ const layoutJson: IJsonModel = {
         weight: 100,
         children: [
           { type: 'tab', name: 'Waveforms', component: 'waveforms' },
+          { type: 'tab', name: 'FFT Spectrum', component: 'frequencySpectrum' },
           { type: 'tab', name: 'IMU', component: 'imu' },
           { type: 'tab', name: 'Logic Analyzer', component: 'logicAnalyzer' },
         ],
@@ -87,6 +89,8 @@ function factory(node: TabNode) {
       return <VariablesPanel />
     case 'waveforms':
       return <WaveformPanel />
+    case 'frequencySpectrum':
+      return <FrequencySpectrumPage />
     case 'imu':
       return <ImuPanel />
     case 'logicAnalyzer':

@@ -8,16 +8,19 @@
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@react-three/fiber": "^8.17.12",
     "@tauri-apps/api": "^2.8.0",
     "flexlayout-react": "^0.8.19",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "three": "^0.184.0",
     "uplot": "^1.6.31",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.184.0",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"

@@ -1,0 +1,44 @@
+{
+  "id": "fft-frequency-tab",
+  "name": "fft-frequency-tab",
+  "title": "增加快速傅里叶变换并显示数据波形频率分量的功能，作为独立tab",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": "analysis",
+  "priority": "P2",
+  "creator": "Sighthesia",
+  "assignee": "Sighthesia",
+  "createdAt": "2026-04-20",
+  "completedAt": null,
+  "branch": "feature/fft-frequency-tab",
+  "base_branch": "main",
+  "worktree_path": "/home/Sighthesia/0_Files/Producing/Software/trellis-worktrees/feature/fft-frequency-tab",
+  "current_phase": 2,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

@@ -227,6 +227,7 @@ button {
 .mcp-panel,
 .imu-panel,
 .waveform-panel,
+.frequency-spectrum-panel,
 .console-panel {
   padding: 14px;
   gap: 14px;
@@ -1231,6 +1232,13 @@ button {
   overflow: hidden;
 }
 
+.frequency-spectrum-panel {
+  position: relative;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
 .waveform-controls {
   display: flex;
   align-items: center;
@@ -1283,6 +1291,23 @@ button {
 
 .waveform-stage-surface {
   height: 100%;
+}
+
+.frequency-spectrum-stage-surface {
+  position: relative;
+  height: 100%;
+}
+
+.frequency-spectrum-empty-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #9ba8b7;
+  text-align: center;
+  background: linear-gradient(180deg, rgba(11, 14, 19, 0.35), rgba(11, 14, 19, 0.08));
+  pointer-events: none;
 }
 
 .waveform-stage-hud {

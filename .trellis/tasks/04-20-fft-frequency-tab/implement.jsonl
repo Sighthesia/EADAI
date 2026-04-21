@@ -1,0 +1,19 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/logic-analyzer-workspace.md", "reason": "independent-tab boundary pattern and bridge contract reference"}
+{"file": "ui/src/components/Workbench.tsx", "reason": "top-level tabset structure to add a new FFT tab"}
+{"file": "ui/src/components/WaveformPanel.tsx", "reason": "existing waveform rendering, scaling, and analysis overlay patterns"}
+{"file": "ui/src/components/VariablesPanel.tsx", "reason": "existing frequency/period display and sample-driven UI patterns"}
+{"file": "ui/src/lib/waveformPeriod.ts", "reason": "existing frequency/period estimation fallback logic"}
+{"file": "ui/src/store/appStore.ts", "reason": "central sample/state ingestion and UI data flow"}
+{"file": "ui/src/types.ts", "reason": "shared UI payload and sample type definitions"}
+{"file": "ui/src/styles.css", "reason": "waveform/stage presentation styles for a new visualization surface"}
+{"file": "ui/src/lib/tauri.ts", "reason": "frontend bridge pattern if backend commands or payloads change"}
+{"file": "src/analysis/engine.rs", "reason": "current time-domain analysis pipeline and output generation"}
+{"file": "src/analysis/model.rs", "reason": "analysis contract shape that may need spectrum fields"}
+{"file": "src/message.rs", "reason": "bus event contract for analysis data flow"}
+{"file": "src-tauri/src/model.rs", "reason": "UI-facing payload mirror across the desktop bridge"}
+{"file": "src-tauri/src/commands.rs", "reason": "Tauri command surface if FFT data needs backend exposure"}
+{"file": "src-tauri/src/main.rs", "reason": "command registration pattern for new backend endpoints"}
+{"file": "ui/src/components/LogicAnalyzerPage.tsx", "reason": "independent visualization tab layout/rendering reference"}

@@ -1,0 +1,10 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".opencode/commands/trellis/check-backend.md", "reason": "Backend check spec"}
+{"file": ".opencode/commands/trellis/check-frontend.md", "reason": "Frontend check spec"}
+{"file": ".trellis/spec/backend/index.md", "reason": "backend guideline index for any Rust-side changes"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "backend code quality and testing rules"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "frontend architecture rules for tab/workspace changes"}
+{"file": ".trellis/spec/frontend/logic-analyzer-workspace.md", "reason": "independent visualization tab expectations and anti-patterns"}
+{"file": "ui/src/components/Workbench.tsx", "reason": "verify new tab integrates with existing layout"}
+{"file": "ui/src/store/appStore.ts", "reason": "verify state flow stays consistent"}
+{"file": "src/analysis/engine.rs", "reason": "verify analysis changes match existing metrics pipeline"}

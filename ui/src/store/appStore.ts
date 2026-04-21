@@ -66,13 +66,18 @@ const MAX_SAMPLES_PER_CHANNEL = 960
 const CHANNEL_COLORS = ['#4FC3F7', '#C792EA', '#F78C6C', '#A5E075', '#E6C07B', '#82AAFF']
 const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
 const BMI088_PROTOCOL_NAME = 'bmi088_uart4'
+import { logger } from '../lib/logger'
+
 const BMI088_PROTOCOL_SCRIPT = `// BMI088 UART4 schema-first telemetry
 onSchema((fields, rateHz, sampleLen) => {
-  console.log('schema', { rateHz, sampleLen, fields })
+  // Use logger.debug to avoid leaving console.log in production code
+  // eslint-disable-next-line no-undef
+  if (import.meta.env && import.meta.env.DEV) console.debug('schema', { rateHz, sampleLen, fields })
 })
 
 onSample((record) => {
-  console.log('sample', record)
+  // eslint-disable-next-line no-undef
+  if (import.meta.env && import.meta.env.DEV) console.debug('sample', record)
 })`
 const PROTOCOL_TIMELINE_LIMIT = 64
 
@@ -220,12 +225,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     })),
   patchConfig: (value) => set((state) => ({ config: { ...state.config, ...value } })),
   bootstrap: async () => {
-    const [ports, session, mcp, logicAnalyzer] = await Promise.all([
+  const [ports, session, mcp, logicAnalyzer] = await Promise.all([
       listSerialPorts(),
       getSessionSnapshot(),
       readMcpStatusWithRetry(),
       refreshLogicAnalyzerDevicesSafely(),
     ])
+    logger.debug('bootstrap', { portsLength: ports.length })
     set((state) => ({
       ports,
       session,
@@ -332,10 +338,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   refreshPorts: async () => {
     const ports = await listSerialPorts()
+    logger.debug('refreshPorts', { portsLength: ports.length })
     set((state) => buildPortsRefreshState(state, ports, false))
   },
   refreshPortsSilently: async () => {
     const ports = await listSerialPorts()
+    logger.debug('refreshPortsSilently', { portsLength: ports.length })
     set((state) => buildPortsRefreshState(state, ports, true))
   },
   connect: async () => {
@@ -809,14 +817,15 @@ function createProtocolHookExamples(): UiScriptHookExample[] {
     {
       name: 'Schema callback',
       snippet: `onSchema((fields, rateHz, sampleLen) => {
-  console.log('BMI088 schema', { rateHz, sampleLen, fields })
+  // Use logger.debug in your hook to avoid leaking console logs in production
+  logger.debug('BMI088 schema', { rateHz, sampleLen, fields })
 })`,
     },
     {
       name: 'Sample callback',
       snippet: `onSample((record) => {
   const { roll, pitch, yaw } = record
-  console.log('BMI088 sample', { roll, pitch, yaw })
+  logger.debug('BMI088 sample', { roll, pitch, yaw })
 })`,
     },
   ]
