@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
   IMU_ATTITUDE_LABELS,
   IMU_ATTITUDE_ROLES,
@@ -78,7 +78,10 @@ export function VariablesPanel() {
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const [metricDisplayMode, setMetricDisplayMode] = useState<MetricDisplayMode>(() => readMetricDisplayMode())
   const rows = useMemo(
-    () => Object.values(variables).sort((left, right) => right.updatedAtMs - left.updatedAtMs),
+    () =>
+      Object.values(variables).sort((left, right) =>
+        left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' }),
+      ),
     [variables],
   )
   const channelRoleMap = useMemo(
@@ -172,61 +175,17 @@ export function VariablesPanel() {
       </div>
       <div className="variables-list">
         {rows.map((variable) => {
-          const selected = selectedChannels.includes(variable.name)
-          const roleLabels = channelRoleMap[variable.name] ?? []
-          const mapped = roleLabels.length > 0
           return (
-            <article
+            <VariableRow
               key={variable.name}
-              className={`variable-card ${selected ? 'selected' : ''} ${mapped ? 'imu-mapped' : ''}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => toggleChannel(variable.name)}
-              onContextMenu={(event) => {
-                event.preventDefault()
-                setContextMenu({ channel: variable.name, x: event.clientX, y: event.clientY })
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  toggleChannel(variable.name)
-                }
-              }}
-            >
-              <span
-                className={`variable-selection-bar ${selected ? 'active' : ''}`}
-                style={{ backgroundColor: selected ? colorForChannel(variable.name) : undefined }}
-              />
-              <span className="variable-color" style={{ backgroundColor: colorForChannel(variable.name) }} />
-              <div className="variable-main">
-                <div className="variable-title-row">
-                  <strong>{variable.name}</strong>
-                  {roleLabels.length > 0 ? (
-                    <div className="variable-role-chip-row">
-                      {roleLabels.map((label) => (
-                        <span key={`${variable.name}-${label}`} className={`variable-role-chip role-${roleTone(label)}`}>
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="variable-subline">
-                  <small>{variable.parserName ?? 'raw'}</small>
-                  <span className="metric-chip">◌ {variable.sampleCount}</span>
-                  {variable.latestTrigger ? (
-                    <span className={`trigger-pill trigger-pill-${variable.latestTrigger.severity}`}>
-                      {variable.latestTrigger.ruleId}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              <div className="variable-metric">
-                <strong>{formatPrimaryValue(variable)}</strong>
-                <small className={`trend trend-${variable.trend}`}>{trendLabel(variable, metricDisplayMode)}</small>
-                <small>{renderSummaryMetric(variable, metricDisplayMode)}</small>
-              </div>
-            </article>
+              variable={variable}
+              selected={selectedChannels.includes(variable.name)}
+              roleLabels={channelRoleMap[variable.name] ?? []}
+              metricDisplayMode={metricDisplayMode}
+              color={colorForChannel(variable.name)}
+              onToggle={toggleChannel}
+              onOpenContextMenu={(channel, x, y) => setContextMenu({ channel, x, y })}
+            />
           )
         })}
       </div>
@@ -248,6 +207,82 @@ export function VariablesPanel() {
     </section>
   )
 }
+
+const VariableRow = memo(function VariableRow({
+  variable,
+  selected,
+  roleLabels,
+  metricDisplayMode,
+  color,
+  onToggle,
+  onOpenContextMenu,
+}: {
+  variable: VariableEntry
+  selected: boolean
+  roleLabels: string[]
+  metricDisplayMode: MetricDisplayMode
+  color: string
+  onToggle: (channel: string) => void
+  onOpenContextMenu: (channel: string, x: number, y: number) => void
+}) {
+  const mapped = roleLabels.length > 0
+  const primaryValue = useMemo(() => formatPrimaryValue(variable), [variable])
+  const trendText = useMemo(() => trendLabel(variable, metricDisplayMode), [metricDisplayMode, variable])
+  const summaryMetric = useMemo(() => renderSummaryMetric(variable, metricDisplayMode), [metricDisplayMode, variable])
+
+  return (
+    <article
+      className={`variable-card ${selected ? 'selected' : ''} ${mapped ? 'imu-mapped' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => onToggle(variable.name)}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        onOpenContextMenu(variable.name, event.clientX, event.clientY)
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onToggle(variable.name)
+        }
+      }}
+    >
+      <span
+        className={`variable-selection-bar ${selected ? 'active' : ''}`}
+        style={{ backgroundColor: selected ? color : undefined }}
+      />
+      <span className="variable-color" style={{ backgroundColor: color }} />
+      <div className="variable-main">
+        <div className="variable-title-row">
+          <strong>{variable.name}</strong>
+          {roleLabels.length > 0 ? (
+            <div className="variable-role-chip-row">
+              {roleLabels.map((label) => (
+                <span key={`${variable.name}-${label}`} className={`variable-role-chip role-${roleTone(label)}`}>
+                  {label}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="variable-subline">
+          <small>{variable.parserName ?? 'raw'}</small>
+          <span className="metric-chip">◌ {variable.sampleCount}</span>
+          {variable.latestTrigger ? (
+            <span className={`trigger-pill trigger-pill-${variable.latestTrigger.severity}`}>
+              {variable.latestTrigger.ruleId}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <div className="variable-metric">
+        <strong>{primaryValue}</strong>
+        <small className={`trend trend-${variable.trend}`}>{trendText}</small>
+        <small>{summaryMetric}</small>
+      </div>
+    </article>
+  )
+})
 
 function VariableContextMenu({
   menuRef,

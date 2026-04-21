@@ -3,6 +3,7 @@ import uPlot from 'uplot'
 import { computeStableCycleStats } from '../lib/waveformPeriod'
 import { isWaveformVisualAidEnabled, type WaveformVisualAidState } from '../lib/waveformVisualAids'
 import { formatWaveformWindowMs, MAX_WAVEFORM_WINDOW_MS, MIN_WAVEFORM_WINDOW_MS, scaleWaveformWindowMs } from '../lib/waveformWindow'
+import { createDevTimingLogger } from '../lib/logger'
 import { useAppStore } from '../store/appStore'
 import type { UiAnalysisPayload, VariableEntry } from '../types'
 
@@ -18,6 +19,7 @@ const CURSOR_ANIMATION_EPSILON_PX = 0.5
 const LATEST_SMOOTHING_X = 1
 const LATEST_SMOOTHING_Y = 1
 const CURSOR_DEBUG_LOG_INTERVAL_MS = 500
+const profileBuildPlotModel = createDevTimingLogger('WaveformPanel.buildPlotModel', { slowThresholdMs: 8, summaryEvery: 120, summaryIntervalMs: 5_000 })
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -325,133 +327,142 @@ function WavePlot({
 }
 
 function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: WaveformVisualAidState, timeWindowMs: number): PlotModel {
-  const tracks = selectedVariables.map(({ name, color, variable }) => ({
-    name,
-    color,
-    variable,
-    labelsEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'labels'),
-    rangeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'range'),
-    meanEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'mean'),
-    medianEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'median'),
-    periodEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'period'),
-    slopeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'slope'),
-  }))
+  const startedAtMs = performance.now()
 
-  const latestPointTimestampMs = tracks.reduce((max, item) => {
-    const pointMax = item.variable.points.reduce((latest, point) => Math.max(latest, point.timestampMs), Number.NEGATIVE_INFINITY)
-    return Math.max(max, pointMax)
-  }, Number.NEGATIVE_INFINITY)
-
-  const latestUpdateTimestampMs = tracks.reduce((max, item) => Math.max(max, item.variable.updatedAtMs), Number.NEGATIVE_INFINITY)
-
-  const latestTimestampMs = Number.isFinite(latestPointTimestampMs)
-    ? latestPointTimestampMs
-    : Number.isFinite(latestUpdateTimestampMs)
-      ? latestUpdateTimestampMs
-      : Date.now()
-
-  const windowEndMs = latestTimestampMs
-  const dataWindowStartMs = windowEndMs - timeWindowMs
-
-  const numericTracks = tracks
-    .filter(({ variable }) => isNumericVariable(variable))
-    .map((item, index) => {
-      const sourcePoints = item.variable.points.length > 0 ? item.variable.points : createFallbackNumericPoint(item.variable, windowEndMs)
-      const visiblePoints = sourcePoints.filter((point) => point.timestampMs >= dataWindowStartMs)
-      const cycle = computeStableCycleStats(sourcePoints, item.variable.analysis)
-      const period = {
-        periodMs: cycle.periodMs,
-        cycleStartsMs: cycle.cycleStartsMs,
-        meanValue: cycle.meanValue,
-        medianValue: cycle.medianValue,
-      }
-      const stats = resolveNumericStats(item.variable, visiblePoints, sourcePoints, period)
-      return {
-        name: item.name,
-        color: item.color,
-        variable: item.variable,
-        labelsEnabled: item.labelsEnabled,
-        rangeEnabled: item.rangeEnabled,
-        meanEnabled: item.meanEnabled,
-        medianEnabled: item.medianEnabled,
-        periodEnabled: item.periodEnabled,
-        slopeEnabled: item.slopeEnabled,
-        points: visiblePoints,
-        displayValue: formatDisplayValue(
-          item.variable,
-          item.variable.numericValue ?? visiblePoints[visiblePoints.length - 1]?.value ?? sourcePoints[sourcePoints.length - 1]?.value,
-        ),
-        seriesIndex: index + 1,
-        stats,
-        period,
-      }
-    })
-
-  const textTracks = tracks
-    .filter(({ variable }) => !isNumericVariable(variable))
-    .map((item) => ({
-      name: item.name,
-      color: item.color,
-      textEnabled: isWaveformVisualAidEnabled(visualAidState, item.name, 'text'),
-      value: item.variable.currentValue,
-      updatedAtMs: item.variable.updatedAtMs,
+  try {
+    const tracks = selectedVariables.map(({ name, color, variable }) => ({
+      name,
+      color,
+      variable,
+      labelsEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'labels'),
+      rangeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'range'),
+      meanEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'mean'),
+      medianEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'median'),
+      periodEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'period'),
+      slopeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'slope'),
     }))
 
-  const timestamps = Array.from(new Set(numericTracks.flatMap((item) => item.points.map((point) => point.timestampMs)))).sort((left, right) => left - right)
+    const latestPointTimestampMs = tracks.reduce((max, item) => {
+      const pointMax = item.variable.points.reduce((latest, point) => Math.max(latest, point.timestampMs), Number.NEGATIVE_INFINITY)
+      return Math.max(max, pointMax)
+    }, Number.NEGATIVE_INFINITY)
 
-  if (numericTracks.length === 0 || timestamps.length === 0) {
+    const latestUpdateTimestampMs = tracks.reduce((max, item) => Math.max(max, item.variable.updatedAtMs), Number.NEGATIVE_INFINITY)
+
+    const latestTimestampMs = Number.isFinite(latestPointTimestampMs)
+      ? latestPointTimestampMs
+      : Number.isFinite(latestUpdateTimestampMs)
+        ? latestUpdateTimestampMs
+        : Date.now()
+
+    const windowEndMs = latestTimestampMs
+    const dataWindowStartMs = windowEndMs - timeWindowMs
+
+    const numericTracks = tracks
+      .filter(({ variable }) => isNumericVariable(variable))
+      .map((item, index) => {
+        const sourcePoints = item.variable.points.length > 0 ? item.variable.points : createFallbackNumericPoint(item.variable, windowEndMs)
+        const visiblePoints = sourcePoints.filter((point) => point.timestampMs >= dataWindowStartMs)
+        const cycle = computeStableCycleStats(sourcePoints, item.variable.analysis)
+        const period = {
+          periodMs: cycle.periodMs,
+          cycleStartsMs: cycle.cycleStartsMs,
+          meanValue: cycle.meanValue,
+          medianValue: cycle.medianValue,
+        }
+        const stats = resolveNumericStats(item.variable, visiblePoints, sourcePoints, period)
+        return {
+          name: item.name,
+          color: item.color,
+          variable: item.variable,
+          labelsEnabled: item.labelsEnabled,
+          rangeEnabled: item.rangeEnabled,
+          meanEnabled: item.meanEnabled,
+          medianEnabled: item.medianEnabled,
+          periodEnabled: item.periodEnabled,
+          slopeEnabled: item.slopeEnabled,
+          points: visiblePoints,
+          displayValue: formatDisplayValue(
+            item.variable,
+            item.variable.numericValue ?? visiblePoints[visiblePoints.length - 1]?.value ?? sourcePoints[sourcePoints.length - 1]?.value,
+          ),
+          seriesIndex: index + 1,
+          stats,
+          period,
+        }
+      })
+
+    const textTracks = tracks
+      .filter(({ variable }) => !isNumericVariable(variable))
+      .map((item) => ({
+        name: item.name,
+        color: item.color,
+        textEnabled: isWaveformVisualAidEnabled(visualAidState, item.name, 'text'),
+        value: item.variable.currentValue,
+        updatedAtMs: item.variable.updatedAtMs,
+      }))
+
+    const timestamps = Array.from(new Set(numericTracks.flatMap((item) => item.points.map((point) => point.timestampMs)))).sort((left, right) => left - right)
+
+    if (numericTracks.length === 0 || timestamps.length === 0) {
+      return {
+        data: [[0], [0]] as uPlot.AlignedData,
+        series: [
+          {} as uPlot.Series,
+          {
+            label: textTracks.length > 0 ? 'Text channels shown in overlay' : 'No numeric channel selected',
+            stroke: '#5f6b7a',
+            width: 2,
+          } as uPlot.Series,
+        ] as uPlot.Series[],
+        numericTracks,
+        textTracks,
+        windowStartMs: dataWindowStartMs,
+        windowEndMs,
+        xMin: 0,
+        xMax: 1,
+        yMin: 0,
+        yMax: 1,
+      }
+    }
+
+    const plotStartMs = timestamps[0] ?? dataWindowStartMs
+    const normalizedTimestamps = timestamps.map((timestamp) => (timestamp - plotStartMs) / 1000)
+    const plotSpanSeconds = Math.max((windowEndMs - plotStartMs) / 1000, 1)
+    const showPoints = normalizedTimestamps.length <= 240
+    const data: Array<number[] | Array<number | null>> = [normalizedTimestamps]
+    const plotSeries = [{ label: 'time' } as uPlot.Series]
+
+    for (const item of numericTracks) {
+      const valueByTimestamp = new Map(item.points.map((point) => [point.timestampMs, point.value]))
+      data.push(timestamps.map((timestamp) => valueByTimestamp.get(timestamp) ?? null))
+      plotSeries.push({
+        label: item.name,
+        stroke: item.color,
+        width: 2,
+        points: { show: showPoints, size: 4, width: 1 },
+      } as uPlot.Series)
+    }
+
+    const yRange = resolveYRange(numericTracks)
+
     return {
-      data: [[0], [0]] as uPlot.AlignedData,
-      series: [
-        {} as uPlot.Series,
-        {
-          label: textTracks.length > 0 ? 'Text channels shown in overlay' : 'No numeric channel selected',
-          stroke: '#5f6b7a',
-          width: 2,
-        } as uPlot.Series,
-      ] as uPlot.Series[],
+      data: data as unknown as uPlot.AlignedData,
+      series: plotSeries,
       numericTracks,
       textTracks,
-      windowStartMs: dataWindowStartMs,
+      windowStartMs: plotStartMs,
       windowEndMs,
       xMin: 0,
-      xMax: 1,
-      yMin: 0,
-      yMax: 1,
+      xMax: plotSpanSeconds,
+      yMin: yRange.min,
+      yMax: yRange.max,
     }
-  }
-
-  const plotStartMs = timestamps[0] ?? dataWindowStartMs
-  const normalizedTimestamps = timestamps.map((timestamp) => (timestamp - plotStartMs) / 1000)
-  const plotSpanSeconds = Math.max((windowEndMs - plotStartMs) / 1000, 1)
-  const showPoints = normalizedTimestamps.length <= 240
-  const data: Array<number[] | Array<number | null>> = [normalizedTimestamps]
-  const plotSeries = [{ label: 'time' } as uPlot.Series]
-
-  for (const item of numericTracks) {
-    const valueByTimestamp = new Map(item.points.map((point) => [point.timestampMs, point.value]))
-    data.push(timestamps.map((timestamp) => valueByTimestamp.get(timestamp) ?? null))
-    plotSeries.push({
-      label: item.name,
-      stroke: item.color,
-      width: 2,
-      points: { show: showPoints, size: 4, width: 1 },
-    } as uPlot.Series)
-  }
-
-  const yRange = resolveYRange(numericTracks)
-
-  return {
-    data: data as unknown as uPlot.AlignedData,
-    series: plotSeries,
-    numericTracks,
-    textTracks,
-    windowStartMs: plotStartMs,
-    windowEndMs,
-    xMin: 0,
-    xMax: plotSpanSeconds,
-    yMin: yRange.min,
-    yMax: yRange.max,
+  } finally {
+    profileBuildPlotModel(performance.now() - startedAtMs, {
+      selectedCount: selectedVariables.length,
+      windowMs: timeWindowMs,
+    })
   }
 }
 

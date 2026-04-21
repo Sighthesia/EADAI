@@ -42,8 +42,15 @@ export function ImuStageScene({
       camera={{ position: [7.5, 6.2, 7.5], zoom: 46 * zoom, near: 0.1, far: 100 }}
       dpr={[1, 1.5]}
       gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
-      frameloop="always"
+      frameloop="demand"
     >
+      <SceneInvalidator
+        zoom={zoom}
+        coordinateScene={coordinateScene}
+        orientation={orientation}
+        trajectory={trajectory}
+        axisColors={axisColors}
+      />
       <CameraRig zoom={zoom} />
       <color attach="background" args={['#090d13']} />
       <ambientLight intensity={0.95} />
@@ -56,6 +63,22 @@ export function ImuStageScene({
       <CurrentCube orientation={orientation} accent={currentAccent} />
     </Canvas>
   )
+}
+
+function SceneInvalidator({
+  zoom,
+  coordinateScene,
+  orientation,
+  trajectory,
+  axisColors,
+}: ImuStageSceneProps) {
+  const { invalidate } = useThree()
+
+  useEffect(() => {
+    invalidate()
+  }, [axisColors, coordinateScene, invalidate, orientation, trajectory, zoom])
+
+  return null
 }
 
 function CameraRig({ zoom }: { zoom: number }) {

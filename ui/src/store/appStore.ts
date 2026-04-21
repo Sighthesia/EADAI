@@ -28,6 +28,7 @@ import {
   stopLogicAnalyzerCapture,
 } from '../lib/tauri'
 import { clampWaveformWindowMs, DEFAULT_WAVEFORM_WINDOW_MS } from '../lib/waveformWindow'
+import { createDevTimingLogger, logger } from '../lib/logger'
 import type {
   AppStatus,
   Bmi088HostCommand,
@@ -66,7 +67,7 @@ const MAX_SAMPLES_PER_CHANNEL = 960
 const CHANNEL_COLORS = ['#4FC3F7', '#C792EA', '#F78C6C', '#A5E075', '#E6C07B', '#82AAFF']
 const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
 const BMI088_PROTOCOL_NAME = 'bmi088_uart4'
-import { logger } from '../lib/logger'
+const profileIngestEvents = createDevTimingLogger('appStore.ingestEvents', { slowThresholdMs: 8, summaryEvery: 120, summaryIntervalMs: 5_000 })
 
 const BMI088_PROTOCOL_SCRIPT = `// BMI088 UART4 schema-first telemetry
 onSchema((fields, rateHz, sampleLen) => {
@@ -367,6 +368,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       session,
       variables: {},
       selectedChannels: [],
+      consoleEntries: [],
       protocol: defaultProtocolSnapshot(),
       imuQuality: {
         level: 'idle',
@@ -390,6 +392,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       status: { tone: 'neutral', message: 'Serial session stopped.' },
       variables: {},
       selectedChannels: [],
+      consoleEntries: [],
       protocol: defaultProtocolSnapshot(),
       imuQuality: {
         level: 'idle',
@@ -425,70 +428,199 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return
     }
 
-    set((state) => {
-      let consoleEntries = state.consoleEntries
-      let variables = state.variables
-      let selectedChannels = state.selectedChannels
-      let imuChannelMap = state.imuChannelMap
-      let imuAttitudeMap = state.imuAttitudeMap
-      let imuQuaternionMap = state.imuQuaternionMap
-      let imuCalibration = state.imuCalibration
-      let imuQuality = state.imuQuality
-      let session = state.session
-      let status = state.status
-      let protocol = state.protocol
-      let variablesChanged = false
-      let selectedChannelsChanged = false
-      let imuChannelMapChanged = false
-      let imuAttitudeMapChanged = false
-      let imuQuaternionMapChanged = false
-      let imuQualityChanged = false
-      let consoleChanged = false
-      let sessionChanged = false
-      let statusChanged = false
-      let protocolChanged = false
+    const startedAtMs = performance.now()
 
-      for (const event of events) {
-        if (event.kind === 'connection') {
-          session = {
-            isRunning: event.connection.state !== 'stopped',
-            transport: event.source.transport,
-            port: event.source.port,
-            baudRate: event.source.baudRate,
-            connectionState: event.connection.state,
-          }
-          status = {
-            tone: connectionTone(event.connection.state),
-            message: connectionMessage(event),
-          }
-          protocol = ingestProtocolConnection(protocol, event)
-          sessionChanged = true
-          statusChanged = true
-          protocolChanged = true
-          continue
-        }
+    try {
+      set((state) => {
+        let consoleEntries = state.consoleEntries
+        let variables = state.variables
+        let selectedChannels = state.selectedChannels
+        let imuChannelMap = state.imuChannelMap
+        let imuAttitudeMap = state.imuAttitudeMap
+        let imuQuaternionMap = state.imuQuaternionMap
+        let imuCalibration = state.imuCalibration
+        let imuQuality = state.imuQuality
+        let session = state.session
+        let status = state.status
+        let protocol = state.protocol
+        let variablesChanged = false
+        let selectedChannelsChanged = false
+        let imuChannelMapChanged = false
+        let imuAttitudeMapChanged = false
+        let imuQuaternionMapChanged = false
+        let imuQualityChanged = false
+        let consoleChanged = false
+        let sessionChanged = false
+        let statusChanged = false
+        let protocolChanged = false
+        let shouldRecomputeImuQuality = false
 
-        if (event.kind === 'line') {
-          const consoleEntry = asConsoleEntry(event)
-          consoleEntries = [...consoleEntries, consoleEntry].slice(-MAX_CONSOLE_ENTRIES)
-          consoleChanged = true
-
-          protocol = ingestProtocolLine(protocol, event)
-          protocolChanged = true
-
-          const channelId = event.parser.fields.channelId
-          const rawValue = event.parser.fields.value
-          if (event.line.direction !== 'rx' || !channelId || !rawValue) {
+        for (const event of events) {
+          if (event.kind === 'connection') {
+            session = {
+              isRunning: event.connection.state !== 'stopped',
+              transport: event.source.transport,
+              port: event.source.port,
+              baudRate: event.source.baudRate,
+              connectionState: event.connection.state,
+            }
+            status = {
+              tone: connectionTone(event.connection.state),
+              message: connectionMessage(event),
+            }
+            protocol = ingestProtocolConnection(protocol, event)
+            sessionChanged = true
+            statusChanged = true
+            protocolChanged = true
             continue
           }
 
-          const sampleTimestampMs = parseSampleTimestampMs(event.parser.fields.timestamp, event.timestampMs)
+          if (event.kind === 'line') {
+            const consoleEntry = asConsoleEntry(event)
+            consoleEntries = [...consoleEntries, consoleEntry].slice(-MAX_CONSOLE_ENTRIES)
+            consoleChanged = true
+
+            protocol = ingestProtocolLine(protocol, event)
+            protocolChanged = true
+
+            const channelId = event.parser.fields.channelId
+            const rawValue = event.parser.fields.value
+            if (event.line.direction !== 'rx' || !channelId || !rawValue) {
+              continue
+            }
+
+            const sampleTimestampMs = parseSampleTimestampMs(event.parser.fields.timestamp, event.timestampMs)
+            const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
+            const numericRaw = event.parser.fields.numericValue ?? rawValue
+            const numericValue = Number(numericRaw)
+            const nextPoints = Number.isFinite(numericValue)
+              ? [...previous.points, { timestampMs: sampleTimestampMs, value: numericValue }].slice(-MAX_SAMPLES_PER_CHANNEL)
+              : previous.points
+
+            if (!variablesChanged) {
+              variables = { ...variables }
+              variablesChanged = true
+            }
+
+            variables[channelId] = {
+              ...previous,
+              name: channelId,
+              currentValue: rawValue,
+              previousValue: previous.numericValue,
+              numericValue: Number.isFinite(numericValue) ? numericValue : previous.numericValue,
+              trend: resolveTrendFromValues(previous.numericValue, Number.isFinite(numericValue) ? numericValue : previous.numericValue),
+              unit: event.parser.fields.unit ?? previous.unit ?? null,
+              parserName: event.parser.parserName,
+              sampleCount: previous.sampleCount + 1,
+              updatedAtMs: event.timestampMs,
+              points: nextPoints,
+            }
+
+            const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
+            if (nextSelectedChannels !== selectedChannels) {
+              selectedChannels = nextSelectedChannels
+              selectedChannelsChanged = true
+            }
+
+            shouldRecomputeImuQuality = true
+            continue
+          }
+
+          if (event.kind === 'analysis') {
+            const channelId = event.analysis.channelId
+            const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
+
+            if (!variablesChanged) {
+              variables = { ...variables }
+              variablesChanged = true
+            }
+
+            variables[channelId] = applyAnalysis(previous, event.analysis, event.timestampMs)
+
+            const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
+            if (nextSelectedChannels !== selectedChannels) {
+              selectedChannels = nextSelectedChannels
+              selectedChannelsChanged = true
+            }
+            continue
+          }
+
+          if (event.kind === 'telemetrySchema') {
+            protocol = ingestProtocolSchema(protocol, event)
+            protocolChanged = true
+
+            const nextVariables = { ...state.variables }
+            let changed = false
+
+            event.schema.fields.forEach((field, index) => {
+              if (!nextVariables[field.name]) {
+                nextVariables[field.name] = createVariableEntry(field.name, event.timestampMs)
+                changed = true
+              }
+
+              nextVariables[field.name] = {
+                ...nextVariables[field.name],
+                name: field.name,
+                unit: field.unit,
+                parserName: 'bmi088_schema',
+                updatedAtMs: event.timestampMs,
+                sampleCount: nextVariables[field.name].sampleCount,
+              }
+
+              if (index === 0 && selectedChannels.length === 0) {
+                selectedChannels = [field.name]
+                selectedChannelsChanged = true
+              }
+            })
+
+            if (changed) {
+              variables = nextVariables
+              variablesChanged = true
+            }
+            continue
+          }
+
+          if (event.kind === 'telemetrySample') {
+            protocol = ingestProtocolSample(protocol, event)
+            protocolChanged = true
+
+            const schemaFields = event.sample.fields
+            if (!variablesChanged) {
+              variables = { ...variables }
+              variablesChanged = true
+            }
+
+            for (const field of schemaFields) {
+              const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs)
+              const nextNumericValue = field.value
+
+              variables[field.name] = {
+                ...previous,
+                name: field.name,
+                currentValue: field.value.toFixed(field.scaleQ < 0 ? 2 : 6),
+                previousValue: previous.numericValue,
+                numericValue: nextNumericValue,
+                trend: resolveTrendFromValues(previous.numericValue, nextNumericValue),
+                unit: field.unit ?? previous.unit ?? null,
+                parserName: 'bmi088_sample',
+                sampleCount: previous.sampleCount + 1,
+                updatedAtMs: event.timestampMs,
+                points: [...previous.points, { timestampMs: event.timestampMs, value: field.value }].slice(-MAX_SAMPLES_PER_CHANNEL),
+              }
+            }
+
+            const nextSelectedChannels = autoSelectChannels(selectedChannels, schemaFields[0]?.name ?? 'acc_x')
+            if (nextSelectedChannels !== selectedChannels) {
+              selectedChannels = nextSelectedChannels
+              selectedChannelsChanged = true
+            }
+
+            shouldRecomputeImuQuality = true
+            continue
+          }
+
+          const channelId = event.trigger.channelId
           const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
-          const numericRaw = event.parser.fields.numericValue ?? rawValue
-          const numericValue = Number(numericRaw)
-          const nextPoints = Number.isFinite(numericValue)
-            ? [...previous.points, { timestampMs: sampleTimestampMs, value: numericValue }].slice(-MAX_SAMPLES_PER_CHANNEL)
-            : previous.points
 
           if (!variablesChanged) {
             variables = { ...variables }
@@ -497,16 +629,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
           variables[channelId] = {
             ...previous,
-            name: channelId,
-            currentValue: rawValue,
-            previousValue: previous.numericValue,
-            numericValue: Number.isFinite(numericValue) ? numericValue : previous.numericValue,
-            trend: resolveTrendFromValues(previous.numericValue, Number.isFinite(numericValue) ? numericValue : previous.numericValue),
-            unit: event.parser.fields.unit ?? previous.unit ?? null,
-            parserName: event.parser.parserName,
-            sampleCount: previous.sampleCount + 1,
+            latestTrigger: event.trigger,
+            triggerCount: previous.triggerCount + 1,
             updatedAtMs: event.timestampMs,
-            points: nextPoints,
           }
 
           const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
@@ -515,193 +640,84 @@ export const useAppStore = create<AppStore>((set, get) => ({
             selectedChannelsChanged = true
           }
 
-          const nextImuQuality = computeImuQuality(variables, state)
-          if (!isSameImuQualitySnapshot(nextImuQuality, imuQuality)) {
-            imuQuality = nextImuQuality
-            imuQualityChanged = true
+          status = {
+            tone: severityTone(event.trigger.severity),
+            message: triggerMessage(event.trigger),
           }
-          continue
+          statusChanged = true
         }
 
-        if (event.kind === 'analysis') {
-          const channelId = event.analysis.channelId
-          const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
-
-          if (!variablesChanged) {
-            variables = { ...variables }
-            variablesChanged = true
-          }
-
-          variables[channelId] = applyAnalysis(previous, event.analysis, event.timestampMs)
-
-          const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
-          if (nextSelectedChannels !== selectedChannels) {
-            selectedChannels = nextSelectedChannels
-            selectedChannelsChanged = true
-          }
-          continue
+        const nextState: Partial<AppStore> = {}
+        if (consoleChanged) {
+          nextState.consoleEntries = consoleEntries
         }
+        if (variablesChanged) {
+          nextState.variables = variables
 
-        if (event.kind === 'telemetrySchema') {
-          protocol = ingestProtocolSchema(protocol, event)
-          protocolChanged = true
-
-          const nextVariables = { ...state.variables }
-          let changed = false
-
-          event.schema.fields.forEach((field, index) => {
-            if (!nextVariables[field.name]) {
-              nextVariables[field.name] = createVariableEntry(field.name, event.timestampMs)
-              changed = true
+          if (state.imuMapMode === 'auto') {
+            const nextImuChannelMap = autoDetectImuChannelMap(variables, imuChannelMap)
+            if (!isSameImuChannelMap(nextImuChannelMap, imuChannelMap)) {
+              imuChannelMap = nextImuChannelMap
+              imuChannelMapChanged = true
             }
 
-            nextVariables[field.name] = {
-              ...nextVariables[field.name],
-              name: field.name,
-              unit: field.unit,
-              parserName: 'bmi088_schema',
-              updatedAtMs: event.timestampMs,
-              sampleCount: nextVariables[field.name].sampleCount,
+            const nextImuAttitudeMap = autoDetectImuAttitudeMap(variables, imuAttitudeMap)
+            if (!isSameImuAttitudeMap(nextImuAttitudeMap, imuAttitudeMap)) {
+              imuAttitudeMap = nextImuAttitudeMap
+              imuAttitudeMapChanged = true
             }
 
-            if (index === 0 && selectedChannels.length === 0) {
-              selectedChannels = [field.name]
-              selectedChannelsChanged = true
+            const nextImuQuaternionMap = autoDetectImuQuaternionMap(variables, imuQuaternionMap)
+            if (!isSameImuQuaternionMap(nextImuQuaternionMap, imuQuaternionMap)) {
+              imuQuaternionMap = nextImuQuaternionMap
+              imuQuaternionMapChanged = true
             }
+          }
+        }
+        if (selectedChannelsChanged) {
+          nextState.selectedChannels = selectedChannels
+        }
+        if (imuChannelMapChanged) {
+          nextState.imuChannelMap = imuChannelMap
+        }
+        if (imuAttitudeMapChanged) {
+          nextState.imuAttitudeMap = imuAttitudeMap
+        }
+        if (imuQuaternionMapChanged) {
+          nextState.imuQuaternionMap = imuQuaternionMap
+        }
+        if (shouldRecomputeImuQuality && (variablesChanged || imuChannelMapChanged || imuAttitudeMapChanged || imuQuaternionMapChanged)) {
+          const nextImuQuality = computeImuQuality(variables, {
+            ...state,
+            imuChannelMap,
+            imuAttitudeMap,
+            imuQuaternionMap,
           })
-
-          if (changed) {
-            variables = nextVariables
-            variablesChanged = true
-          }
-          continue
-        }
-
-        if (event.kind === 'telemetrySample') {
-          protocol = ingestProtocolSample(protocol, event)
-          protocolChanged = true
-
-          const schemaFields = event.sample.fields
-          if (!variablesChanged) {
-            variables = { ...variables }
-            variablesChanged = true
-          }
-
-          for (const field of schemaFields) {
-            const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs)
-            const nextNumericValue = field.value
-
-            variables[field.name] = {
-              ...previous,
-              name: field.name,
-              currentValue: field.value.toFixed(field.scaleQ < 0 ? 2 : 6),
-              previousValue: previous.numericValue,
-              numericValue: nextNumericValue,
-              trend: resolveTrendFromValues(previous.numericValue, nextNumericValue),
-              unit: field.unit ?? previous.unit ?? null,
-              parserName: 'bmi088_sample',
-              sampleCount: previous.sampleCount + 1,
-              updatedAtMs: event.timestampMs,
-              points: [...previous.points, { timestampMs: event.timestampMs, value: field.value }].slice(-MAX_SAMPLES_PER_CHANNEL),
-            }
-          }
-
-          const nextSelectedChannels = autoSelectChannels(selectedChannels, schemaFields[0]?.name ?? 'acc_x')
-          if (nextSelectedChannels !== selectedChannels) {
-            selectedChannels = nextSelectedChannels
-            selectedChannelsChanged = true
-          }
-
-          const nextImuQuality = computeImuQuality(variables, state)
           if (!isSameImuQualitySnapshot(nextImuQuality, imuQuality)) {
             imuQuality = nextImuQuality
             imuQualityChanged = true
           }
-          continue
+        }
+        if (imuQualityChanged) {
+          nextState.imuQuality = imuQuality
+        }
+        if (sessionChanged) {
+          nextState.session = session
+        }
+        if (statusChanged) {
+          nextState.status = status
+        }
+        if (protocolChanged) {
+          nextState.protocol = protocol
         }
 
-        const channelId = event.trigger.channelId
-        const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
-
-        if (!variablesChanged) {
-          variables = { ...variables }
-          variablesChanged = true
-        }
-
-        variables[channelId] = {
-          ...previous,
-          latestTrigger: event.trigger,
-          triggerCount: previous.triggerCount + 1,
-          updatedAtMs: event.timestampMs,
-        }
-
-        const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
-        if (nextSelectedChannels !== selectedChannels) {
-          selectedChannels = nextSelectedChannels
-          selectedChannelsChanged = true
-        }
-
-        status = {
-          tone: severityTone(event.trigger.severity),
-          message: triggerMessage(event.trigger),
-        }
-        statusChanged = true
-      }
-
-      const nextState: Partial<AppStore> = {}
-      if (consoleChanged) {
-        nextState.consoleEntries = consoleEntries
-      }
-      if (variablesChanged) {
-        nextState.variables = variables
-
-        if (state.imuMapMode === 'auto') {
-          const nextImuChannelMap = autoDetectImuChannelMap(variables, imuChannelMap)
-          if (!isSameImuChannelMap(nextImuChannelMap, imuChannelMap)) {
-            imuChannelMap = nextImuChannelMap
-            imuChannelMapChanged = true
-          }
-
-          const nextImuAttitudeMap = autoDetectImuAttitudeMap(variables, imuAttitudeMap)
-          if (!isSameImuAttitudeMap(nextImuAttitudeMap, imuAttitudeMap)) {
-            imuAttitudeMap = nextImuAttitudeMap
-            imuAttitudeMapChanged = true
-          }
-
-          const nextImuQuaternionMap = autoDetectImuQuaternionMap(variables, imuQuaternionMap)
-          if (!isSameImuQuaternionMap(nextImuQuaternionMap, imuQuaternionMap)) {
-            imuQuaternionMap = nextImuQuaternionMap
-            imuQuaternionMapChanged = true
-          }
-        }
-      }
-      if (selectedChannelsChanged) {
-        nextState.selectedChannels = selectedChannels
-      }
-      if (imuChannelMapChanged) {
-        nextState.imuChannelMap = imuChannelMap
-      }
-      if (imuAttitudeMapChanged) {
-        nextState.imuAttitudeMap = imuAttitudeMap
-      }
-      if (imuQuaternionMapChanged) {
-        nextState.imuQuaternionMap = imuQuaternionMap
-      }
-      if (imuQualityChanged) {
-        nextState.imuQuality = imuQuality
-      }
-      if (sessionChanged) {
-        nextState.session = session
-      }
-      if (statusChanged) {
-        nextState.status = status
-      }
-      if (protocolChanged) {
-        nextState.protocol = protocol
-      }
-
-      return nextState as AppStore
-    })
+        return nextState as AppStore
+      })
+    } finally {
+      profileIngestEvents(performance.now() - startedAtMs, {
+        eventCount: events.length,
+      })
+    }
   },
   toggleChannel: (channel) => {
     set((state) => ({
@@ -1218,7 +1234,10 @@ const isSameImuQuaternionMap = (left: ImuQuaternionMap, right: ImuQuaternionMap)
 const isSameImuQualitySnapshot = (left: ImuQualitySnapshot, right: ImuQualitySnapshot) =>
   left.level === right.level && left.label === right.label && left.details === right.details && left.timestampMs === right.timestampMs
 
-const computeImuQuality = (variables: Record<string, VariableEntry>, state: AppStore) => {
+const computeImuQuality = (
+  variables: Record<string, VariableEntry>,
+  state: Pick<AppStore, 'imuChannelMap' | 'imuQuaternionMap' | 'imuAttitudeMap' | 'imuOrientationSource'>,
+) => {
   const imuRawCount = ['accelX', 'accelY', 'accelZ', 'gyroX', 'gyroY', 'gyroZ'].filter((role) => {
     const key = role as keyof typeof state.imuChannelMap
     return Boolean(state.imuChannelMap[key])

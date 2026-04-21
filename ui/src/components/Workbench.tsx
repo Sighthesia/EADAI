@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { Profiler, useEffect, useMemo, useState, type ProfilerOnRenderCallback, type ReactNode } from 'react'
 import { Layout, Model, TabNode, type IJsonModel } from 'flexlayout-react'
+import { createDevTimingLogger } from '../lib/logger'
 import { ConnectionPanel } from './ConnectionPanel'
 import { McpPanel } from './McpPanel'
 import { VariablesPanel } from './VariablesPanel'
@@ -10,6 +11,65 @@ import { ImuPanel } from './ImuPanel'
 import { LogicAnalyzerPage } from './LogicAnalyzerPage'
 import { ProtocolPanel } from './ProtocolPanel'
 import { ScriptHookPanel } from './ScriptHookPanel'
+
+const panelRenderProfilers = new Map<string, ReturnType<typeof createDevTimingLogger>>()
+
+const profilePanelRender: ProfilerOnRenderCallback = (
+  id,
+  phase,
+  actualDuration,
+  baseDuration,
+) => {
+  let profile = panelRenderProfilers.get(id)
+  if (!profile) {
+    profile = createDevTimingLogger(`panel-render ${id}`, {
+      slowThresholdMs: 6,
+      summaryEvery: 80,
+      summaryIntervalMs: 4_000,
+    })
+    panelRenderProfilers.set(id, profile)
+  }
+
+  profile(actualDuration, {
+    phase,
+    baseDurationMs: Number(baseDuration.toFixed(2)),
+  })
+}
+
+function renderProfiledPanel(id: string, node: JSX.Element) {
+  return (
+    <Profiler id={id} onRender={profilePanelRender}>
+      {node}
+    </Profiler>
+  )
+}
+
+function renderManagedPanel(node: TabNode, id: string, content: JSX.Element) {
+  return (
+    <TabVisibilityGate node={node}>
+      {renderProfiledPanel(id, content)}
+    </TabVisibilityGate>
+  )
+}
+
+function TabVisibilityGate({ node, children }: { node: TabNode; children: ReactNode }) {
+  const [isVisible, setIsVisible] = useState(() => node.isVisible())
+
+  useEffect(() => {
+    setIsVisible(node.isVisible())
+
+    const onVisibilityChange = ({ visible }: { visible: boolean }) => {
+      setIsVisible(visible)
+    }
+
+    node.setEventListener('visibility', onVisibilityChange)
+    return () => {
+      node.removeEventListener('visibility')
+    }
+  }, [node])
+
+  return isVisible ? <>{children}</> : null
+}
 
 const layoutJson: IJsonModel = {
   global: {
@@ -82,25 +142,25 @@ function factory(node: TabNode) {
 
   switch (component) {
     case 'connection':
-      return <ConnectionPanel />
+      return renderManagedPanel(node, 'ConnectionPanel', <ConnectionPanel />)
     case 'mcp':
-      return <McpPanel />
+      return renderManagedPanel(node, 'McpPanel', <McpPanel />)
     case 'variables':
-      return <VariablesPanel />
+      return renderManagedPanel(node, 'VariablesPanel', <VariablesPanel />)
     case 'waveforms':
-      return <WaveformPanel />
+      return renderManagedPanel(node, 'WaveformPanel', <WaveformPanel />)
     case 'frequencySpectrum':
-      return <FrequencySpectrumPage />
+      return renderManagedPanel(node, 'FrequencySpectrumPage', <FrequencySpectrumPage />)
     case 'imu':
-      return <ImuPanel />
+      return renderManagedPanel(node, 'ImuPanel', <ImuPanel />)
     case 'logicAnalyzer':
-      return <LogicAnalyzerPage />
+      return renderManagedPanel(node, 'LogicAnalyzerPage', <LogicAnalyzerPage />)
     case 'console':
-      return <ConsolePanel />
+      return renderManagedPanel(node, 'ConsolePanel', <ConsolePanel />)
     case 'protocol':
-      return <ProtocolPanel />
+      return renderManagedPanel(node, 'ProtocolPanel', <ProtocolPanel />)
     case 'scriptHooks':
-      return <ScriptHookPanel />
+      return renderManagedPanel(node, 'ScriptHookPanel', <ScriptHookPanel />)
     default:
       return null
   }

@@ -8,6 +8,9 @@ type SpectrumChannel = {
   name: string
   color: string
   sampleCount: number
+}
+
+type ActiveSpectrumChannel = SpectrumChannel & {
   result: FrequencySpectrumResult
 }
 
@@ -51,9 +54,8 @@ export function FrequencySpectrumPage() {
           name: variable.name,
           color: colorForChannel(variable.name),
           sampleCount: variable.points.length,
-          result: computeFrequencySpectrum(windowedPoints(variable.points, waveformWindowMs, windowEndMs)),
         })),
-    [colorForChannel, selectedChannels, variables, waveformWindowMs, windowEndMs],
+    [colorForChannel, selectedChannels, variables],
   )
 
   useEffect(() => {
@@ -67,7 +69,23 @@ export function FrequencySpectrumPage() {
     }
   }, [activeChannel, availableChannels])
 
-  const activeSpectrum = availableChannels.find((channel) => channel.name === activeChannel) ?? availableChannels[0] ?? null
+  const activeChannelName = activeChannel && availableChannels.some((channel) => channel.name === activeChannel) ? activeChannel : availableChannels[0]?.name ?? null
+  const activeChannelEntry = activeChannelName ? availableChannels.find((channel) => channel.name === activeChannelName) ?? null : null
+  const activeSpectrum = useMemo<ActiveSpectrumChannel | null>(() => {
+    if (!activeChannelEntry) {
+      return null
+    }
+
+    const variable = variables[activeChannelEntry.name]
+    if (!variable || variable.points.length === 0) {
+      return null
+    }
+
+    return {
+      ...activeChannelEntry,
+      result: computeFrequencySpectrum(windowedPoints(variable.points, waveformWindowMs, windowEndMs)),
+    }
+  }, [activeChannelEntry, variables, waveformWindowMs, windowEndMs])
 
   return (
     <section className="panel waveform-panel frequency-spectrum-panel">
@@ -79,7 +97,7 @@ export function FrequencySpectrumPage() {
           <span>{activeSpectrum ? `${activeSpectrum.name} · ${activeSpectrum.sampleCount} samples` : 'Idle'}</span>
           <small>{formatWaveformWindowMs(waveformWindowMs)}</small>
         </div>
-        {activeSpectrum?.result.peakFrequencyHz !== null ? (
+        {activeSpectrum && activeSpectrum.result.peakFrequencyHz !== null ? (
           <div className="waveform-stage-legend">
             <strong>Peak</strong>
             <span>{formatFrequency(activeSpectrum.result.peakFrequencyHz)}</span>
@@ -154,7 +172,7 @@ export function FrequencySpectrumPage() {
   )
 }
 
-function SpectrumPlot({ spectrum }: { spectrum: SpectrumChannel | null }) {
+function SpectrumPlot({ spectrum }: { spectrum: ActiveSpectrumChannel | null }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const plotRef = useRef<uPlot | null>(null)
   const structureKeyRef = useRef('')
@@ -269,7 +287,7 @@ function SpectrumPlot({ spectrum }: { spectrum: SpectrumChannel | null }) {
   )
 }
 
-function buildSpectrumModel(spectrum: SpectrumChannel | null) {
+function buildSpectrumModel(spectrum: ActiveSpectrumChannel | null) {
   if (!spectrum || spectrum.result.bins.length === 0) {
     return {
       data: [[0], [0]] as uPlot.AlignedData,

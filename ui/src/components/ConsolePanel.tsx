@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
 import type { ConsoleEntry } from '../types'
 
@@ -26,15 +26,7 @@ export function ConsolePanel() {
     <section className="panel console-panel">
       <div className="console-stream" ref={scrollRef}>
         {consoleEntries.map((entry) => (
-          <div key={entry.id} className={`console-line ${entry.direction}`}>
-            <div className="console-line-meta">
-              <span className="console-badge">{entry.direction.toUpperCase()}</span>
-              <span className="console-time">{formatTime(entry.timestampMs)}</span>
-              {entry.parser?.parserName ? <span className="metric-chip">{entry.parser.parserName}</span> : null}
-              <span className="metric-chip">{entry.raw.length} B</span>
-            </div>
-            <ConsoleEntryBody entry={entry} mode={consoleDisplayMode} />
-          </div>
+          <ConsoleEntryRow key={entry.id} entry={entry} mode={consoleDisplayMode} />
         ))}
       </div>
       <div className="toolbar-row console-toolbar-row">
@@ -74,14 +66,30 @@ export function ConsolePanel() {
   )
 }
 
+const ConsoleEntryRow = memo(function ConsoleEntryRow({ entry, mode }: { entry: ConsoleEntry; mode: 'text' | 'hex' | 'binary' }) {
+  const timestamp = useMemo(() => formatTime(entry.timestampMs), [entry.timestampMs])
+
+  return (
+    <div className={`console-line ${entry.direction}`}>
+      <div className="console-line-meta">
+        <span className="console-badge">{entry.direction.toUpperCase()}</span>
+        <span className="console-time">{timestamp}</span>
+        {entry.parser?.parserName ? <span className="metric-chip">{entry.parser.parserName}</span> : null}
+        <span className="metric-chip">{entry.raw.length} B</span>
+      </div>
+      <ConsoleEntryBody entry={entry} mode={mode} />
+    </div>
+  )
+})
+
 function formatTime(timestampMs: number) {
   return new Date(timestampMs).toLocaleTimeString()
 }
 
-function ConsoleEntryBody({ entry, mode }: { entry: ConsoleEntry; mode: 'text' | 'hex' | 'binary' }) {
-  const display = formatEntry(entry, mode)
-  const bmi088Frame = decodeBmi088Frame(entry.raw)
-  const bmi088FrameIssue = diagnoseBmi088Frame(entry)
+const ConsoleEntryBody = memo(function ConsoleEntryBody({ entry, mode }: { entry: ConsoleEntry; mode: 'text' | 'hex' | 'binary' }) {
+  const display = useMemo(() => formatEntry(entry, mode), [entry, mode])
+  const bmi088Frame = useMemo(() => decodeBmi088Frame(entry.raw), [entry.raw])
+  const bmi088FrameIssue = useMemo(() => diagnoseBmi088Frame(entry), [entry])
 
   return (
     <div className="console-line-body">
@@ -92,7 +100,7 @@ function ConsoleEntryBody({ entry, mode }: { entry: ConsoleEntry; mode: 'text' |
       <code>{display.content}</code>
     </div>
   )
-}
+})
 
 function Bmi088FrameIssueView({ issue }: { issue: string }) {
   return (
