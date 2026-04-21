@@ -84,6 +84,16 @@ export function VariablesPanel() {
       ),
     [variables],
   )
+  const selectedChannelSet = useMemo(() => new Set(selectedChannels), [selectedChannels])
+  const colorByChannel = useMemo(() => {
+    const map = new Map<string, string>()
+
+    for (const variable of rows) {
+      map.set(variable.name, colorForChannel(variable.name))
+    }
+
+    return map
+  }, [colorForChannel, rows])
   const channelRoleMap = useMemo(
     () => buildChannelRoleMap(imuChannelMap, imuAttitudeMap, imuQuaternionMap),
     [imuAttitudeMap, imuChannelMap, imuQuaternionMap],
@@ -175,14 +185,15 @@ export function VariablesPanel() {
       </div>
       <div className="variables-list">
         {rows.map((variable) => {
+          const channel = variable.name
           return (
             <VariableRow
-              key={variable.name}
+              key={channel}
               variable={variable}
-              selected={selectedChannels.includes(variable.name)}
-              roleLabels={channelRoleMap[variable.name] ?? []}
+              selected={selectedChannelSet.has(channel)}
+              roleLabels={channelRoleMap[channel] ?? []}
               metricDisplayMode={metricDisplayMode}
-              color={colorForChannel(variable.name)}
+              color={colorByChannel.get(channel) ?? colorForChannel(channel)}
               onToggle={toggleChannel}
               onOpenContextMenu={(channel, x, y) => setContextMenu({ channel, x, y })}
             />

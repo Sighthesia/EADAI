@@ -2,6 +2,8 @@ import { memo, useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
 import type { ConsoleEntry } from '../types'
 
+const CONSOLE_WINDOW_SIZE = 140
+
 export function ConsolePanel() {
   const consoleEntries = useAppStore((state) => state.consoleEntries)
   const consoleDisplayMode = useAppStore((state) => state.consoleDisplayMode)
@@ -13,6 +15,10 @@ export function ConsolePanel() {
   const send = useAppStore((state) => state.send)
   const sendBmi088Command = useAppStore((state) => state.sendBmi088Command)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const visibleConsoleEntries = useMemo(
+    () => consoleEntries.slice(Math.max(0, consoleEntries.length - CONSOLE_WINDOW_SIZE)),
+    [consoleEntries],
+  )
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -25,7 +31,7 @@ export function ConsolePanel() {
   return (
     <section className="panel console-panel">
       <div className="console-stream" ref={scrollRef}>
-        {consoleEntries.map((entry) => (
+        {visibleConsoleEntries.map((entry) => (
           <ConsoleEntryRow key={entry.id} entry={entry} mode={consoleDisplayMode} />
         ))}
       </div>
