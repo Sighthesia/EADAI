@@ -25,6 +25,19 @@ The Tauri workbench stays responsive only when serial events are timestamp-align
 - `uPlot` must be created once per series structure and updated with `setData()` / `setSize()` instead of `destroy() + new` for each sample.
 - Tauri event listeners and Zustand writes must be batched in `requestAnimationFrame`, especially in React Strict Mode.
 
+## Performance Triage
+- When the UI feels slow but `ingestEvents()` and `buildPlotModel()` look cheap, measure panel commit time next. In this repo, the real bottleneck can be a render-heavy panel such as `ConsolePanel`, not the data ingest path.
+- Docked tabs can keep mounting and re-rendering even when they are not the active view. Use `TabNode.isVisible()` and the FlexLayout `visibility` event to gate expensive panels instead of assuming inactive tabs are dormant.
+- Console performance scales with DOM size and per-row decode work. Keep the visible console window bounded, memoize row components, and isolate expensive BMI088 decode/formatting logic inside each row.
+- `VariablesPanel` performance scales with list width and repeated per-row lookups. Precompute selected-channel membership and channel colors once per render, then pass stable row data into memoized row components.
+- Use lightweight dev-only instrumentation first: React `Profiler` for commit cost and `createDevTimingLogger()` for function timing. That combination is usually enough before reaching for a third-party profiling package.
+
+## Recent Lessons
+- Treat panel rendering as the primary suspect when the data path is already cheap. The fastest wins came from shrinking the render surface, not from deeper store changes.
+- Keep the fake-stream path intact while optimizing. It is the quickest way to reproduce panel pressure and verify that the UI still stays responsive under load.
+- Apply memoization where the row count is unbounded or grows with time. Bounded windows and stable row props are safer than trying to optimize every derived value in the store.
+- Use the profiler output to decide where to cut work next: `ConsolePanel` first when logs are dense, `VariablesPanel` when channel lists are wide, and `WaveformPanel` only after the other two are clean.
+
 ## Correct Pattern
 - Keep fake source emission in `src-tauri/src/fake_session.rs` and emit one shared `timestamp=<ms>` field for every metric in the same batch.
 - Batch frontend bus events in `ui/src/App.tsx` before calling the store.
@@ -35,14 +48,21 @@ The Tauri workbench stays responsive only when serial events are timestamp-align
 - Context menus that contain internal scrollboxes must stop `pointerdown`, `wheel`, and `scroll` propagation on the menu root so scrolling the menu does not close it or fall through to the underlying card list.
 - If a menu still closes on internal scrolling, do not rely only on propagation stopping: close the menu only when the external event target is outside the menu root, and add `overscroll-behavior: contain` to the menu scrollbox.
 - If performance degrades again, inspect console scrolling and chip list growth before blaming the parser.
+- If a panel remains expensive after data-path profiling, trim the render surface first: limit visible rows, memoize row components, and avoid recomputing derived values for items that did not change.
 
 ## Verification
 - `cargo check` in `src-tauri/`
 - `npm run build` in `ui/`
 - Start the desktop app and confirm the default fake stream auto-connects, waveforms remain visible, and zooming the time window does not freeze the UI.
+- When chasing perf regressions, compare `panel-render ...` logs against `appStore.ingestEvents` and `WaveformPanel.buildPlotModel`; the slowest panel is often the real culprit.
+- After a tuning pass, recheck the profiler around the slowest panel before expanding the scope. If the hotspot moved, optimize the new bottleneck instead of layering more store logic.
 
 ## References
 - `src-tauri/src/fake_session.rs`
 - `ui/src/App.tsx`
 - `ui/src/store/appStore.ts`
 - `ui/src/components/WaveformPanel.tsx`
+- `ui/src/components/Workbench.tsx`
+- `ui/src/components/ConsolePanel.tsx`
+- `ui/src/components/VariablesPanel.tsx`
+- `ui/src/lib/logger.ts`
