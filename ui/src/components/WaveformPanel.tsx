@@ -5,7 +5,9 @@ import { isWaveformVisualAidEnabled, type WaveformVisualAidState } from '../lib/
 import { formatWaveformWindowMs, MAX_WAVEFORM_WINDOW_MS, MIN_WAVEFORM_WINDOW_MS, scaleWaveformWindowMs } from '../lib/waveformWindow'
 import { createDevTimingLogger } from '../lib/logger'
 import { useAppStore } from '../store/appStore'
+import { selectSelectedWaveformVariables } from '../store/selectors/waveformSelectors'
 import type { UiAnalysisPayload, VariableEntry } from '../types'
+import { useShallow } from 'zustand/react/shallow'
 
 const SLOPE_REGRESSION_POINT_COUNT = 8
 const CURSOR_LABEL_GAP_PX = 42
@@ -18,7 +20,9 @@ const CURSOR_SNAP_DISTANCE_PX = 120
 const CURSOR_ANIMATION_EPSILON_PX = 0.5
 const LATEST_SMOOTHING_X = 1
 const LATEST_SMOOTHING_Y = 1
-const CURSOR_DEBUG_LOG_INTERVAL_MS = 500
+const MAX_CURSOR_LABEL_TRACKS = 4
+const MAX_PERSISTENT_LABEL_TRACKS = 8
+const OVERLAY_MOTION_DEBUG_STORAGE_KEY = 'eadai:waveform-overlay-motion-debug'
 const profileBuildPlotModel = createDevTimingLogger('WaveformPanel.buildPlotModel', { slowThresholdMs: 8, summaryEvery: 120, summaryIntervalMs: 5_000 })
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -83,29 +87,25 @@ type PlotModel = {
 }
 
 export function WaveformPanel() {
-  const variables = useAppStore((state) => state.variables)
-  const selectedChannels = useAppStore((state) => state.selectedChannels)
-  const colorForChannel = useAppStore((state) => state.colorForChannel)
+  const selectedVariables = useAppStore(useShallow(selectSelectedWaveformVariables))
   const visualAidState = useAppStore((state) => state.visualAidState)
   const timeWindowMs = useAppStore((state) => state.waveformWindowMs)
   const setTimeWindowMs = useAppStore((state) => state.setWaveformWindowMs)
   const [menuOpen, setMenuOpen] = useState(true)
 
-  const selectedVariables = useMemo<SelectedVariable[]>(
-    () =>
-      selectedChannels
-        .map((channel) => variables[channel])
-        .filter(Boolean)
-        .map((variable) => ({
-          name: variable.name,
-          color: colorForChannel(variable.name),
-          variable,
-        })),
-    [colorForChannel, selectedChannels, variables],
-  )
+  const { numericCount, textCount } = useMemo(() => {
+    let numericCount = 0
+    for (const item of selectedVariables) {
+      if (isNumericVariable(item.variable)) {
+        numericCount++
+      }
+    }
 
-  const numericCount = selectedVariables.filter(({ variable }) => isNumericVariable(variable)).length
-  const textCount = selectedVariables.length - numericCount
+    return {
+      numericCount,
+      textCount: selectedVariables.length - numericCount,
+    }
+  }, [selectedVariables])
 
   return (
     <section className="panel waveform-panel">
@@ -681,7 +681,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
           overlayRoot.append(linesLayer, labelsLayer, textTrackLayer)
           u.over.appendChild(overlayRoot)
 
-          const state = {
+          const state: OverlayState = {
             plot: u,
             overlayRoot,
             linesLayer,
@@ -694,9 +694,13 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
             latestFrameId: null,
             periodLines: new Map<string, SVGLineElement[]>(),
             textTrackSignature: '',
-            debugLogIntervalId: window.setInterval(() => {
+            debugLogIntervalId: null,
+          }
+
+          if (isOverlayMotionDebugEnabled()) {
+            state.debugLogIntervalId = window.setInterval(() => {
               logOverlayMotionDebug(state)
-            }, CURSOR_DEBUG_LOG_INTERVAL_MS),
+            }, 500)
           }
 
             ; (u as uPlot & { __waveformOverlayState?: typeof state }).__waveformOverlayState = state
@@ -715,7 +719,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
           if (state && state.latestFrameId !== null) {
             cancelAnimationFrame(state.latestFrameId)
           }
-          if (state) {
+          if (state && state.debugLogIntervalId !== null) {
             window.clearInterval(state.debugLogIntervalId)
           }
           state?.overlayRoot.remove()
@@ -754,6 +758,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       (track) => track.labelsEnabled || track.rangeEnabled || track.meanEnabled || track.medianEnabled || track.periodEnabled || track.slopeEnabled,
     )
     const activeTextTracks = model.textTracks.filter((track) => track.textEnabled)
+    const latestLabelsEnabled = model.numericTracks.length <= MAX_PERSISTENT_LABEL_TRACKS
     const textTrackSignature = activeTextTracks.map((track) => `${track.name}\u0000${track.value}\u0000${track.color}`).join('|')
 
     const measurementSlots = placeVerticalLabels(
@@ -842,12 +847,12 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
         const latestLabelX = latestX > width - 170 ? Math.max(12, latestX - 150) : Math.min(width - 150, latestX + 12)
         const latestLabelY = latestY
 
-        if (track.labelsEnabled) {
+        if (track.labelsEnabled && latestLabelsEnabled) {
           elements.latestLabel.style.display = 'flex'
           elements.latestLabel.style.borderColor = colorToRgba(track.color, 0.4)
           elements.latestLabel.style.background = colorToRgba(track.color, 0.14)
           elements.latestLabel.style.color = '#f3f7fc'
-          elements.latestLabel.innerHTML = renderOverlayValueLabel(track.color, track.name, track.displayValue)
+          setOverlayLabelContent(elements.latestLabel, track.color, track.name, track.displayValue)
           elements.latestLabel.style.left = `${latestLabelX}px`
           elements.latestLabel.style.top = `${latestLabelY}px`
           elements.latestLabel.style.transform = 'translateY(-50%)'
@@ -943,12 +948,21 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     }
 
     const activeNumericTracks = model.numericTracks.filter((track) => track.labelsEnabled || track.slopeEnabled)
-    const cursorAnchors = activeNumericTracks.map((track) => ({
-      track,
-      anchor: resolveCursorAnchor(u, track, model.windowStartMs, width),
-    }))
+    const cursorAnchors = activeNumericTracks.map((track) => {
+      const anchor = resolveCursorAnchor(u, track, model.windowStartMs, width)
+      const anchorY = safePos(u, anchor.value, 'y', height)
+      return {
+        track,
+        anchor,
+        distanceToCursor: Math.abs(anchorY - top),
+      }
+    })
+    const visibleCursorAnchors =
+      cursorAnchors.length > MAX_CURSOR_LABEL_TRACKS
+        ? [...cursorAnchors].sort((left, right) => left.distanceToCursor - right.distanceToCursor).slice(0, MAX_CURSOR_LABEL_TRACKS)
+        : cursorAnchors
     const requiredKeys = new Set<string>()
-    for (const { track, anchor: cursorAnchor } of cursorAnchors) {
+    for (const { track, anchor: cursorAnchor } of visibleCursorAnchors) {
       requiredKeys.add(track.name)
       const element = getOrCreateOverlayElements(state, track.name)
       const cursorLabelAnchorX = cursorAnchor.x + 14
@@ -958,7 +972,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       element.cursorLabel.style.borderColor = colorToRgba(track.color, 0.42)
       element.cursorLabel.style.background = colorToRgba(track.color, 0.16)
       element.cursorLabel.style.color = '#f6f8fb'
-      element.cursorLabel.innerHTML = renderOverlayValueLabel(track.color, track.name, formatDisplayValue(track.variable, cursorAnchor.value))
+      setOverlayLabelContent(element.cursorLabel, track.color, track.name, formatDisplayValue(track.variable, cursorAnchor.value))
       updateCursorAnimationTarget(state, track.name, {
         color: track.color,
         anchorX: cursorAnchor.x,
@@ -1492,7 +1506,17 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     label.style.borderColor = colorToRgba(color, 0.36)
     label.style.background = colorToRgba(color, 0.12)
     label.style.color = '#eaf0f7'
-    label.innerHTML = renderOverlayValueLabel(color, name, `${title} ${value}`)
+    setOverlayLabelContent(label, color, name, `${title} ${value}`)
+  }
+
+  function setOverlayLabelContent(label: HTMLDivElement, color: string, name: string, value: string) {
+    const signature = `${color}\u0000${name}\u0000${value}`
+    if (label.dataset.overlaySignature === signature) {
+      return
+    }
+
+    label.dataset.overlaySignature = signature
+    label.innerHTML = renderOverlayValueLabel(color, name, value)
   }
 
   function renderOverlayValueLabel(color: string, name: string, value: string) {
@@ -1594,6 +1618,19 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
   function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value))
   }
+
+  function isOverlayMotionDebugEnabled() {
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    try {
+      const value = window.localStorage.getItem(OVERLAY_MOTION_DEBUG_STORAGE_KEY)
+      return value === '1' || value === 'true'
+    } catch {
+      return false
+    }
+  }
 }
 
 function MagnifyPlusIcon() {
@@ -1646,7 +1683,7 @@ type OverlayState = {
   latestFrameId: number | null
   periodLines: Map<string, SVGLineElement[]>
   textTrackSignature: string
-  debugLogIntervalId: number
+  debugLogIntervalId: number | null
 }
 
 type OverlayAnimationTarget = {

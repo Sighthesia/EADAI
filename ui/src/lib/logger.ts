@@ -1,8 +1,26 @@
 // Minimal dev-time logger wrapper. Use this instead of console.log so
 // we can easily control verbosity and replace with a real logger later.
 const isDev = Boolean(import.meta.env && import.meta.env.DEV)
+const DEBUG_LOG_STORAGE_KEY = 'eadai:debug-logs'
+const PERF_LOG_STORAGE_KEY = 'eadai:perf-logs'
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+
+const readDevFlag = (storageKey: string) => {
+  if (!isDev || typeof window === 'undefined') {
+    return false
+  }
+
+  try {
+    const value = window.localStorage.getItem(storageKey)
+    return value === '1' || value === 'true'
+  } catch {
+    return false
+  }
+}
+
+const debugLogsEnabled = readDevFlag(DEBUG_LOG_STORAGE_KEY)
+const perfLogsEnabled = debugLogsEnabled || readDevFlag(PERF_LOG_STORAGE_KEY)
 
 type DevTimingOptions = {
   slowThresholdMs?: number
@@ -12,10 +30,8 @@ type DevTimingOptions = {
 
 export const logger = {
   debug: (...args: unknown[]) => {
-    // Only emit in dev builds to avoid noisy production logs.
-    // Keep implementation minimal to avoid adding dependencies.
     // eslint-disable-next-line no-console
-    if (isDev) console.debug(...args)
+    if (debugLogsEnabled) console.debug(...args)
   },
 }
 
@@ -30,7 +46,7 @@ export const createDevTimingLogger = (label: string, options: DevTimingOptions =
   let lastSummaryAtMs = nowMs()
 
   return (durationMs: number, details?: Record<string, unknown>) => {
-    if (!isDev) {
+    if (!perfLogsEnabled) {
       return
     }
 

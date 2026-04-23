@@ -15,22 +15,33 @@ export function ConsolePanel() {
   const send = useAppStore((state) => state.send)
   const sendBmi088Command = useAppStore((state) => state.sendBmi088Command)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const stickToBottomRef = useRef(true)
   const visibleConsoleEntries = useMemo(
     () => consoleEntries.slice(Math.max(0, consoleEntries.length - CONSOLE_WINDOW_SIZE)),
     [consoleEntries],
   )
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && stickToBottomRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [consoleEntries])
+
+  const handleScroll = () => {
+    const element = scrollRef.current
+    if (!element) {
+      return
+    }
+
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+    stickToBottomRef.current = distanceFromBottom <= 24
+  }
 
   const displayModes = useMemo(() => ['text', 'hex', 'binary'] as const, [])
 
   return (
     <section className="panel console-panel">
-      <div className="console-stream" ref={scrollRef}>
+      <div className="console-stream" ref={scrollRef} onScroll={handleScroll}>
         {visibleConsoleEntries.map((entry) => (
           <ConsoleEntryRow key={entry.id} entry={entry} mode={consoleDisplayMode} />
         ))}
