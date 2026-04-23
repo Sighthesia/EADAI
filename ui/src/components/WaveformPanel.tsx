@@ -5,9 +5,9 @@ import { isWaveformVisualAidEnabled, type WaveformVisualAidState } from '../lib/
 import { formatWaveformWindowMs, MAX_WAVEFORM_WINDOW_MS, MIN_WAVEFORM_WINDOW_MS, scaleWaveformWindowMs } from '../lib/waveformWindow'
 import { createDevTimingLogger } from '../lib/logger'
 import { useAppStore } from '../store/appStore'
-import { selectSelectedWaveformVariables } from '../store/selectors/waveformSelectors'
-import type { UiAnalysisPayload, VariableEntry } from '../types'
 import { useShallow } from 'zustand/react/shallow'
+import { selectSelectedWaveformVariables, type SelectedWaveformVariable } from '../store/selectors/waveformSelectors'
+import type { UiAnalysisPayload, VariableEntry } from '../types'
 
 const SLOPE_REGRESSION_POINT_COUNT = 8
 const CURSOR_LABEL_GAP_PX = 42
@@ -26,12 +26,6 @@ const OVERLAY_MOTION_DEBUG_STORAGE_KEY = 'eadai:waveform-overlay-motion-debug'
 const profileBuildPlotModel = createDevTimingLogger('WaveformPanel.buildPlotModel', { slowThresholdMs: 8, summaryEvery: 120, summaryIntervalMs: 5_000 })
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
-
-type SelectedVariable = {
-  name: string
-  color: string
-  variable: VariableEntry
-}
 
 type NumericStats = {
   minValue: number
@@ -191,7 +185,7 @@ function WavePlot({
   timeWindowMs,
   onTimeWindowChange,
 }: {
-  selectedVariables: SelectedVariable[]
+  selectedVariables: SelectedWaveformVariable[]
   visualAidState: WaveformVisualAidState
   timeWindowMs: number
   onTimeWindowChange: (value: number | ((current: number) => number)) => void
@@ -326,11 +320,11 @@ function WavePlot({
   return <div className="wave-plot waveform-stage-surface" ref={hostRef} />
 }
 
-function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: WaveformVisualAidState, timeWindowMs: number): PlotModel {
+function buildPlotModel(selectedVariables: SelectedWaveformVariable[], visualAidState: WaveformVisualAidState, timeWindowMs: number): PlotModel {
   const startedAtMs = performance.now()
 
   try {
-    const tracks = selectedVariables.map(({ name, color, variable }) => ({
+    const stagedVariables = selectedVariables.map(({ name, color, variable }) => ({
       name,
       color,
       variable,
@@ -342,12 +336,18 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
       slopeEnabled: isWaveformVisualAidEnabled(visualAidState, name, 'slope'),
     }))
 
-    const latestPointTimestampMs = tracks.reduce((max, item) => {
-      const pointMax = item.variable.points.reduce((latest, point) => Math.max(latest, point.timestampMs), Number.NEGATIVE_INFINITY)
-      return Math.max(max, pointMax)
-    }, Number.NEGATIVE_INFINITY)
+    let latestPointTimestampMs = Number.NEGATIVE_INFINITY
+    let latestUpdateTimestampMs = Number.NEGATIVE_INFINITY
+    for (const { variable } of stagedVariables) {
+      latestUpdateTimestampMs = Math.max(latestUpdateTimestampMs, variable.updatedAtMs)
 
-    const latestUpdateTimestampMs = tracks.reduce((max, item) => Math.max(max, item.variable.updatedAtMs), Number.NEGATIVE_INFINITY)
+      if (isNumericVariable(variable)) {
+        const sourcePoints = variable.points.length > 0 ? variable.points : createFallbackNumericPoint(variable, variable.updatedAtMs)
+        if (sourcePoints.length > 0) {
+          latestPointTimestampMs = Math.max(latestPointTimestampMs, sourcePoints[sourcePoints.length - 1]!.timestampMs)
+        }
+      }
+    }
 
     const latestTimestampMs = Number.isFinite(latestPointTimestampMs)
       ? latestPointTimestampMs
@@ -358,20 +358,28 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
     const windowEndMs = latestTimestampMs
     const dataWindowStartMs = windowEndMs - timeWindowMs
 
-    const numericTracks = tracks
-      .filter(({ variable }) => isNumericVariable(variable))
-      .map((item, index) => {
+    const numericTracks: PlotTrack[] = []
+    const textTracks: TextTrack[] = []
+    const timestamps = new Set<number>()
+    let yMin = Number.POSITIVE_INFINITY
+    let yMax = Number.NEGATIVE_INFINITY
+
+    for (const item of stagedVariables) {
+      if (isNumericVariable(item.variable)) {
         const sourcePoints = item.variable.points.length > 0 ? item.variable.points : createFallbackNumericPoint(item.variable, windowEndMs)
-        const visiblePoints = sourcePoints.filter((point) => point.timestampMs >= dataWindowStartMs)
-        const cycle = computeStableCycleStats(sourcePoints, item.variable.analysis)
-        const period = {
-          periodMs: cycle.periodMs,
-          cycleStartsMs: cycle.cycleStartsMs,
-          meanValue: cycle.meanValue,
-          medianValue: cycle.medianValue,
-        }
+        const visibleStartIndex = findFirstVisiblePointIndex(sourcePoints, dataWindowStartMs)
+        const visiblePoints = visibleStartIndex > 0 ? sourcePoints.slice(visibleStartIndex) : sourcePoints
+        const period = computePeriodStats(sourcePoints, item.variable.analysis)
         const stats = resolveNumericStats(item.variable, visiblePoints, sourcePoints, period)
-        return {
+        const rangePoints = visiblePoints.length > 0 ? visiblePoints : sourcePoints
+
+        for (const point of rangePoints) {
+          timestamps.add(point.timestampMs)
+          yMin = Math.min(yMin, point.value)
+          yMax = Math.max(yMax, point.value)
+        }
+
+        numericTracks.push({
           name: item.name,
           color: item.color,
           variable: item.variable,
@@ -382,29 +390,26 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
           periodEnabled: item.periodEnabled,
           slopeEnabled: item.slopeEnabled,
           points: visiblePoints,
-          displayValue: formatDisplayValue(
-            item.variable,
-            item.variable.numericValue ?? visiblePoints[visiblePoints.length - 1]?.value ?? sourcePoints[sourcePoints.length - 1]?.value,
-          ),
-          seriesIndex: index + 1,
+          displayValue: formatDisplayValue(item.variable, item.variable.numericValue ?? visiblePoints[visiblePoints.length - 1]?.value ?? sourcePoints[sourcePoints.length - 1]?.value),
+          seriesIndex: numericTracks.length + 1,
           stats,
           period,
-        }
-      })
+        })
+        continue
+      }
 
-    const textTracks = tracks
-      .filter(({ variable }) => !isNumericVariable(variable))
-      .map((item) => ({
+      textTracks.push({
         name: item.name,
         color: item.color,
         textEnabled: isWaveformVisualAidEnabled(visualAidState, item.name, 'text'),
         value: item.variable.currentValue,
         updatedAtMs: item.variable.updatedAtMs,
-      }))
+      })
+    }
 
-    const timestamps = Array.from(new Set(numericTracks.flatMap((item) => item.points.map((point) => point.timestampMs)))).sort((left, right) => left - right)
+    const sortedTimestamps = Array.from(timestamps).sort((left, right) => left - right)
 
-    if (numericTracks.length === 0 || timestamps.length === 0) {
+    if (numericTracks.length === 0 || sortedTimestamps.length === 0) {
       return {
         data: [[0], [0]] as uPlot.AlignedData,
         series: [
@@ -426,16 +431,16 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
       }
     }
 
-    const plotStartMs = timestamps[0] ?? dataWindowStartMs
-    const normalizedTimestamps = timestamps.map((timestamp) => (timestamp - plotStartMs) / 1000)
+    const plotStartMs = sortedTimestamps[0] ?? dataWindowStartMs
+    const normalizedTimestamps = sortedTimestamps.map((timestamp) => (timestamp - plotStartMs) / 1000)
     const plotSpanSeconds = Math.max((windowEndMs - plotStartMs) / 1000, 1)
     const showPoints = normalizedTimestamps.length <= 240
     const data: Array<number[] | Array<number | null>> = [normalizedTimestamps]
     const plotSeries = [{ label: 'time' } as uPlot.Series]
 
     for (const item of numericTracks) {
-      const valueByTimestamp = new Map(item.points.map((point) => [point.timestampMs, point.value]))
-      data.push(timestamps.map((timestamp) => valueByTimestamp.get(timestamp) ?? null))
+      const row = buildAlignedRow(item.points, sortedTimestamps)
+      data.push(row)
       plotSeries.push({
         label: item.name,
         stroke: item.color,
@@ -444,7 +449,7 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
       } as uPlot.Series)
     }
 
-    const yRange = resolveYRange(numericTracks)
+    const { min: yMinFinal, max: yMaxFinal } = finalizeYRange(yMin, yMax)
 
     return {
       data: data as unknown as uPlot.AlignedData,
@@ -455,8 +460,8 @@ function buildPlotModel(selectedVariables: SelectedVariable[], visualAidState: W
       windowEndMs,
       xMin: 0,
       xMax: plotSpanSeconds,
-      yMin: yRange.min,
-      yMax: yRange.max,
+      yMin: yMinFinal,
+      yMax: yMaxFinal,
     }
   } finally {
     profileBuildPlotModel(performance.now() - startedAtMs, {
@@ -500,16 +505,39 @@ function createFallbackNumericPoint(variable: VariableEntry, timestampMs: number
   return [{ timestampMs, value: variable.numericValue as number }]
 }
 
-function resolveYRange(tracks: PlotTrack[]) {
-  const values = tracks.flatMap((track) => track.points.map((point) => point.value))
+function findFirstVisiblePointIndex(points: Array<{ timestampMs: number }>, windowStartMs: number) {
+  let low = 0
+  let high = points.length
 
-  if (values.length === 0) {
-    return { min: 0, max: 1 }
+  while (low < high) {
+    const mid = (low + high) >>> 1
+    if (points[mid]!.timestampMs < windowStartMs) {
+      low = mid + 1
+    } else {
+      high = mid
+    }
   }
 
-  let min = Math.min(...values)
-  let max = Math.max(...values)
+  return low
+}
 
+function buildAlignedRow(points: Array<{ timestampMs: number; value: number }>, timestamps: number[]) {
+  const row: Array<number | null> = new Array(timestamps.length)
+  let pointIndex = 0
+
+  for (let index = 0; index < timestamps.length; index += 1) {
+    const timestampMs = timestamps[index]!
+    while (pointIndex < points.length && points[pointIndex]!.timestampMs < timestampMs) {
+      pointIndex += 1
+    }
+
+    row[index] = points[pointIndex]?.timestampMs === timestampMs ? points[pointIndex]!.value : null
+  }
+
+  return row
+}
+
+function finalizeYRange(min: number, max: number) {
   if (!Number.isFinite(min) || !Number.isFinite(max)) {
     return { min: 0, max: 1 }
   }
@@ -521,14 +549,14 @@ function resolveYRange(tracks: PlotTrack[]) {
 
   const span = max - min
   const padding = Math.max(span * 0.08, 0.5)
-  min -= padding
-  max += padding
+  const nextMin = min - padding
+  const nextMax = max + padding
 
-  if (min === max) {
-    return { min: min - 1, max: max + 1 }
+  if (nextMin === nextMax) {
+    return { min: nextMin - 1, max: nextMax + 1 }
   }
 
-  return { min, max }
+  return { min: nextMin, max: nextMax }
 }
 
 function syncAnimatedYScale(
@@ -621,6 +649,16 @@ function resolveVisibleChangeRate(
   }
 
   return analysis?.changeRate ?? null
+}
+
+function computePeriodStats(points: Array<{ timestampMs: number; value: number }>, analysis?: UiAnalysisPayload | null): PeriodStats {
+  const cycle = computeStableCycleStats(points, analysis)
+  return {
+    periodMs: cycle.periodMs,
+    cycleStartsMs: cycle.cycleStartsMs,
+    meanValue: cycle.meanValue,
+    medianValue: cycle.medianValue,
+  }
 }
 
 function fallbackStat(points: Array<{ value: number }>, mode: 'min' | 'max' | 'mean' | 'median') {
@@ -761,18 +799,16 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const latestLabelsEnabled = model.numericTracks.length <= MAX_PERSISTENT_LABEL_TRACKS
     const textTrackSignature = activeTextTracks.map((track) => `${track.name}\u0000${track.value}\u0000${track.color}`).join('|')
 
-    const measurementSlots = placeVerticalLabels(
-      activeNumericTracks.flatMap((track) => {
-        const slots: Array<{ key: string; baseY: number; minY: number; maxY: number }> = []
-        if (track.meanEnabled) {
-          slots.push({ key: measurementSlotKey(track.name, 'mean'), baseY: safePos(u, track.stats.meanValue, 'y', height), minY: 14, maxY: Math.max(14, height - 14) })
-        }
-        if (track.medianEnabled) {
-          slots.push({ key: measurementSlotKey(track.name, 'median'), baseY: safePos(u, track.stats.medianValue, 'y', height), minY: 14, maxY: Math.max(14, height - 14) })
-        }
-        return slots
-      }),
-    )
+    const measurementSlotInputs: Array<{ key: string; baseY: number; minY: number; maxY: number }> = []
+    for (const track of activeNumericTracks) {
+      if (track.meanEnabled) {
+        measurementSlotInputs.push({ key: measurementSlotKey(track.name, 'mean'), baseY: safePos(u, track.stats.meanValue, 'y', height), minY: 14, maxY: Math.max(14, height - 14) })
+      }
+      if (track.medianEnabled) {
+        measurementSlotInputs.push({ key: measurementSlotKey(track.name, 'median'), baseY: safePos(u, track.stats.medianValue, 'y', height), minY: 14, maxY: Math.max(14, height - 14) })
+      }
+    }
+    const measurementSlots = placeVerticalLabels(measurementSlotInputs)
 
     const requiredKeys = new Set<string>()
 
