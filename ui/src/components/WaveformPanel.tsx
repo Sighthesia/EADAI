@@ -770,15 +770,16 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
   function syncOverlaySize(u: uPlot) {
     const state = getOverlayState(u)
     if (!state) {
-      return
+      return null
     }
 
     const width = Math.max(0, Math.floor(u.over.getBoundingClientRect().width))
     const height = Math.max(0, Math.floor(u.over.getBoundingClientRect().height))
-    state.linesLayer.setAttribute('viewBox', `0 0 ${width} ${height}`)
-    state.linesLayer.setAttribute('width', `${width}`)
-    state.linesLayer.setAttribute('height', `${height}`)
-    state.linesLayer.setAttribute('preserveAspectRatio', 'none')
+    setSvgAttributeIfChanged(state.linesLayer, 'viewBox', `0 0 ${width} ${height}`)
+    setSvgAttributeIfChanged(state.linesLayer, 'width', `${width}`)
+    setSvgAttributeIfChanged(state.linesLayer, 'height', `${height}`)
+    setSvgAttributeIfChanged(state.linesLayer, 'preserveAspectRatio', 'none')
+    return { width, height }
   }
 
   function syncOverlayItems(u: uPlot) {
@@ -788,9 +789,9 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       return
     }
 
-    syncOverlaySize(u)
-    const width = Math.max(0, Math.floor(u.over.getBoundingClientRect().width))
-    const height = Math.max(0, Math.floor(u.over.getBoundingClientRect().height))
+    const overlaySize = syncOverlaySize(u)
+    const width = overlaySize?.width ?? Math.max(0, Math.floor(u.over.getBoundingClientRect().width))
+    const height = overlaySize?.height ?? Math.max(0, Math.floor(u.over.getBoundingClientRect().height))
 
     const activeNumericTracks = model.numericTracks.filter(
       (track) => track.labelsEnabled || track.rangeEnabled || track.meanEnabled || track.medianEnabled || track.periodEnabled || track.slopeEnabled,
@@ -826,13 +827,13 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       const minY = safePos(u, minValue, 'y', height)
       const maxY = safePos(u, maxValue, 'y', height)
 
-      if (track.rangeEnabled) {
-        setLine(elements.minLine, 0, minY, width, minY, colorToRgba(track.color, 0.52), '5 6')
-        setLine(elements.maxLine, 0, maxY, width, maxY, colorToRgba(track.color, 0.52), '5 6')
-      } else {
-        elements.minLine.setAttribute('visibility', 'hidden')
-        elements.maxLine.setAttribute('visibility', 'hidden')
-      }
+    if (track.rangeEnabled) {
+      setLine(elements.minLine, 0, minY, width, minY, colorToRgba(track.color, 0.52), '5 6')
+      setLine(elements.maxLine, 0, maxY, width, maxY, colorToRgba(track.color, 0.52), '5 6')
+    } else {
+      setSvgVisibilityIfChanged(elements.minLine, 'hidden')
+      setSvgVisibilityIfChanged(elements.maxLine, 'hidden')
+    }
 
       if (track.periodEnabled && track.period.periodMs !== null) {
         syncPeriodLines(state, u, track, width, minY, maxY, model.windowStartMs, model.windowEndMs)
@@ -852,10 +853,10 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
           formatDisplayValue(track.variable, meanValue),
           'mean',
         )
-      } else {
-        elements.meanLine.setAttribute('visibility', 'hidden')
-        elements.meanLabel.style.display = 'none'
-      }
+    } else {
+      setSvgVisibilityIfChanged(elements.meanLine, 'hidden')
+      setStyleIfChanged(elements.meanLabel.style, 'display', 'none')
+    }
 
       if (track.medianEnabled) {
         setLine(elements.medianLine, 0, medianY, width, medianY, colorToRgba(track.color, 0.54), '3 5', 1.8)
@@ -869,13 +870,13 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
           formatDisplayValue(track.variable, medianValue),
           'median',
         )
-      } else {
-        elements.medianLine.setAttribute('visibility', 'hidden')
-        elements.medianLabel.style.display = 'none'
-      }
+    } else {
+      setSvgVisibilityIfChanged(elements.medianLine, 'hidden')
+      setStyleIfChanged(elements.medianLabel.style, 'display', 'none')
+    }
 
-      elements.leftLabel.style.display = 'none'
-      elements.calloutLine.setAttribute('visibility', 'hidden')
+      setStyleIfChanged(elements.leftLabel.style, 'display', 'none')
+      setSvgVisibilityIfChanged(elements.calloutLine, 'hidden')
 
       if (latestPoint) {
         const latestX = safePos(u, (latestPoint.timestampMs - model.windowStartMs) / 1000, 'x', width)
@@ -884,22 +885,22 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
         const latestLabelY = latestY
 
         if (track.labelsEnabled && latestLabelsEnabled) {
-          elements.latestLabel.style.display = 'flex'
-          elements.latestLabel.style.borderColor = colorToRgba(track.color, 0.4)
-          elements.latestLabel.style.background = colorToRgba(track.color, 0.14)
-          elements.latestLabel.style.color = '#f3f7fc'
+          setStyleIfChanged(elements.latestLabel.style, 'display', 'flex')
+          setStyleIfChanged(elements.latestLabel.style, 'borderColor', colorToRgba(track.color, 0.4))
+          setStyleIfChanged(elements.latestLabel.style, 'background', colorToRgba(track.color, 0.14))
+          setStyleIfChanged(elements.latestLabel.style, 'color', '#f3f7fc')
           setOverlayLabelContent(elements.latestLabel, track.color, track.name, track.displayValue)
-          elements.latestLabel.style.left = `${latestLabelX}px`
-          elements.latestLabel.style.top = `${latestLabelY}px`
-          elements.latestLabel.style.transform = 'translateY(-50%)'
+          setStyleIfChanged(elements.latestLabel.style, 'left', `${latestLabelX}px`)
+          setStyleIfChanged(elements.latestLabel.style, 'top', `${latestLabelY}px`)
+          setStyleIfChanged(elements.latestLabel.style, 'transform', 'translateY(-50%)')
           setCircle(elements.latestDot, latestX, latestY, 3.5, track.color)
         } else {
-          elements.latestDot.setAttribute('r', '0')
-          elements.latestLabel.style.display = 'none'
+          setCircleRadiusIfChanged(elements.latestDot, 0)
+          setStyleIfChanged(elements.latestLabel.style, 'display', 'none')
         }
       } else {
-        elements.latestDot.setAttribute('r', '0')
-        elements.latestLabel.style.display = 'none'
+        setCircleRadiusIfChanged(elements.latestDot, 0)
+        setStyleIfChanged(elements.latestLabel.style, 'display', 'none')
       }
 
       if (track.slopeEnabled && track.stats.changeRate !== null && track.stats.changeRate !== undefined && latestPoint) {
@@ -916,27 +917,27 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
         if (clipped) {
           setLine(elements.slopeLine, safePos(u, clipped.startX, 'x', width), safePos(u, clipped.startY, 'y', height), safePos(u, clipped.endX, 'x', width), safePos(u, clipped.endY, 'y', height), colorToRgba(track.color, 0.82), '4 4', 2.2)
         } else {
-          elements.slopeLine.setAttribute('visibility', 'hidden')
+          setSvgVisibilityIfChanged(elements.slopeLine, 'hidden')
         }
       } else {
-        elements.slopeLine.setAttribute('visibility', 'hidden')
+        setSvgVisibilityIfChanged(elements.slopeLine, 'hidden')
       }
     }
 
     for (const [name, element] of state.items) {
       if (!requiredKeys.has(name)) {
-        element.leftLabel.style.display = 'none'
-        element.latestLabel.style.display = 'none'
-        element.latestDot.setAttribute('r', '0')
-        element.calloutLine.setAttribute('visibility', 'hidden')
-        element.cursorCalloutLine.setAttribute('visibility', 'hidden')
-        element.meanLabel.style.display = 'none'
-        element.medianLabel.style.display = 'none'
-        element.meanLine.setAttribute('visibility', 'hidden')
-        element.medianLine.setAttribute('visibility', 'hidden')
-        element.minLine.setAttribute('visibility', 'hidden')
-        element.maxLine.setAttribute('visibility', 'hidden')
-        element.slopeLine.setAttribute('visibility', 'hidden')
+        setStyleIfChanged(element.leftLabel.style, 'display', 'none')
+        setStyleIfChanged(element.latestLabel.style, 'display', 'none')
+        setCircleRadiusIfChanged(element.latestDot, 0)
+        setSvgVisibilityIfChanged(element.calloutLine, 'hidden')
+        setSvgVisibilityIfChanged(element.cursorCalloutLine, 'hidden')
+        setStyleIfChanged(element.meanLabel.style, 'display', 'none')
+        setStyleIfChanged(element.medianLabel.style, 'display', 'none')
+        setSvgVisibilityIfChanged(element.meanLine, 'hidden')
+        setSvgVisibilityIfChanged(element.medianLine, 'hidden')
+        setSvgVisibilityIfChanged(element.minLine, 'hidden')
+        setSvgVisibilityIfChanged(element.maxLine, 'hidden')
+        setSvgVisibilityIfChanged(element.slopeLine, 'hidden')
         hidePeriodLines(state.periodLines.get(name))
         state.latestAnimations.delete(name)
       }
@@ -976,9 +977,9 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     if (left == null || top == null || left < 0 || top < 0 || idx === null) {
       stopCursorAnimation(state)
       for (const element of state.items.values()) {
-        element.cursorLabel.style.display = 'none'
-        element.cursorCalloutLine.setAttribute('visibility', 'hidden')
-        element.cursorDot.setAttribute('visibility', 'hidden')
+        setStyleIfChanged(element.cursorLabel.style, 'display', 'none')
+        setSvgVisibilityIfChanged(element.cursorCalloutLine, 'hidden')
+        setSvgVisibilityIfChanged(element.cursorDot, 'hidden')
       }
       return
     }
@@ -1004,10 +1005,10 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       const cursorLabelAnchorX = cursorAnchor.x + 14
       const cursorX = clamp(cursorLabelAnchorX, 12, Math.max(12, width - CURSOR_LABEL_MAX_WIDTH_PX - 12))
 
-      element.cursorLabel.style.display = 'flex'
-      element.cursorLabel.style.borderColor = colorToRgba(track.color, 0.42)
-      element.cursorLabel.style.background = colorToRgba(track.color, 0.16)
-      element.cursorLabel.style.color = '#f6f8fb'
+      setStyleIfChanged(element.cursorLabel.style, 'display', 'flex')
+      setStyleIfChanged(element.cursorLabel.style, 'borderColor', colorToRgba(track.color, 0.42))
+      setStyleIfChanged(element.cursorLabel.style, 'background', colorToRgba(track.color, 0.16))
+      setStyleIfChanged(element.cursorLabel.style, 'color', '#f6f8fb')
       setOverlayLabelContent(element.cursorLabel, track.color, track.name, formatDisplayValue(track.variable, cursorAnchor.value))
       updateCursorAnimationTarget(state, track.name, {
         color: track.color,
@@ -1021,11 +1022,11 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       if (!requiredKeys.has(name)) {
         state.cursorAnimations.delete(name)
         state.latestAnimations.delete(name)
-        element.cursorLabel.style.display = 'none'
-        element.cursorCalloutLine.setAttribute('visibility', 'hidden')
-        element.cursorDot.setAttribute('visibility', 'hidden')
-        element.latestLabel.style.display = 'none'
-        element.latestDot.setAttribute('r', '0')
+        setStyleIfChanged(element.cursorLabel.style, 'display', 'none')
+        setSvgVisibilityIfChanged(element.cursorCalloutLine, 'hidden')
+        setSvgVisibilityIfChanged(element.cursorDot, 'hidden')
+        setStyleIfChanged(element.latestLabel.style, 'display', 'none')
+        setCircleRadiusIfChanged(element.latestDot, 0)
       }
     }
 
@@ -1303,9 +1304,9 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       Math.abs(labelY - anchorY) > CURSOR_CALLOUT_THRESHOLD_PX ||
       Math.abs(animation.currentX - (target.anchorX + 14)) > CURSOR_CALLOUT_THRESHOLD_PX
 
-    element.cursorLabel.style.left = `${animation.currentX}px`
-    element.cursorLabel.style.top = `${labelY}px`
-    element.cursorLabel.style.transform = 'translateY(-50%)'
+    setStyleIfChanged(element.cursorLabel.style, 'left', `${animation.currentX}px`)
+    setStyleIfChanged(element.cursorLabel.style, 'top', `${labelY}px`)
+    setStyleIfChanged(element.cursorLabel.style, 'transform', 'translateY(-50%)')
     setCircle(element.cursorDot, target.anchorX, anchorY, 4.5, target.color)
 
     if (shouldShowCallout) {
@@ -1319,15 +1320,15 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const height = Math.max(0, Math.floor(plot.over.getBoundingClientRect().height))
     const anchorY = safePos(plot, animation.target.value, 'y', height)
     const labelY = slotY ?? safePos(plot, animation.currentLabelValue, 'y', height)
-    element.latestDot.setAttribute('cx', `${animation.currentAnchorX}`)
-    element.latestDot.setAttribute('cy', `${anchorY}`)
-    element.latestDot.setAttribute('r', '3.5')
-    element.latestDot.setAttribute('fill', animation.target.color)
-    element.latestDot.setAttribute('visibility', 'visible')
+    setSvgAttributeIfChanged(element.latestDot, 'cx', `${animation.currentAnchorX}`)
+    setSvgAttributeIfChanged(element.latestDot, 'cy', `${anchorY}`)
+    setCircleRadiusIfChanged(element.latestDot, 3.5)
+    setSvgAttributeIfChanged(element.latestDot, 'fill', animation.target.color)
+    setSvgVisibilityIfChanged(element.latestDot, 'visible')
 
-    element.latestLabel.style.left = `${animation.currentX}px`
-    element.latestLabel.style.top = `${labelY}px`
-    element.latestLabel.style.transform = 'translateY(-50%)'
+    setStyleIfChanged(element.latestLabel.style, 'left', `${animation.currentX}px`)
+    setStyleIfChanged(element.latestLabel.style, 'top', `${labelY}px`)
+    setStyleIfChanged(element.latestLabel.style, 'transform', 'translateY(-50%)')
   }
 
   function stepCursorValue(current: number, target: number, smoothing: number) {
@@ -1536,12 +1537,12 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     const leftLaneLeft = Math.max(12, width - labelWidth * 2 - gutter)
 
     label.style.display = 'flex'
-    label.style.left = `${lane === 'mean' ? leftLaneLeft : rightLaneLeft}px`
-    label.style.top = `${y}px`
-    label.style.transform = 'translateY(-50%)'
-    label.style.borderColor = colorToRgba(color, 0.36)
-    label.style.background = colorToRgba(color, 0.12)
-    label.style.color = '#eaf0f7'
+    setStyleIfChanged(label.style, 'left', `${lane === 'mean' ? leftLaneLeft : rightLaneLeft}px`)
+    setStyleIfChanged(label.style, 'top', `${y}px`)
+    setStyleIfChanged(label.style, 'transform', 'translateY(-50%)')
+    setStyleIfChanged(label.style, 'borderColor', colorToRgba(color, 0.36))
+    setStyleIfChanged(label.style, 'background', colorToRgba(color, 0.12))
+    setStyleIfChanged(label.style, 'color', '#eaf0f7')
     setOverlayLabelContent(label, color, name, `${title} ${value}`)
   }
 
@@ -1553,6 +1554,36 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
 
     label.dataset.overlaySignature = signature
     label.innerHTML = renderOverlayValueLabel(color, name, value)
+  }
+
+  function setStyleIfChanged(style: CSSStyleDeclaration, property: string, value: string) {
+    const currentValue = (style as CSSStyleDeclaration & Record<string, string>)[property]
+    if (currentValue === value) {
+      return
+    }
+
+    ;(style as CSSStyleDeclaration & Record<string, string>)[property] = value
+  }
+
+  function setSvgAttributeIfChanged(element: SVGElement, name: string, value: string) {
+    if (element.getAttribute(name) === value) {
+      return
+    }
+
+    element.setAttribute(name, value)
+  }
+
+  function setSvgVisibilityIfChanged(element: SVGElement, value: 'hidden' | 'visible') {
+    setSvgAttributeIfChanged(element, 'visibility', value)
+  }
+
+  function setCircleRadiusIfChanged(circle: SVGCircleElement, value: number) {
+    const radius = `${value}`
+    if (circle.getAttribute('r') === radius) {
+      return
+    }
+
+    circle.setAttribute('r', radius)
   }
 
   function renderOverlayValueLabel(color: string, name: string, value: string) {
