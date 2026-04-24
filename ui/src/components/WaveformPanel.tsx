@@ -5,8 +5,7 @@ import { isWaveformVisualAidEnabled, type WaveformVisualAidState } from '../lib/
 import { formatWaveformWindowMs, MAX_WAVEFORM_WINDOW_MS, MIN_WAVEFORM_WINDOW_MS, scaleWaveformWindowMs } from '../lib/waveformWindow'
 import { createDevTimingLogger } from '../lib/logger'
 import { useAppStore } from '../store/appStore'
-import { useShallow } from 'zustand/react/shallow'
-import { selectSelectedWaveformVariables, type SelectedWaveformVariable } from '../store/selectors/waveformSelectors'
+import type { SelectedWaveformVariable } from '../store/selectors/waveformSelectors'
 import type { UiAnalysisPayload, VariableEntry } from '../types'
 
 const SLOPE_REGRESSION_POINT_COUNT = 8
@@ -81,11 +80,31 @@ type PlotModel = {
 }
 
 export function WaveformPanel() {
-  const selectedVariables = useAppStore(useShallow(selectSelectedWaveformVariables))
+  const selectedChannels = useAppStore((state) => state.selectedChannels)
+  const variables = useAppStore((state) => state.variables)
+  const colorForChannel = useAppStore((state) => state.colorForChannel)
   const visualAidState = useAppStore((state) => state.visualAidState)
   const timeWindowMs = useAppStore((state) => state.waveformWindowMs)
   const setTimeWindowMs = useAppStore((state) => state.setWaveformWindowMs)
   const [menuOpen, setMenuOpen] = useState(true)
+
+  const selectedVariables = useMemo(
+    () =>
+      selectedChannels.reduce<SelectedWaveformVariable[]>((acc, channel) => {
+        const variable = variables[channel]
+        if (!variable) {
+          return acc
+        }
+
+        acc.push({
+          name: variable.name,
+          color: colorForChannel(variable.name),
+          variable,
+        })
+        return acc
+      }, []),
+    [colorForChannel, selectedChannels, variables],
+  )
 
   const { numericCount, textCount } = useMemo(() => {
     let numericCount = 0
@@ -978,6 +997,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       stopCursorAnimation(state)
       for (const element of state.items.values()) {
         setStyleIfChanged(element.cursorLabel.style, 'display', 'none')
+        setSvgVisibilityIfChanged(element.cursorGuideLine, 'hidden')
         setSvgVisibilityIfChanged(element.cursorCalloutLine, 'hidden')
         setSvgVisibilityIfChanged(element.cursorDot, 'hidden')
       }
@@ -1010,6 +1030,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       setStyleIfChanged(element.cursorLabel.style, 'background', colorToRgba(track.color, 0.16))
       setStyleIfChanged(element.cursorLabel.style, 'color', '#f6f8fb')
       setOverlayLabelContent(element.cursorLabel, track.color, track.name, formatDisplayValue(track.variable, cursorAnchor.value))
+      setLine(element.cursorGuideLine, cursorAnchor.x, 0, cursorAnchor.x, height, colorToRgba(track.color, 0.34), '5 5', 1)
       updateCursorAnimationTarget(state, track.name, {
         color: track.color,
         anchorX: cursorAnchor.x,
@@ -1023,6 +1044,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
         state.cursorAnimations.delete(name)
         state.latestAnimations.delete(name)
         setStyleIfChanged(element.cursorLabel.style, 'display', 'none')
+        setSvgVisibilityIfChanged(element.cursorGuideLine, 'hidden')
         setSvgVisibilityIfChanged(element.cursorCalloutLine, 'hidden')
         setSvgVisibilityIfChanged(element.cursorDot, 'hidden')
         setStyleIfChanged(element.latestLabel.style, 'display', 'none')
@@ -1099,6 +1121,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     medianLabel.className = 'waveform-overlay-label waveform-overlay-label--measurement'
 
     const calloutLine = createSvgLine(state.linesLayer, 'waveform-overlay-callout')
+    const cursorGuideLine = createSvgLine(state.linesLayer, 'waveform-overlay-cursor-guide')
     const cursorCalloutLine = createSvgLine(state.linesLayer, 'waveform-overlay-callout')
     const meanLine = createSvgLine(state.linesLayer, 'waveform-overlay-band')
     const medianLine = createSvgLine(state.linesLayer, 'waveform-overlay-band')
@@ -1115,6 +1138,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
       meanLabel,
       medianLabel,
       calloutLine,
+      cursorGuideLine,
       cursorCalloutLine,
       meanLine,
       medianLine,
@@ -1307,6 +1331,7 @@ function createMeasurementOverlayPlugin(modelRef: MutableRefObject<PlotModel | n
     setStyleIfChanged(element.cursorLabel.style, 'left', `${animation.currentX}px`)
     setStyleIfChanged(element.cursorLabel.style, 'top', `${labelY}px`)
     setStyleIfChanged(element.cursorLabel.style, 'transform', 'translateY(-50%)')
+    setLine(element.cursorGuideLine, target.anchorX, 0, target.anchorX, height, colorToRgba(target.color, 0.34), '5 5', 1)
     setCircle(element.cursorDot, target.anchorX, anchorY, 4.5, target.color)
 
     if (shouldShowCallout) {
@@ -1727,6 +1752,7 @@ type OverlayItemElements = {
   meanLabel: HTMLDivElement
   medianLabel: HTMLDivElement
   calloutLine: SVGLineElement
+  cursorGuideLine: SVGLineElement
   cursorCalloutLine: SVGLineElement
   meanLine: SVGLineElement
   medianLine: SVGLineElement

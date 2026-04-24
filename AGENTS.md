@@ -50,6 +50,6 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 
 | Skill                                           | When to use                                                                                  |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `.agents/skills/tauri-streaming-debug/SKILL.md` | Tauri fake stream, waveform rendering, store batching, or high-frequency UI update debugging |
+| `.agents/skills/tauri-streaming-debug/SKILL.md` | Tauri fake stream, waveform rendering, cursor/overlay sync, store batching, or high-frequency UI update debugging |
 | `.agents/skills/bmi088-host-handshake-sync/SKILL.md` | BMI088 UART4 schema-first handshake, host parser, ACK/START flow, or shared debug/telemetry port debugging |
 | `.agents/skills/protocol-handshake-debugging/SKILL.md` | Generic schema-first binary protocol, mixed text/binary stream, handshake, CRC, or high-rate telemetry debugging |

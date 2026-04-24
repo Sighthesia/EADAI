@@ -23,6 +23,8 @@ The Tauri workbench stays responsive only when serial events are timestamp-align
 - Fake multi-channel samples must share the same logical timestamp, otherwise `WaveformPanel` aligns channels with many `null` gaps and lines disappear.
 - The store must prefer parser-provided `timestamp` over per-event wall-clock time when building sample points.
 - `uPlot` must be created once per series structure and updated with `setData()` / `setSize()` instead of `destroy() + new` for each sample.
+- React/Zustand selectors used with `useSyncExternalStore` must return stable snapshots; derive arrays/objects in the component with `useMemo` when the selector would otherwise allocate on every render.
+- Real-time waveform cursors need all three parts kept in sync: guide line, callout line, and marker dot. If the cursor looks incomplete, inspect whether one part is only updated in the non-animated path or hidden on a stale branch.
 - Tauri event listeners and Zustand writes must be batched in `requestAnimationFrame`, especially in React Strict Mode.
 
 ## Performance Triage
