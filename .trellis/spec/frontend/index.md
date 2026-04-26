@@ -24,6 +24,7 @@ The current pattern is a small app shell plus focused workspace components.
 - `ui/src/App.tsx` hosts a unified workbench shell.
 - `ui/src/components/Workbench.tsx` owns the dockable panel layout.
 - `ui/src/components/ConnectionPanel.tsx` owns both serial connection controls and logic-analyzer capture controls.
+- `ui/src/components/RuntimePanel.tsx` owns the integrated protocol/traffic/hook summary surface.
 - `ui/src/components/LogicAnalyzerPage.tsx` owns the logic-analyzer visualization tab.
 - `ui/src/lib/tauri.ts` holds Tauri command wrappers.
 - `ui/src/types.ts` mirrors Rust payloads for the desktop bridge.

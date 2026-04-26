@@ -55,6 +55,11 @@ import type {
   UiParserMeta,
   UiProtocolHandshakeEvent,
   UiProtocolSnapshot,
+  UiRuntimeCatalogSnapshot,
+  UiRuntimeDeviceSnapshot,
+  UiRuntimeCommandCatalogItem,
+  UiRuntimeTelemetryCatalogField,
+  UiRuntimeTelemetryCatalogSnapshot,
   UiScriptHookExample,
   UiTelemetrySchemaPayload,
   UiTelemetrySamplePayload,
@@ -81,6 +86,36 @@ onSample((record) => {
   if (import.meta.env && import.meta.env.DEV) console.debug('sample', record)
 })`
 const PROTOCOL_TIMELINE_LIMIT = 64
+const RUNTIME_COMMAND_CATALOG: UiRuntimeCommandCatalogItem[] = [
+  {
+    command: 'REQ_SCHEMA',
+    label: 'Request schema',
+    description: 'Ask the device to publish the current telemetry layout before sampling.',
+    recommendedPhase: 'awaitingSchema',
+    payloadPreview: 'REQ_SCHEMA',
+  },
+  {
+    command: 'ACK',
+    label: 'Acknowledge schema',
+    description: 'Confirm the received schema and advance the handshake.',
+    recommendedPhase: 'awaitingAck',
+    payloadPreview: 'ACK',
+  },
+  {
+    command: 'START',
+    label: 'Start streaming',
+    description: 'Transition from handshake into continuous telemetry streaming.',
+    recommendedPhase: 'awaitingStart',
+    payloadPreview: 'START',
+  },
+  {
+    command: 'STOP',
+    label: 'Stop streaming',
+    description: 'Pause streaming and return the runtime to an idle state.',
+    recommendedPhase: 'streaming',
+    payloadPreview: 'STOP',
+  },
+]
 
 type AppStore = {
   ports: SerialDeviceInfo[]
@@ -92,6 +127,7 @@ type AppStore = {
   consoleDisplayMode: 'text' | 'hex' | 'binary'
   consoleEntries: ConsoleEntry[]
   protocol: UiProtocolSnapshot
+  runtimeDevice: UiRuntimeDeviceSnapshot
   variables: Record<string, VariableEntry>
   selectedChannels: string[]
   waveformWindowMs: number
@@ -105,6 +141,7 @@ type AppStore = {
   imuQuality: ImuQualitySnapshot
   logicAnalyzer: LogicAnalyzerStatus
   logicAnalyzerConfig: LogicAnalyzerConfig
+  runtimeCatalog: UiRuntimeCatalogSnapshot
   status: AppStatus
   setCommandInput: (value: string) => void
   setAppendNewline: (value: boolean) => void
@@ -216,6 +253,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
     samplerateHzInput: '',
     selectedChannelLabels: [],
   },
+  runtimeDevice: createRuntimeDeviceSnapshot(
+    { isRunning: false, connectionState: 'stopped' },
+    {
+      port: '',
+      baudRate: 115200,
+      retryMs: 1000,
+      readTimeoutMs: 50,
+      sourceKind: 'fake',
+      fakeProfile: DEFAULT_FAKE_PROFILE,
+    },
+    [],
+  ),
+  runtimeCatalog: createRuntimeCatalog(
+    defaultProtocolSnapshot(),
+    createRuntimeDeviceSnapshot(
+      { isRunning: false, connectionState: 'stopped' },
+      {
+        port: '',
+        baudRate: 115200,
+        retryMs: 1000,
+        readTimeoutMs: 50,
+        sourceKind: 'fake',
+        fakeProfile: DEFAULT_FAKE_PROFILE,
+      },
+      [],
+    ),
+  ),
   status: defaultStatus(),
   setCommandInput: (value) => set({ commandInput: value }),
   setAppendNewline: (value) => set({ appendNewline: value }),
@@ -224,7 +288,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       waveformWindowMs: clampWaveformWindowMs(typeof value === 'function' ? value(state.waveformWindowMs) : value),
     })),
-  patchConfig: (value) => set((state) => ({ config: { ...state.config, ...value } })),
+  patchConfig: (value) =>
+    set((state) => {
+      const config = { ...state.config, ...value }
+      const runtimeDevice = createRuntimeDeviceSnapshot(state.session, config, state.ports)
+      return {
+        config,
+        runtimeDevice,
+        runtimeCatalog: createRuntimeCatalog(state.protocol, runtimeDevice),
+      }
+    }),
   bootstrap: async () => {
   const [ports, session, mcp, logicAnalyzer] = await Promise.all([
       listSerialPorts(),
@@ -239,6 +312,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       mcp,
       logicAnalyzer,
       logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, logicAnalyzer),
+      runtimeDevice: createRuntimeDeviceSnapshot(session, state.config, ports),
+      runtimeCatalog: createRuntimeCatalog(state.protocol, createRuntimeDeviceSnapshot(session, state.config, ports)),
       config: {
         ...state.config,
         port:
@@ -366,10 +441,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const session = await connectSerial(request)
     set({
       session,
+      runtimeDevice: createRuntimeDeviceSnapshot(session, config, []),
       variables: {},
       selectedChannels: [],
       consoleEntries: [],
       protocol: defaultProtocolSnapshot(),
+      runtimeCatalog: createRuntimeCatalog(defaultProtocolSnapshot(), createRuntimeDeviceSnapshot(session, config, [])),
       imuQuality: {
         level: 'idle',
         label: 'No IMU data',
@@ -389,11 +466,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const session = await disconnectSerial()
     set({
       session,
+      runtimeDevice: createRuntimeDeviceSnapshot(session, get().config, get().ports),
       status: { tone: 'neutral', message: 'Serial session stopped.' },
       variables: {},
       selectedChannels: [],
       consoleEntries: [],
       protocol: defaultProtocolSnapshot(),
+      runtimeCatalog: createRuntimeCatalog(defaultProtocolSnapshot(), createRuntimeDeviceSnapshot(session, get().config, get().ports)),
       imuQuality: {
         level: 'idle',
         label: 'No IMU data',
@@ -490,7 +569,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             }
 
             const sampleTimestampMs = parseSampleTimestampMs(event.parser.fields.timestamp, event.timestampMs)
-            const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
+            const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs, runtimeDeviceRef(session, state.config))
             const numericRaw = event.parser.fields.numericValue ?? rawValue
             const numericValue = Number(numericRaw)
             const nextPoints = Number.isFinite(numericValue)
@@ -528,7 +607,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
           if (event.kind === 'analysis') {
             const channelId = event.analysis.channelId
-            const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
+            const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs, runtimeDeviceRef(session, state.config))
 
             if (!variablesChanged) {
               variables = { ...variables }
@@ -554,7 +633,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
             event.schema.fields.forEach((field, index) => {
               if (!nextVariables[field.name]) {
-                nextVariables[field.name] = createVariableEntry(field.name, event.timestampMs)
+                nextVariables[field.name] = createVariableEntry(field.name, event.timestampMs, runtimeDeviceRef(session, state.config))
                 changed = true
               }
 
@@ -591,7 +670,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             }
 
             for (const field of schemaFields) {
-              const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs)
+              const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs, runtimeDeviceRef(session, state.config))
               const nextNumericValue = field.value
 
               variables[field.name] = {
@@ -620,7 +699,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           }
 
           const channelId = event.trigger.channelId
-          const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs)
+          const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs, runtimeDeviceRef(session, state.config))
 
           if (!variablesChanged) {
             variables = { ...variables }
@@ -709,6 +788,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
         if (protocolChanged) {
           nextState.protocol = protocol
+          nextState.runtimeDevice = createRuntimeDeviceSnapshot(session, state.config, state.ports)
+          nextState.runtimeCatalog = createRuntimeCatalog(protocol, createRuntimeDeviceSnapshot(session, state.config, state.ports))
         }
 
         return nextState as AppStore
@@ -814,8 +895,9 @@ const asConsoleEntry = (event: Extract<SerialBusEvent, { kind: 'line' }>): Conso
   parser: event.parser,
 })
 
-const createVariableEntry = (channelId: string, updatedAtMs: number): VariableEntry => ({
+const createVariableEntry = (channelId: string, updatedAtMs: number, deviceRef: string | null): VariableEntry => ({
   name: channelId,
+  deviceRef,
   currentValue: '—',
   trend: 'flat',
   unit: null,
@@ -845,6 +927,104 @@ function createProtocolHookExamples(): UiScriptHookExample[] {
 })`,
     },
   ]
+}
+
+function createRuntimeCatalog(protocol: UiProtocolSnapshot, runtimeDevice: UiRuntimeDeviceSnapshot): UiRuntimeCatalogSnapshot {
+  return {
+    device: runtimeDevice,
+    commands: RUNTIME_COMMAND_CATALOG.map((item) => ({ ...item })),
+    telemetry: createRuntimeTelemetryCatalog(protocol),
+  }
+}
+
+function createRuntimeDeviceSnapshot(
+  session: SessionSnapshot,
+  config: ConnectRequest,
+  ports: SerialDeviceInfo[],
+): UiRuntimeDeviceSnapshot {
+  const sourceKind = session.transport === 'serial' || session.transport === 'fake' ? session.transport : config.sourceKind
+  const portLabel = sourceKind === 'fake' ? `fake://${config.fakeProfile ?? DEFAULT_FAKE_PROFILE}` : session.port ?? config.port ?? null
+  const serialDevice = sourceKind === 'serial' && portLabel ? ports.find((port) => port.portName === portLabel) ?? null : null
+  const label = sourceKind === 'fake' ? fakeProfileLabel(config.fakeProfile ?? DEFAULT_FAKE_PROFILE) : serialDevice?.displayName ?? portLabel ?? 'Serial device'
+  const detail = sourceKind === 'fake' ? 'Built-in development telemetry source' : formatSerialDeviceDetail(serialDevice, portLabel)
+
+  return {
+    id: portLabel ?? sourceKind,
+    label,
+    detail,
+    status: session.isRunning ? session.connectionState ?? 'connected' : 'Idle',
+    transportLabel: sourceKind === 'fake' ? 'Fake stream' : 'Serial device',
+    portLabel,
+    baudRate: session.baudRate ?? config.baudRate,
+    sourceKind,
+    connected: session.isRunning,
+    serialDevice,
+  }
+}
+
+function runtimeDeviceRef(session: SessionSnapshot, config: ConnectRequest) {
+  if (session.transport === 'fake') {
+    return `fake://${config.fakeProfile ?? DEFAULT_FAKE_PROFILE}`
+  }
+
+  return session.port ?? config.port ?? null
+}
+
+function fakeProfileLabel(profile: string) {
+  switch (profile) {
+    case 'noisy-monitor':
+      return 'Noisy Monitor'
+    case 'imu-lab':
+      return 'IMU Lab'
+    default:
+      return 'Telemetry Lab'
+  }
+}
+
+function formatSerialDeviceDetail(device: SerialDeviceInfo | null, fallbackPort: string | null) {
+  if (!device) {
+    return fallbackPort ? `Serial port ${fallbackPort}` : 'Awaiting serial device details'
+  }
+
+  const parts = [device.product, device.manufacturer, formatUsbIdentifier(device)].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : device.displayName
+}
+
+function formatUsbIdentifier(device: SerialDeviceInfo) {
+  if (device.vid == null || device.pid == null) {
+    return null
+  }
+
+  return `USB ${formatUsbHex(device.vid)}:${formatUsbHex(device.pid)}`
+}
+
+function formatUsbHex(value: number) {
+  return value.toString(16).padStart(4, '0').toUpperCase()
+}
+
+function createRuntimeTelemetryCatalog(protocol: UiProtocolSnapshot): UiRuntimeTelemetryCatalogSnapshot {
+  return {
+    parserName: protocol.parserName,
+    rateHz: protocol.schema?.rateHz ?? null,
+    sampleLen: protocol.schema?.sampleLen ?? null,
+    fields: protocol.schema?.fields.map((field, index) => createRuntimeTelemetryCatalogField(field.name, field.unit, field.scaleQ, index)) ?? [],
+    lastSchemaAtMs: protocol.lastSchemaAtMs ?? null,
+    lastSampleAtMs: protocol.lastSampleAtMs ?? null,
+  }
+}
+
+function createRuntimeTelemetryCatalogField(
+  name: string,
+  unit: string,
+  scaleQ: number,
+  index: number,
+): UiRuntimeTelemetryCatalogField {
+  return {
+    name,
+    unit,
+    scaleQ,
+    index,
+  }
 }
 
 function defaultProtocolSnapshot(): UiProtocolSnapshot {

@@ -20,6 +20,24 @@ export interface SendRequest {
 
 export type Bmi088HostCommand = 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA'
 
+export type UiRuntimeCommandParameterKind = 'text' | 'number' | 'boolean' | 'select'
+
+export interface UiRuntimeCommandParameterOption {
+  label: string
+  value: string
+}
+
+export interface UiRuntimeCommandParameter {
+  name: string
+  label: string
+  kind: UiRuntimeCommandParameterKind
+  description?: string | null
+  placeholder?: string | null
+  defaultValue?: string | number | boolean | null
+  required?: boolean
+  options?: UiRuntimeCommandParameterOption[]
+}
+
 export interface Bmi088CommandRequest {
   command: Bmi088HostCommand
 }
@@ -195,6 +213,50 @@ export interface UiProtocolSnapshot {
   timeline: UiProtocolHandshakeEvent[]
 }
 
+export interface UiRuntimeCommandCatalogItem {
+  command: Bmi088HostCommand
+  label: string
+  description: string
+  recommendedPhase: UiProtocolHandshakePhase | null
+  parameters?: UiRuntimeCommandParameter[]
+  payloadPreview?: string | null
+}
+
+export interface UiRuntimeTelemetryCatalogField {
+  name: string
+  unit: string
+  scaleQ: number
+  index: number
+}
+
+export interface UiRuntimeTelemetryCatalogSnapshot {
+  parserName: string
+  rateHz: number | null
+  sampleLen: number | null
+  fields: UiRuntimeTelemetryCatalogField[]
+  lastSchemaAtMs: number | null
+  lastSampleAtMs: number | null
+}
+
+export interface UiRuntimeDeviceSnapshot {
+  id: string
+  label: string
+  detail: string
+  status: string
+  transportLabel: string
+  portLabel: string | null
+  baudRate: number | null
+  sourceKind: SourceKind
+  connected: boolean
+  serialDevice?: SerialDeviceInfo | null
+}
+
+export interface UiRuntimeCatalogSnapshot {
+  device: UiRuntimeDeviceSnapshot
+  commands: UiRuntimeCommandCatalogItem[]
+  telemetry: UiRuntimeTelemetryCatalogSnapshot
+}
+
 export interface UiScriptHookExample {
   name: string
   snippet: string
@@ -291,6 +353,7 @@ export interface SamplePoint {
 
 export interface VariableEntry {
   name: string
+  deviceRef?: string | null
   currentValue: string
   previousValue?: number
   numericValue?: number

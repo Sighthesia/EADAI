@@ -84,6 +84,7 @@ export function VariablesPanel() {
       ),
     [variables],
   )
+  const groupedRows = useMemo(() => groupVariablesByDevice(rows), [rows])
   const selectedChannelSet = useMemo(() => new Set(selectedChannels), [selectedChannels])
   const colorByChannel = useMemo(() => {
     const map = new Map<string, string>()
@@ -164,7 +165,7 @@ export function VariablesPanel() {
   }
 
   return (
-    <section className="panel panel-scroll">
+    <section className="panel panel-scroll variables-panel">
       <div className="variables-header">
         <span>Auto-discovered channels</span>
         <div className="variables-header-actions">
@@ -183,22 +184,35 @@ export function VariablesPanel() {
           </div>
         </div>
       </div>
-      <div className="variables-list">
-        {rows.map((variable) => {
-          const channel = variable.name
-          return (
-            <VariableRow
-              key={channel}
-              variable={variable}
-              selected={selectedChannelSet.has(channel)}
-              roleLabels={channelRoleMap[channel] ?? []}
-              metricDisplayMode={metricDisplayMode}
-              color={colorByChannel.get(channel) ?? colorForChannel(channel)}
-              onToggle={toggleChannel}
-              onOpenContextMenu={(channel, x, y) => setContextMenu({ channel, x, y })}
-            />
-          )
-        })}
+      <div className="variables-device-groups">
+        {groupedRows.map((group) => (
+          <section key={group.deviceRef} className="variables-device-group panel panel-scroll">
+            <div className="variables-device-group-header">
+              <div>
+                <strong>{group.label}</strong>
+                <small>{group.detail}</small>
+              </div>
+              <span className="metric-chip">{group.rows.length} channels</span>
+            </div>
+            <div className="variables-list">
+              {group.rows.map((variable) => {
+                const channel = variable.name
+                return (
+                  <VariableRow
+                    key={channel}
+                    variable={variable}
+                    selected={selectedChannelSet.has(channel)}
+                    roleLabels={channelRoleMap[channel] ?? []}
+                    metricDisplayMode={metricDisplayMode}
+                    color={colorByChannel.get(channel) ?? colorForChannel(channel)}
+                    onToggle={toggleChannel}
+                    onOpenContextMenu={(channel, x, y) => setContextMenu({ channel, x, y })}
+                  />
+                )
+              })}
+            </div>
+          </section>
+        ))}
       </div>
       {contextMenu ? (
         <VariableContextMenu
@@ -217,6 +231,35 @@ export function VariablesPanel() {
       ) : null}
     </section>
   )
+}
+
+type VariableDeviceGroup = {
+  deviceRef: string
+  label: string
+  detail: string
+  rows: VariableEntry[]
+}
+
+function groupVariablesByDevice(rows: VariableEntry[]): VariableDeviceGroup[] {
+  const groups = new Map<string, VariableDeviceGroup>()
+
+  for (const row of rows) {
+    const deviceRef = row.deviceRef ?? 'unassigned'
+    const existing = groups.get(deviceRef)
+    if (existing) {
+      existing.rows.push(row)
+      continue
+    }
+
+    groups.set(deviceRef, {
+      deviceRef,
+      label: deviceRef === 'unassigned' ? 'Ungrouped channels' : deviceRef,
+      detail: deviceRef === 'unassigned' ? 'Channels without a known device assignment yet' : 'Channels captured from this device',
+      rows: [row],
+    })
+  }
+
+  return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' }))
 }
 
 const VariableRow = memo(function VariableRow({

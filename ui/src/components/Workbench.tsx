@@ -6,11 +6,9 @@ import { McpPanel } from './McpPanel'
 import { VariablesPanel } from './VariablesPanel'
 import { WaveformPanel } from './WaveformPanel'
 import { FrequencySpectrumPage } from './FrequencySpectrumPage'
-import { ConsolePanel } from './ConsolePanel'
 import { ImuPanel } from './ImuPanel'
 import { LogicAnalyzerPage } from './LogicAnalyzerPage'
-import { ProtocolPanel } from './ProtocolPanel'
-import { ScriptHookPanel } from './ScriptHookPanel'
+import { RuntimePanel } from './RuntimePanel'
 
 const panelRenderProfilers = new Map<string, ReturnType<typeof createDevTimingLogger>>()
 
@@ -74,9 +72,7 @@ const layoutJson: IJsonModel = {
       selected: 0,
       size: 360,
       children: [
-        { type: 'tab', name: 'Serial Console', component: 'console' },
-        { type: 'tab', name: 'Protocol', component: 'protocol' },
-        { type: 'tab', name: 'Script Hooks', component: 'scriptHooks' },
+        { type: 'tab', name: 'Runtime', component: 'runtime' },
       ],
     },
     {
@@ -132,12 +128,8 @@ function factory(node: TabNode) {
       return renderManagedPanel(node, 'ImuPanel', <ImuPanel />)
     case 'logicAnalyzer':
       return renderManagedPanel(node, 'LogicAnalyzerPage', <LogicAnalyzerPage />)
-    case 'console':
-      return renderManagedPanel(node, 'ConsolePanel', <ConsolePanel />)
-    case 'protocol':
-      return renderManagedPanel(node, 'ProtocolPanel', <ProtocolPanel />)
-    case 'scriptHooks':
-      return renderManagedPanel(node, 'ScriptHookPanel', <ScriptHookPanel />)
+    case 'runtime':
+      return renderManagedPanel(node, 'RuntimePanel', <RuntimePanel />)
     default:
       return null
   }

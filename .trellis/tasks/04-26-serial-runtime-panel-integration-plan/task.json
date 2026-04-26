@@ -1,0 +1,44 @@
+{
+  "id": "serial-runtime-panel-integration-plan",
+  "name": "serial-runtime-panel-integration-plan",
+  "title": "Workbench runtime panel integration analysis",
+  "description": "",
+  "status": "planning",
+  "dev_type": "frontend",
+  "scope": "layout",
+  "priority": "P2",
+  "creator": "Sighthesia",
+  "assignee": "Sighthesia",
+  "createdAt": "2026-04-26",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 3,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

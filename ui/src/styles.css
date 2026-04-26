@@ -239,6 +239,360 @@ button {
   gap: 14px;
 }
 
+.runtime-panel {
+  padding: 14px;
+  gap: 14px;
+}
+
+.runtime-overview,
+.runtime-inspector-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.runtime-overview {
+  padding: 0;
+}
+
+.runtime-inspector-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+
+.runtime-inspector-grid > .runtime-section {
+  min-width: 0;
+}
+
+.runtime-section,
+.runtime-section-card {
+  display: grid;
+  gap: 12px;
+}
+
+.runtime-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.runtime-section-header h3 {
+  margin: 4px 0 0;
+  font-size: 16px;
+}
+
+.runtime-section-card {
+  border: 1px solid #202733;
+  border-radius: 12px;
+  background: rgba(18, 22, 30, 0.96);
+  padding: 12px;
+}
+
+.runtime-header,
+.runtime-flow-strip,
+.runtime-summary-grid,
+.runtime-detail-grid,
+.runtime-hook-grid,
+.runtime-inspector-grid,
+.runtime-trigger-row,
+.runtime-entry-row,
+.runtime-flow-step {
+  display: grid;
+  gap: 10px;
+}
+
+.runtime-header,
+.runtime-flow-strip,
+.runtime-trigger-row,
+.runtime-header-meta {
+  grid-auto-flow: column;
+  align-items: center;
+}
+
+.runtime-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.runtime-header,
+.runtime-flow-strip,
+.runtime-detail-grid,
+.runtime-hook-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.runtime-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.runtime-dashboard-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.runtime-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.runtime-header h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+
+.runtime-flow-step,
+.runtime-card,
+.runtime-detail-card,
+.runtime-hook-card,
+.runtime-entry-row,
+.runtime-trigger-item {
+  border: 1px solid #202733;
+  border-radius: 12px;
+  background: rgba(18, 22, 30, 0.96);
+  padding: 12px;
+}
+
+.runtime-device-card {
+  border-color: rgba(79, 124, 255, 0.28);
+  background: linear-gradient(180deg, rgba(19, 25, 38, 0.98), rgba(14, 18, 26, 0.96));
+}
+
+.runtime-device-summary-card {
+  min-height: 100%;
+}
+
+.runtime-flow-step strong,
+.runtime-card strong,
+.runtime-detail-card strong,
+.runtime-hook-card strong {
+  display: block;
+}
+
+.runtime-detail-grid,
+.runtime-hook-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.runtime-hook-grid {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.runtime-catalog-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.runtime-telemetry-group-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.runtime-telemetry-group {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #243041;
+  border-radius: 12px;
+  background: rgba(24, 29, 38, 0.96);
+}
+
+.runtime-telemetry-group > summary {
+  list-style: none;
+}
+
+.runtime-telemetry-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.runtime-telemetry-group-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.runtime-telemetry-group-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.runtime-telemetry-group-copy strong,
+.runtime-telemetry-group-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runtime-telemetry-field-grid {
+  margin-top: 0;
+}
+
+.runtime-telemetry-field-pill {
+  background: rgba(18, 22, 30, 0.9);
+}
+
+.runtime-telemetry-disclosure {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #202733;
+  border-radius: 12px;
+  background: rgba(18, 22, 30, 0.96);
+}
+
+.runtime-telemetry-disclosure > summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.runtime-telemetry-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.runtime-telemetry-raw-grid {
+  padding-top: 2px;
+}
+
+.runtime-hook-stack {
+  grid-template-columns: 1fr;
+}
+
+.runtime-console-summary-grid,
+.runtime-protocol-summary-grid,
+.runtime-hook-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.runtime-console-entry-list {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.runtime-console-toolbar,
+.runtime-console-compose {
+  width: 100%;
+}
+
+.runtime-command-center {
+  min-width: 0;
+}
+
+.runtime-command-center-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.runtime-command-list {
+  display: grid;
+  gap: 10px;
+}
+
+.runtime-command-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #202733;
+  background: rgba(18, 22, 30, 0.96);
+  color: inherit;
+  text-align: left;
+}
+
+.runtime-command-row.active {
+  border-color: rgba(129, 201, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(129, 201, 255, 0.14);
+}
+
+.runtime-command-copy,
+.runtime-command-detail-copy,
+.runtime-command-parameter {
+  display: grid;
+  gap: 4px;
+}
+
+.runtime-command-copy span {
+  color: #d8dee9;
+  font-weight: 600;
+}
+
+.runtime-command-copy small,
+.runtime-command-detail-copy small,
+.runtime-command-parameter small {
+  color: #9ba8b7;
+}
+
+.runtime-command-actions,
+.runtime-command-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.runtime-command-params {
+  display: grid;
+  gap: 12px;
+}
+
+.runtime-command-parameter-control {
+  width: 100%;
+}
+
+.runtime-command-detail code {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #202733;
+  background: rgba(15, 19, 26, 0.96);
+  color: #b7c4d6;
+}
+
+.runtime-protocol-command-row {
+  justify-content: flex-start;
+}
+
+.runtime-entry-list,
+.runtime-trigger-list,
+.runtime-example-list {
+  display: grid;
+  gap: 10px;
+}
+
+.runtime-entry-body code,
+.runtime-hook-card pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.runtime-entry-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: start;
+}
+
+.runtime-entry-body strong {
+  color: #e7edf8;
+}
+
+.runtime-trigger-item p,
+.runtime-entry-row p {
+  margin: 0;
+  color: #b3bcc9;
+}
+
+.runtime-hook-card pre {
+  margin-top: 8px;
+}
+
 
 .protocol-summary-grid,
 .script-hook-grid {
@@ -1212,6 +1566,37 @@ button {
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px 16px;
+}
+
+.variables-device-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.variables-device-group {
+  border: 1px solid #202733;
+  border-radius: 14px;
+  background: rgba(14, 18, 24, 0.88);
+  overflow: hidden;
+}
+
+.variables-device-group-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid rgba(42, 50, 64, 0.65);
+}
+
+.variables-device-group-header strong,
+.variables-device-group-header small {
+  display: block;
+}
+
+.variables-device-group-header small {
+  color: #9ba8b7;
+  margin-top: 4px;
 }
 
 .variable-color {
