@@ -4,6 +4,23 @@ use eadai::bmi088::{
 };
 
 #[test]
+fn encodes_and_decodes_identity_frames() {
+    let identity = sample_identity();
+    let frame = bmi088::encode_identity_frame(&identity);
+
+    match bmi088::decode_binary_frame(&frame).expect("decode identity") {
+        Bmi088Frame::Identity(decoded) => {
+            assert_eq!(decoded.device_name, "BMI088 Bringup");
+            assert_eq!(decoded.board_name, "TC264 Board");
+            assert_eq!(decoded.protocol_version, "1.0");
+            assert_eq!(decoded.sample_rate_hz, 100);
+            assert_eq!(decoded.feature_flags, 0x001D);
+        }
+        _ => panic!("expected identity frame"),
+    }
+}
+
+#[test]
 fn encodes_and_decodes_schema_frames() {
     let schema = bmi088::default_schema();
     let frame = bmi088::encode_schema_frame(&schema);
@@ -61,9 +78,13 @@ fn validates_crc_and_resynchronizes_bad_frames() {
 fn session_flow_requests_schema_then_ack_and_start() {
     let mut session = Bmi088SessionState::new();
     let boot = session.boot_commands();
-    assert_eq!(boot.len(), 1);
-    assert_eq!(boot[0], Bmi088HostCommand::ReqSchema);
+    assert_eq!(boot.len(), 2);
+    assert_eq!(boot[0], Bmi088HostCommand::ReqIdentity);
+    assert_eq!(boot[1], Bmi088HostCommand::ReqSchema);
     assert_eq!(session.phase(), Bmi088SessionPhase::AwaitingSchema);
+
+    let identity_commands = session.on_frame(&Bmi088Frame::Identity(sample_identity()));
+    assert!(identity_commands.is_empty());
 
     let commands = session.on_frame(&Bmi088Frame::Schema(bmi088::default_schema()));
     assert_eq!(commands.len(), 2);
@@ -79,10 +100,12 @@ fn session_flow_requests_schema_then_ack_and_start() {
 
 #[test]
 fn host_handshake_commands_encode_to_binary_request_frames() {
+    let req_identity = bmi088::encode_host_command(Bmi088HostCommand::ReqIdentity);
     let req_schema = bmi088::encode_host_command(Bmi088HostCommand::ReqSchema);
     let ack = bmi088::encode_host_command(Bmi088HostCommand::Ack);
     let start = bmi088::encode_host_command(Bmi088HostCommand::Start);
 
+    assert_eq!(&req_identity[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x14, 0x00, 0x00]);
     assert_eq!(&req_schema[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x13, 0x00, 0x00]);
     assert_eq!(&ack[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x10, 0x00, 0x00]);
     assert_eq!(&start[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x11, 0x00, 0x00]);
@@ -153,5 +176,38 @@ fn stream_decoder_uses_latest_schema_order_for_samples() {
             assert_eq!(decoded.fields[2].name, "roll");
         }
         _ => panic!("expected sample packet"),
+    }
+}
+
+#[test]
+fn stream_decoder_emits_identity_packets_before_schema() {
+    let mut decoder = bmi088::Bmi088StreamDecoder::new(4096);
+    let identity_packets = decoder.push(&bmi088::encode_identity_frame(&sample_identity()));
+    assert!(matches!(
+        identity_packets.first(),
+        Some(TelemetryPacket::Identity(identity)) if identity.device_name == "BMI088 Bringup"
+    ));
+
+    let schema_packets = decoder.push(&bmi088::encode_schema_frame(&bmi088::default_schema()));
+    assert!(matches!(schema_packets.first(), Some(TelemetryPacket::Schema(_))));
+}
+
+fn sample_identity() -> bmi088::Bmi088IdentityFrame {
+    bmi088::Bmi088IdentityFrame {
+        seq: 4,
+        identity_format_version: 1,
+        device_name: "BMI088 Bringup".to_string(),
+        board_name: "TC264 Board".to_string(),
+        firmware_version: "0.4.2".to_string(),
+        protocol_name: "bmi088_uart4".to_string(),
+        protocol_version: "1.0".to_string(),
+        transport_name: "uart4".to_string(),
+        sample_rate_hz: 100,
+        schema_field_count: 9,
+        sample_payload_len: 18,
+        protocol_version_byte: 1,
+        feature_flags: 0x001D,
+        baud_rate: 115_200,
+        protocol_minor_version: 0,
     }
 }

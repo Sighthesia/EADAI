@@ -217,6 +217,11 @@ impl App {
                                             parser,
                                         );
                                     }
+                                    TelemetryPacket::Identity(identity) => {
+                                        bmi088_session
+                                            .on_frame(&Bmi088Frame::Identity(identity.clone()));
+                                        publish_identity(&self.bus, &source, identity);
+                                    }
                                     TelemetryPacket::Schema(schema) => {
                                         for command in bmi088_session
                                             .on_frame(&Bmi088Frame::Schema(schema.clone()))
@@ -395,6 +400,36 @@ fn publish_schema(bus: &MessageBus, source: &MessageSource, schema: bmi088::Bmi0
         ]),
     );
     bus.publish(BusMessage::telemetry_schema(source, schema).with_parser(parser));
+}
+
+fn publish_identity(
+    bus: &MessageBus,
+    source: &MessageSource,
+    identity: bmi088::Bmi088IdentityFrame,
+) {
+    let parser = ParserMeta::parsed(
+        "bmi088_identity",
+        bmi088_payload_fields(&[
+            ("command", "IDENTITY".to_string()),
+            ("device_name", identity.device_name.clone()),
+            ("board_name", identity.board_name.clone()),
+            ("firmware_version", identity.firmware_version.clone()),
+            ("protocol_name", identity.protocol_name.clone()),
+            ("protocol_version", identity.protocol_version.clone()),
+            ("transport_name", identity.transport_name.clone()),
+            ("sample_rate_hz", identity.sample_rate_hz.to_string()),
+            ("schema_field_count", identity.schema_field_count.to_string()),
+            ("sample_payload_len", identity.sample_payload_len.to_string()),
+            ("protocol_version_byte", identity.protocol_version_byte.to_string()),
+            ("feature_flags", format!("0x{:04X}", identity.feature_flags)),
+            ("baud_rate", identity.baud_rate.to_string()),
+            (
+                "protocol_minor_version",
+                identity.protocol_minor_version.to_string(),
+            ),
+        ]),
+    );
+    bus.publish(BusMessage::telemetry_identity(source, identity).with_parser(parser));
 }
 
 fn publish_sample(bus: &MessageBus, source: &MessageSource, sample: bmi088::Bmi088SampleFrame) {

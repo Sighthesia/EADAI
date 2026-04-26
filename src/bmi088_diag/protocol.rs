@@ -1,7 +1,7 @@
 use crate::bmi088::{
     self, Bmi088DecodeError, Bmi088FieldDescriptor, Bmi088Frame, Bmi088HostCommand,
-    Bmi088SchemaFrame, decode_binary_frame_with_schema, decode_frame_envelope,
-    decode_sample_raw_values, encode_host_command_with_seq, find_sof,
+    Bmi088IdentityFrame, Bmi088SchemaFrame, decode_binary_frame_with_schema,
+    decode_frame_envelope, decode_sample_raw_values, encode_host_command_with_seq, find_sof,
     frame_len_from_payload_len,
 };
 use crate::serial::{FramedLine, LineFramer};
@@ -16,8 +16,10 @@ pub const CMD_ACK: u8 = bmi088::BMI088_CMD_ACK;
 pub const CMD_START: u8 = bmi088::BMI088_CMD_START;
 pub const CMD_STOP: u8 = bmi088::BMI088_CMD_STOP;
 pub const CMD_REQ_SCHEMA: u8 = bmi088::BMI088_CMD_REQ_SCHEMA;
+pub const CMD_REQ_IDENTITY: u8 = bmi088::BMI088_CMD_REQ_IDENTITY;
 pub const CMD_SCHEMA: u8 = bmi088::BMI088_CMD_SCHEMA;
 pub const CMD_SAMPLE: u8 = bmi088::BMI088_CMD_SAMPLE;
+pub const CMD_IDENTITY: u8 = bmi088::BMI088_CMD_IDENTITY;
 
 const MIN_FRAME_LEN: usize = bmi088::BMI088_MIN_FRAME_LEN;
 
@@ -27,6 +29,7 @@ pub enum HostCommand {
     Start,
     Stop,
     ReqSchema,
+    ReqIdentity,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,6 +40,7 @@ pub enum NewlineMode {
 }
 
 pub type SchemaField = Bmi088FieldDescriptor;
+pub type IdentityFrame = Bmi088IdentityFrame;
 pub type SchemaFrame = Bmi088SchemaFrame;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,6 +51,7 @@ pub struct SampleFrame {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Frame {
+    Identity(IdentityFrame),
     Schema(SchemaFrame),
     Sample(SampleFrame),
     Unknown {
@@ -210,6 +215,7 @@ pub fn ascii_command_bytes(command: HostCommand, newline_mode: NewlineMode) -> V
         HostCommand::Start => "start",
         HostCommand::Stop => "stop",
         HostCommand::ReqSchema => "req_schema",
+        HostCommand::ReqIdentity => "req_identity",
     };
 
     let mut bytes = command_text.as_bytes().to_vec();
@@ -233,6 +239,12 @@ fn decode_frame_with_schema(
         decode_frame_envelope(frame).map_err(map_decode_error)?;
 
     match (frame_type, command) {
+        (FRAME_TYPE_EVENT, CMD_IDENTITY) => match decode_binary_frame_with_schema(frame, schema)
+            .map_err(map_decode_error)?
+        {
+            Bmi088Frame::Identity(identity) => Ok(Frame::Identity(identity)),
+            _ => Err(DecodeError::Malformed("unexpected non-identity frame")),
+        },
         (FRAME_TYPE_EVENT, CMD_SCHEMA) => match decode_binary_frame_with_schema(frame, schema)
             .map_err(map_decode_error)?
         {
@@ -269,5 +281,6 @@ fn to_bmi088_command(command: HostCommand) -> Bmi088HostCommand {
         HostCommand::Start => Bmi088HostCommand::Start,
         HostCommand::Stop => Bmi088HostCommand::Stop,
         HostCommand::ReqSchema => Bmi088HostCommand::ReqSchema,
+        HostCommand::ReqIdentity => Bmi088HostCommand::ReqIdentity,
     }
 }

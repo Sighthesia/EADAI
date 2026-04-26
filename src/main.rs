@@ -181,6 +181,16 @@ fn print_messages(subscription: BusSubscription) {
                     trigger.channel_id, trigger.rule_id, trigger.severity, trigger.reason
                 );
             }
+            MessageKind::TelemetryIdentity(identity) => {
+                println!(
+                    "[telemetry-identity] device={} board={} firmware={} protocol={} transport={}",
+                    identity.device_name,
+                    identity.board_name,
+                    identity.firmware_version,
+                    identity.protocol_version,
+                    identity.transport_name
+                );
+            }
             MessageKind::TelemetrySchema(schema) => {
                 println!(
                     "[telemetry-schema] rate_hz={} sample_len={} fields={}",

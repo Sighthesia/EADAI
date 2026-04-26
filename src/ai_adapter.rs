@@ -453,6 +453,37 @@ impl AiContextState {
                     trigger: None,
                 });
             }
+            MessageKind::TelemetryIdentity(identity) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "identity {} {} {}",
+                            identity.device_name, identity.board_name, identity.firmware_version
+                        ),
+                        raw_length: usize::from(identity.sample_payload_len),
+                        parser: crate::message::ParserMeta::parsed(
+                            "bmi088_identity",
+                            [
+                                ("device_name".to_string(), identity.device_name),
+                                ("board_name".to_string(), identity.board_name),
+                                ("firmware_version".to_string(), identity.firmware_version),
+                                ("protocol_name".to_string(), identity.protocol_name),
+                                ("protocol_version".to_string(), identity.protocol_version),
+                                ("transport_name".to_string(), identity.transport_name),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        ),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
             MessageKind::TelemetrySchema(schema) => {
                 self.push_event(AiRecentEvent {
                     timestamp_ms,

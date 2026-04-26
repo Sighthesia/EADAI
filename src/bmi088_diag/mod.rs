@@ -43,6 +43,7 @@ pub struct DiagStats {
     pub raw_bytes_total: usize,
     pub largest_chunk: usize,
     pub text_count: usize,
+    pub identity_count: usize,
     pub schema_count: usize,
     pub sample_count: usize,
     pub unknown_frame_count: usize,
@@ -342,6 +343,19 @@ fn handle_packet(state: &mut RunState, packet: Packet) {
                 );
             }
         }
+        Packet::Frame(Frame::Identity(identity)) => {
+            state.stats.identity_count += 1;
+            println!(
+                "[rx/identity] count={} seq={} device={} board={} firmware={} protocol={} transport={}",
+                state.stats.identity_count,
+                identity.seq,
+                identity.device_name,
+                identity.board_name,
+                identity.firmware_version,
+                identity.protocol_version,
+                identity.transport_name
+            );
+        }
         Packet::Frame(Frame::Schema(schema)) => {
             state.stats.schema_count += 1;
             let names = schema
@@ -515,11 +529,12 @@ fn sample_preview(schema: Option<&SchemaFrame>, sample: &SampleFrame) -> String 
 
 fn print_summary(stats: &DiagStats, verdict: Verdict) {
     println!(
-        "[summary] raw_chunks={} raw_bytes={} largest_chunk={} text={} schema={} samples={} unknown={} invalid_crc={} malformed={} desync_drop_bytes={}",
+        "[summary] raw_chunks={} raw_bytes={} largest_chunk={} text={} identity={} schema={} samples={} unknown={} invalid_crc={} malformed={} desync_drop_bytes={}",
         stats.raw_chunk_count,
         stats.raw_bytes_total,
         stats.largest_chunk,
         stats.text_count,
+        stats.identity_count,
         stats.schema_count,
         stats.sample_count,
         stats.unknown_frame_count,

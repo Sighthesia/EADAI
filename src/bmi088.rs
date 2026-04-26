@@ -11,8 +11,10 @@ pub const BMI088_CMD_ACK: u8 = 0x10;
 pub const BMI088_CMD_START: u8 = 0x11;
 pub const BMI088_CMD_STOP: u8 = 0x12;
 pub const BMI088_CMD_REQ_SCHEMA: u8 = 0x13;
+pub const BMI088_CMD_REQ_IDENTITY: u8 = 0x14;
 pub const BMI088_CMD_SCHEMA: u8 = 0x80;
 pub const BMI088_CMD_SAMPLE: u8 = 0x81;
+pub const BMI088_CMD_IDENTITY: u8 = 0x82;
 pub const BMI088_SCHEMA_VERSION: u8 = 0x01;
 pub const BMI088_FIELD_TYPE_I16: u8 = 0x01;
 
@@ -50,6 +52,26 @@ pub struct Bmi088SchemaFrame {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Bmi088IdentityFrame {
+    pub seq: u8,
+    pub identity_format_version: u8,
+    pub device_name: String,
+    pub board_name: String,
+    pub firmware_version: String,
+    pub protocol_name: String,
+    pub protocol_version: String,
+    pub transport_name: String,
+    pub sample_rate_hz: u16,
+    pub schema_field_count: u8,
+    pub sample_payload_len: u8,
+    pub protocol_version_byte: u8,
+    pub feature_flags: u16,
+    pub baud_rate: u32,
+    pub protocol_minor_version: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Bmi088SampleField {
     pub name: String,
     pub raw: i16,
@@ -72,10 +94,12 @@ pub enum Bmi088HostCommand {
     Start,
     Stop,
     ReqSchema,
+    ReqIdentity,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Bmi088Frame {
+    Identity(Bmi088IdentityFrame),
     Schema(Bmi088SchemaFrame),
     Sample(Bmi088SampleFrame),
 }
@@ -83,6 +107,7 @@ pub enum Bmi088Frame {
 #[derive(Clone, Debug, PartialEq)]
 pub enum TelemetryPacket {
     Text(FramedLine),
+    Identity(Bmi088IdentityFrame),
     Schema(Bmi088SchemaFrame),
     Sample(Bmi088SampleFrame),
 }
@@ -99,6 +124,7 @@ pub enum Bmi088SessionPhase {
 #[derive(Clone, Debug)]
 pub struct Bmi088SessionState {
     phase: Bmi088SessionPhase,
+    identity: Option<Bmi088IdentityFrame>,
     schema: Option<Bmi088SchemaFrame>,
 }
 
@@ -201,13 +227,14 @@ impl Bmi088SessionState {
     pub fn new() -> Self {
         Self {
             phase: Bmi088SessionPhase::AwaitingSchema,
+            identity: None,
             schema: None,
         }
     }
 
     pub fn boot_commands(&mut self) -> Vec<Bmi088HostCommand> {
         self.phase = Bmi088SessionPhase::AwaitingSchema;
-        vec![Bmi088HostCommand::ReqSchema]
+        vec![Bmi088HostCommand::ReqIdentity, Bmi088HostCommand::ReqSchema]
     }
 
     pub fn phase(&self) -> Bmi088SessionPhase {
@@ -218,8 +245,16 @@ impl Bmi088SessionState {
         self.schema.as_ref()
     }
 
+    pub fn identity(&self) -> Option<&Bmi088IdentityFrame> {
+        self.identity.as_ref()
+    }
+
     pub fn on_frame(&mut self, frame: &Bmi088Frame) -> Vec<Bmi088HostCommand> {
         match frame {
+            Bmi088Frame::Identity(identity) => {
+                self.identity = Some(identity.clone());
+                Vec::new()
+            }
             Bmi088Frame::Schema(schema) => {
                 self.schema = Some(schema.clone());
                 self.phase = Bmi088SessionPhase::AwaitingAck;
@@ -238,6 +273,7 @@ impl Bmi088SessionState {
             Bmi088HostCommand::Start => Bmi088SessionPhase::Streaming,
             Bmi088HostCommand::Stop => Bmi088SessionPhase::Stopped,
             Bmi088HostCommand::ReqSchema => Bmi088SessionPhase::AwaitingSchema,
+            Bmi088HostCommand::ReqIdentity => self.phase,
         };
     }
 }
@@ -298,6 +334,10 @@ impl Bmi088StreamDecoder {
 
                 let frame = self.buffer[..frame_len].to_vec();
                 match decode_binary_frame_with_schema(&frame, self.schema.as_ref()) {
+                    Ok(Bmi088Frame::Identity(identity)) => {
+                        self.buffer.drain(..frame_len);
+                        packets.push(TelemetryPacket::Identity(identity));
+                    }
                     Ok(Bmi088Frame::Schema(schema)) => {
                         self.buffer.drain(..frame_len);
                         self.schema = Some(schema.clone());
@@ -351,6 +391,7 @@ pub fn encode_host_command(command: Bmi088HostCommand) -> Vec<u8> {
         Bmi088HostCommand::Start => BMI088_CMD_START,
         Bmi088HostCommand::Stop => BMI088_CMD_STOP,
         Bmi088HostCommand::ReqSchema => BMI088_CMD_REQ_SCHEMA,
+        Bmi088HostCommand::ReqIdentity => BMI088_CMD_REQ_IDENTITY,
     };
 
     encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, 0, &[])
@@ -362,6 +403,7 @@ pub fn encode_host_command_with_seq(command: Bmi088HostCommand, seq: u8) -> Vec<
         Bmi088HostCommand::Start => BMI088_CMD_START,
         Bmi088HostCommand::Stop => BMI088_CMD_STOP,
         Bmi088HostCommand::ReqSchema => BMI088_CMD_REQ_SCHEMA,
+        Bmi088HostCommand::ReqIdentity => BMI088_CMD_REQ_IDENTITY,
     };
 
     encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, seq, &[])
@@ -373,6 +415,7 @@ pub fn host_command_label(command: &Bmi088HostCommand) -> &'static str {
         Bmi088HostCommand::Start => "START",
         Bmi088HostCommand::Stop => "STOP",
         Bmi088HostCommand::ReqSchema => "REQ_SCHEMA",
+        Bmi088HostCommand::ReqIdentity => "REQ_IDENTITY",
     }
 }
 
@@ -382,8 +425,22 @@ pub fn host_command_from_text(text: &str) -> Option<Bmi088HostCommand> {
         "start" => Some(Bmi088HostCommand::Start),
         "stop" => Some(Bmi088HostCommand::Stop),
         "req_schema" => Some(Bmi088HostCommand::ReqSchema),
+        "req_identity" => Some(Bmi088HostCommand::ReqIdentity),
         _ => None,
     }
+}
+
+pub fn encode_identity_frame(identity: &Bmi088IdentityFrame) -> Vec<u8> {
+    encode_identity_frame_with_seq(identity, identity.seq)
+}
+
+pub fn encode_identity_frame_with_seq(identity: &Bmi088IdentityFrame, seq: u8) -> Vec<u8> {
+    encode_frame(
+        BMI088_FRAME_TYPE_EVENT,
+        BMI088_CMD_IDENTITY,
+        seq,
+        &identity.encode_payload(),
+    )
 }
 
 pub fn encode_schema_frame(schema: &Bmi088SchemaFrame) -> Vec<u8> {
@@ -473,6 +530,9 @@ pub fn decode_binary_frame_with_schema(
     let payload = &frame[BMI088_HEADER_LEN..expected_len - 2];
 
     match (frame_type, command) {
+        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_IDENTITY) => Ok(Bmi088Frame::Identity(
+            decode_identity_payload_with_seq(seq, payload)?,
+        )),
         (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SCHEMA) => {
             Ok(Bmi088Frame::Schema(decode_schema_payload_with_seq(seq, payload)?))
         }
@@ -483,6 +543,90 @@ pub fn decode_binary_frame_with_schema(
             "unsupported command".to_string(),
         )),
     }
+}
+
+pub fn decode_identity_payload(
+    payload: &[u8],
+) -> Result<Bmi088IdentityFrame, Bmi088DecodeError> {
+    decode_identity_payload_with_seq(0, payload)
+}
+
+pub fn decode_identity_payload_with_seq(
+    seq: u8,
+    payload: &[u8],
+) -> Result<Bmi088IdentityFrame, Bmi088DecodeError> {
+    let mut offset = 0;
+    let mut identity_format_version = None;
+    let mut device_name = None;
+    let mut board_name = None;
+    let mut firmware_version = None;
+    let mut protocol_name = None;
+    let mut protocol_version = None;
+    let mut transport_name = None;
+    let mut sample_rate_hz = None;
+    let mut schema_field_count = None;
+    let mut sample_payload_len = None;
+    let mut protocol_version_byte = None;
+    let mut feature_flags = None;
+    let mut baud_rate = None;
+    let mut protocol_minor_version = None;
+
+    while offset < payload.len() {
+        if payload.len() < offset + 2 {
+            return Err(Bmi088DecodeError::MalformedFrame(
+                "identity TLV header too short".to_string(),
+            ));
+        }
+
+        let tag = payload[offset];
+        let value_len = payload[offset + 1] as usize;
+        offset += 2;
+
+        let value = payload.get(offset..offset + value_len).ok_or_else(|| {
+            Bmi088DecodeError::MalformedFrame("identity TLV value truncated".to_string())
+        })?;
+        offset += value_len;
+
+        match tag {
+            0x00 => identity_format_version = Some(decode_tlv_u8(value, "identity format version")?),
+            0x01 => device_name = Some(decode_tlv_string(value, "device name")?),
+            0x02 => board_name = Some(decode_tlv_string(value, "board name")?),
+            0x03 => firmware_version = Some(decode_tlv_string(value, "firmware version")?),
+            0x04 => protocol_name = Some(decode_tlv_string(value, "protocol name")?),
+            0x05 => protocol_version = Some(decode_tlv_string(value, "protocol version")?),
+            0x06 => transport_name = Some(decode_tlv_string(value, "transport name")?),
+            0x07 => sample_rate_hz = Some(decode_tlv_u16(value, "sample rate")?),
+            0x08 => schema_field_count = Some(decode_tlv_u8(value, "schema field count")?),
+            0x09 => sample_payload_len = Some(decode_tlv_u8(value, "sample payload length")?),
+            0x0A => {
+                protocol_version_byte = Some(decode_tlv_u8(value, "protocol version byte")?)
+            }
+            0x0B => feature_flags = Some(decode_tlv_u16(value, "feature flags")?),
+            0x0C => baud_rate = Some(decode_tlv_u32(value, "baud rate")?),
+            0x0D => {
+                protocol_minor_version = Some(decode_tlv_u8(value, "protocol minor version")?)
+            }
+            _ => {}
+        }
+    }
+
+    Ok(Bmi088IdentityFrame {
+        seq,
+        identity_format_version: require_tlv_field(identity_format_version, "identity format version")?,
+        device_name: require_tlv_field(device_name, "device name")?,
+        board_name: require_tlv_field(board_name, "board name")?,
+        firmware_version: require_tlv_field(firmware_version, "firmware version")?,
+        protocol_name: require_tlv_field(protocol_name, "protocol name")?,
+        protocol_version: require_tlv_field(protocol_version, "protocol version")?,
+        transport_name: require_tlv_field(transport_name, "transport name")?,
+        sample_rate_hz: require_tlv_field(sample_rate_hz, "sample rate")?,
+        schema_field_count: require_tlv_field(schema_field_count, "schema field count")?,
+        sample_payload_len: require_tlv_field(sample_payload_len, "sample payload length")?,
+        protocol_version_byte: require_tlv_field(protocol_version_byte, "protocol version byte")?,
+        feature_flags: require_tlv_field(feature_flags, "feature flags")?,
+        baud_rate: require_tlv_field(baud_rate, "baud rate")?,
+        protocol_minor_version: require_tlv_field(protocol_minor_version, "protocol minor version")?,
+    })
 }
 
 pub fn decode_schema_payload(payload: &[u8]) -> Result<Bmi088SchemaFrame, Bmi088DecodeError> {
@@ -721,6 +865,88 @@ fn normalize_signed_angle_deg(value: f64) -> f64 {
         normalized += 360.0;
     }
     normalized
+}
+
+impl Bmi088IdentityFrame {
+    pub fn encode_payload(&self) -> Vec<u8> {
+        let mut payload = Vec::new();
+        encode_tlv_u8(&mut payload, 0x00, self.identity_format_version);
+        encode_tlv_string(&mut payload, 0x01, &self.device_name);
+        encode_tlv_string(&mut payload, 0x02, &self.board_name);
+        encode_tlv_string(&mut payload, 0x03, &self.firmware_version);
+        encode_tlv_string(&mut payload, 0x04, &self.protocol_name);
+        encode_tlv_string(&mut payload, 0x05, &self.protocol_version);
+        encode_tlv_string(&mut payload, 0x06, &self.transport_name);
+        encode_tlv_u16(&mut payload, 0x07, self.sample_rate_hz);
+        encode_tlv_u8(&mut payload, 0x08, self.schema_field_count);
+        encode_tlv_u8(&mut payload, 0x09, self.sample_payload_len);
+        encode_tlv_u8(&mut payload, 0x0A, self.protocol_version_byte);
+        encode_tlv_u16(&mut payload, 0x0B, self.feature_flags);
+        encode_tlv_u32(&mut payload, 0x0C, self.baud_rate);
+        encode_tlv_u8(&mut payload, 0x0D, self.protocol_minor_version);
+        payload
+    }
+}
+
+fn require_tlv_field<T>(value: Option<T>, field_name: &str) -> Result<T, Bmi088DecodeError> {
+    value.ok_or_else(|| {
+        Bmi088DecodeError::MalformedFrame(format!("missing identity field: {field_name}"))
+    })
+}
+
+fn decode_tlv_string(value: &[u8], field_name: &str) -> Result<String, Bmi088DecodeError> {
+    String::from_utf8(value.to_vec()).map_err(|_| {
+        Bmi088DecodeError::MalformedFrame(format!("invalid {field_name} utf8"))
+    })
+}
+
+fn decode_tlv_u8(value: &[u8], field_name: &str) -> Result<u8, Bmi088DecodeError> {
+    if value.len() != 1 {
+        return Err(Bmi088DecodeError::MalformedFrame(format!(
+            "invalid {field_name} size"
+        )));
+    }
+    Ok(value[0])
+}
+
+fn decode_tlv_u16(value: &[u8], field_name: &str) -> Result<u16, Bmi088DecodeError> {
+    if value.len() != 2 {
+        return Err(Bmi088DecodeError::MalformedFrame(format!(
+            "invalid {field_name} size"
+        )));
+    }
+    Ok(u16::from_le_bytes([value[0], value[1]]))
+}
+
+fn decode_tlv_u32(value: &[u8], field_name: &str) -> Result<u32, Bmi088DecodeError> {
+    if value.len() != 4 {
+        return Err(Bmi088DecodeError::MalformedFrame(format!(
+            "invalid {field_name} size"
+        )));
+    }
+    Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
+}
+
+fn encode_tlv_string(payload: &mut Vec<u8>, tag: u8, value: &str) {
+    encode_tlv_bytes(payload, tag, value.as_bytes());
+}
+
+fn encode_tlv_u8(payload: &mut Vec<u8>, tag: u8, value: u8) {
+    encode_tlv_bytes(payload, tag, &[value]);
+}
+
+fn encode_tlv_u16(payload: &mut Vec<u8>, tag: u8, value: u16) {
+    encode_tlv_bytes(payload, tag, &value.to_le_bytes());
+}
+
+fn encode_tlv_u32(payload: &mut Vec<u8>, tag: u8, value: u32) {
+    encode_tlv_bytes(payload, tag, &value.to_le_bytes());
+}
+
+fn encode_tlv_bytes(payload: &mut Vec<u8>, tag: u8, value: &[u8]) {
+    payload.push(tag);
+    payload.push(u8::try_from(value.len()).expect("BMI088 identity TLV length exceeds u8"));
+    payload.extend_from_slice(value);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

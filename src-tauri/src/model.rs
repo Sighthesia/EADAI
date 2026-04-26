@@ -1,7 +1,7 @@
 use eadai::analysis::{AnalysisFrame, TriggerEvent, TriggerSeverity};
 use eadai::bmi088::{
-    Bmi088HostCommand, Bmi088SampleFrame, Bmi088SchemaFrame, encode_sample_frame,
-    encode_schema_frame,
+    Bmi088HostCommand, Bmi088IdentityFrame, Bmi088SampleFrame, Bmi088SchemaFrame,
+    encode_identity_frame, encode_sample_frame, encode_schema_frame,
 };
 use eadai::message::{
     BusMessage, ConnectionEvent, ConnectionState, LineDirection, MessageKind, MessageSource,
@@ -52,6 +52,7 @@ pub enum UiBmi088HostCommand {
     Start,
     Stop,
     ReqSchema,
+    ReqIdentity,
 }
 
 impl From<UiBmi088HostCommand> for Bmi088HostCommand {
@@ -61,6 +62,7 @@ impl From<UiBmi088HostCommand> for Bmi088HostCommand {
             UiBmi088HostCommand::Start => Self::Start,
             UiBmi088HostCommand::Stop => Self::Stop,
             UiBmi088HostCommand::ReqSchema => Self::ReqSchema,
+            UiBmi088HostCommand::ReqIdentity => Self::ReqIdentity,
         }
     }
 }
@@ -313,6 +315,13 @@ pub enum UiBusEvent {
         raw_frame: Vec<u8>,
         parser: UiParserMeta,
     },
+    TelemetryIdentity {
+        timestamp_ms: u64,
+        source: UiSource,
+        identity: Bmi088IdentityFrame,
+        raw_frame: Vec<u8>,
+        parser: UiParserMeta,
+    },
     TelemetrySample {
         timestamp_ms: u64,
         source: UiSource,
@@ -531,6 +540,13 @@ impl From<BusMessage> for UiBusEvent {
                 source,
                 raw_frame: encode_schema_frame(&schema),
                 schema,
+                parser: parser.into(),
+            },
+            MessageKind::TelemetryIdentity(identity) => Self::TelemetryIdentity {
+                timestamp_ms,
+                source,
+                raw_frame: encode_identity_frame(&identity),
+                identity,
                 parser: parser.into(),
             },
             MessageKind::TelemetrySample(sample) => Self::TelemetrySample {
