@@ -18,7 +18,7 @@ export interface SendRequest {
   appendNewline: boolean
 }
 
-export type Bmi088HostCommand = 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA'
+export type Bmi088HostCommand = 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA' | 'REQ_IDENTITY'
 
 export type UiRuntimeCommandParameterKind = 'text' | 'number' | 'boolean' | 'select'
 
@@ -175,6 +175,23 @@ export interface UiTelemetrySchemaPayload {
   fields: UiTelemetrySchemaField[]
 }
 
+export interface UiTelemetryIdentityPayload {
+  identityFormatVersion: number
+  deviceName: string
+  boardName: string
+  firmwareVersion: string
+  protocolName: string
+  protocolVersion: string
+  transportName: string
+  sampleRateHz: number
+  schemaFieldCount: number
+  samplePayloadLen: number
+  protocolVersionByte: number
+  featureFlags: number
+  baudRate: number
+  protocolMinorVersion: number
+}
+
 export interface UiTelemetrySampleField {
   name: string
   raw: number
@@ -188,12 +205,12 @@ export interface UiTelemetrySamplePayload {
   fields: UiTelemetrySampleField[]
 }
 
-export type UiProtocolHandshakePhase = 'awaitingSchema' | 'awaitingAck' | 'awaitingStart' | 'streaming' | 'stopped'
+export type UiProtocolHandshakePhase = 'awaitingIdentity' | 'awaitingSchema' | 'awaitingAck' | 'awaitingStart' | 'streaming' | 'stopped'
 
 export interface UiProtocolHandshakeEvent {
   timestampMs: number
   direction: 'tx' | 'rx'
-  command: 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA' | 'SCHEMA' | 'SAMPLE'
+  command: 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA' | 'REQ_IDENTITY' | 'SCHEMA' | 'IDENTITY' | 'SAMPLE'
   note: string
   parserStatus: 'unparsed' | 'parsed' | 'malformed'
 }
@@ -204,6 +221,7 @@ export interface UiProtocolSnapshot {
   transportLabel: string
   baudRate: number
   phase: UiProtocolHandshakePhase
+  identity?: UiTelemetryIdentityPayload | null
   schema?: UiTelemetrySchemaPayload | null
   lastPacketKind?: 'schema' | 'sample' | 'command' | null
   lastPacketRawFrame?: number[] | null
@@ -260,6 +278,63 @@ export interface UiRuntimeCatalogSnapshot {
 export interface UiScriptHookExample {
   name: string
   snippet: string
+}
+
+export type UiDefinitionStatus = 'seeded' | 'draft' | 'observed'
+
+export type VariableSourceKind = 'protocol-text' | 'telemetry-sample'
+
+export type VariableExtractorKind = 'parser-field' | 'sample-field'
+
+export type VariableDefinitionVisibility = 'both' | 'runtime' | 'variables' | 'hidden'
+
+export type UiHookDefinitionEvent = 'schema' | 'sample' | 'trigger'
+
+export interface ScriptDefinition {
+  id: string
+  name: string
+  summary: string
+  language: 'typescript' | 'javascript'
+  source: string
+  status: UiDefinitionStatus
+  updatedAtMs: number
+}
+
+export interface HookDefinition {
+  id: string
+  name: string
+  event: UiHookDefinitionEvent
+  summary: string
+  source: string
+  enabled: boolean
+  status: UiDefinitionStatus
+  updatedAtMs: number
+}
+
+export interface VariableDefinition {
+  id: string
+  name: string
+  deviceRef?: string | null
+  sourceKind: VariableSourceKind
+  sourceLabel: string
+  summary: string
+  extractor: string
+  extractorKind: VariableExtractorKind
+  bindingField: string
+  alias?: string | null
+  presentationUnit?: string | null
+  visibility: VariableDefinitionVisibility
+  parserName?: string | null
+  lastObservedValue?: string | null
+  lastObservedAtMs?: number | null
+  status: UiDefinitionStatus
+  updatedAtMs: number
+}
+
+export interface UiScriptsDefinitionModel {
+  scripts: ScriptDefinition[]
+  hooks: HookDefinition[]
+  variables: VariableDefinition[]
 }
 
 export interface UiAnalysisPayload {
@@ -323,6 +398,14 @@ export type SerialBusEvent =
       parser: UiParserMeta
     }
   | {
+      kind: 'telemetryIdentity'
+      timestampMs: number
+      source: UiSource
+      identity: UiTelemetryIdentityPayload
+      rawFrame: number[]
+      parser: UiParserMeta
+    }
+  | {
       kind: 'telemetrySample'
       timestampMs: number
       source: UiSource
@@ -354,6 +437,7 @@ export interface SamplePoint {
 export interface VariableEntry {
   name: string
   deviceRef?: string | null
+  sourceKind: VariableSourceKind
   currentValue: string
   previousValue?: number
   numericValue?: number

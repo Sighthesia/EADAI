@@ -60,10 +60,19 @@ import type {
   UiRuntimeCommandCatalogItem,
   UiRuntimeTelemetryCatalogField,
   UiRuntimeTelemetryCatalogSnapshot,
+  UiScriptsDefinitionModel,
   UiScriptHookExample,
+  UiTelemetryIdentityPayload,
   UiTelemetrySchemaPayload,
   UiTelemetrySamplePayload,
   UiTriggerPayload,
+  HookDefinition,
+  ScriptDefinition,
+  VariableExtractorKind,
+  VariableDefinitionVisibility,
+  VariableSourceKind,
+  VariableDefinition,
+  SamplePoint,
   VariableEntry,
 } from '../types'
 
@@ -74,7 +83,7 @@ const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
 const BMI088_PROTOCOL_NAME = 'bmi088_uart4'
 const profileIngestEvents = createDevTimingLogger('appStore.ingestEvents', { slowThresholdMs: 8, summaryEvery: 120, summaryIntervalMs: 5_000 })
 
-const BMI088_PROTOCOL_SCRIPT = `// BMI088 UART4 schema-first telemetry
+const BMI088_PROTOCOL_SCRIPT = `// BMI088 UART4 definition seed
 onSchema((fields, rateHz, sampleLen) => {
   // Use logger.debug to avoid leaving console.log in production code
   // eslint-disable-next-line no-undef
@@ -86,7 +95,15 @@ onSample((record) => {
   if (import.meta.env && import.meta.env.DEV) console.debug('sample', record)
 })`
 const PROTOCOL_TIMELINE_LIMIT = 64
+const DEFINITION_SEED_TIMESTAMP_MS = Date.now()
 const RUNTIME_COMMAND_CATALOG: UiRuntimeCommandCatalogItem[] = [
+  {
+    command: 'REQ_IDENTITY',
+    label: 'Request identity',
+    description: 'Ask the device to publish identity metadata before loading schema.',
+    recommendedPhase: 'awaitingIdentity',
+    payloadPreview: 'REQ_IDENTITY',
+  },
   {
     command: 'REQ_SCHEMA',
     label: 'Request schema',
@@ -142,7 +159,9 @@ type AppStore = {
   logicAnalyzer: LogicAnalyzerStatus
   logicAnalyzerConfig: LogicAnalyzerConfig
   runtimeCatalog: UiRuntimeCatalogSnapshot
+  scriptDefinitions: UiScriptsDefinitionModel
   status: AppStatus
+  updateVariableDefinition: (definitionId: string, patch: Partial<Pick<VariableDefinition, 'bindingField' | 'alias' | 'presentationUnit' | 'visibility' | 'sourceLabel' | 'summary'>>) => void
   setCommandInput: (value: string) => void
   setAppendNewline: (value: boolean) => void
   setConsoleDisplayMode: (value: 'text' | 'hex' | 'binary') => void
@@ -280,7 +299,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
       [],
     ),
   ),
+  scriptDefinitions: createScriptDefinitions({}),
   status: defaultStatus(),
+  updateVariableDefinition: (definitionId, patch) =>
+    set((state) => ({
+      scriptDefinitions: {
+        ...state.scriptDefinitions,
+        variables: state.scriptDefinitions.variables.map((definition) =>
+          definition.id === definitionId
+            ? {
+                ...definition,
+                ...patch,
+                updatedAtMs: Date.now(),
+                status: 'draft',
+              }
+            : definition,
+        ),
+      },
+    })),
   setCommandInput: (value) => set({ commandInput: value }),
   setAppendNewline: (value) => set({ appendNewline: value }),
   setConsoleDisplayMode: (value) => set({ consoleDisplayMode: value }),
@@ -447,6 +483,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       consoleEntries: [],
       protocol: defaultProtocolSnapshot(),
       runtimeCatalog: createRuntimeCatalog(defaultProtocolSnapshot(), createRuntimeDeviceSnapshot(session, config, [])),
+      scriptDefinitions: createScriptDefinitions({}),
       imuQuality: {
         level: 'idle',
         label: 'No IMU data',
@@ -473,6 +510,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       consoleEntries: [],
       protocol: defaultProtocolSnapshot(),
       runtimeCatalog: createRuntimeCatalog(defaultProtocolSnapshot(), createRuntimeDeviceSnapshot(session, get().config, get().ports)),
+      scriptDefinitions: createScriptDefinitions({}),
       imuQuality: {
         level: 'idle',
         label: 'No IMU data',
@@ -522,6 +560,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         let session = state.session
         let status = state.status
         let protocol = state.protocol
+        let scriptDefinitions = state.scriptDefinitions
         let variablesChanged = false
         let selectedChannelsChanged = false
         let imuChannelMapChanged = false
@@ -569,7 +608,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             }
 
             const sampleTimestampMs = parseSampleTimestampMs(event.parser.fields.timestamp, event.timestampMs)
-            const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs, runtimeDeviceRef(session, state.config))
+            const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs, runtimeDeviceRef(session, state.config), 'protocol-text')
             const numericRaw = event.parser.fields.numericValue ?? rawValue
             const numericValue = Number(numericRaw)
             const nextPoints = Number.isFinite(numericValue)
@@ -580,20 +619,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
               variables = { ...variables }
               variablesChanged = true
             }
-
-            variables[channelId] = {
-              ...previous,
-              name: channelId,
-              currentValue: rawValue,
-              previousValue: previous.numericValue,
-              numericValue: Number.isFinite(numericValue) ? numericValue : previous.numericValue,
-              trend: resolveTrendFromValues(previous.numericValue, Number.isFinite(numericValue) ? numericValue : previous.numericValue),
-              unit: event.parser.fields.unit ?? previous.unit ?? null,
-              parserName: event.parser.parserName,
-              sampleCount: previous.sampleCount + 1,
-              updatedAtMs: event.timestampMs,
-              points: nextPoints,
-            }
+            variables[channelId] = updateVariableFromProtocolText(previous, channelId, event, rawValue, numericValue, nextPoints)
 
             const nextSelectedChannels = autoSelectChannels(selectedChannels, channelId)
             if (nextSelectedChannels !== selectedChannels) {
@@ -633,18 +659,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
             event.schema.fields.forEach((field, index) => {
               if (!nextVariables[field.name]) {
-                nextVariables[field.name] = createVariableEntry(field.name, event.timestampMs, runtimeDeviceRef(session, state.config))
-                changed = true
+                nextVariables[field.name] = createVariableEntry(field.name, event.timestampMs, runtimeDeviceRef(session, state.config), 'telemetry-sample')
               }
 
               nextVariables[field.name] = {
                 ...nextVariables[field.name],
                 name: field.name,
                 unit: field.unit,
+                sourceKind: 'telemetry-sample',
                 parserName: 'bmi088_schema',
                 updatedAtMs: event.timestampMs,
                 sampleCount: nextVariables[field.name].sampleCount,
               }
+              changed = true
 
               if (index === 0 && selectedChannels.length === 0) {
                 selectedChannels = [field.name]
@@ -659,6 +686,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
             continue
           }
 
+          if (event.kind === 'telemetryIdentity') {
+            protocol = ingestProtocolIdentity(protocol, event)
+            protocolChanged = true
+            continue
+          }
+
           if (event.kind === 'telemetrySample') {
             protocol = ingestProtocolSample(protocol, event)
             protocolChanged = true
@@ -670,22 +703,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
             }
 
             for (const field of schemaFields) {
-              const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs, runtimeDeviceRef(session, state.config))
+              const previous = variables[field.name] ?? createVariableEntry(field.name, event.timestampMs, runtimeDeviceRef(session, state.config), 'telemetry-sample')
               const nextNumericValue = field.value
+              const displayValue = field.value.toFixed(field.scaleQ < 0 ? 2 : 6)
 
-              variables[field.name] = {
-                ...previous,
-                name: field.name,
-                currentValue: field.value.toFixed(field.scaleQ < 0 ? 2 : 6),
-                previousValue: previous.numericValue,
-                numericValue: nextNumericValue,
-                trend: resolveTrendFromValues(previous.numericValue, nextNumericValue),
-                unit: field.unit ?? previous.unit ?? null,
-                parserName: 'bmi088_sample',
-                sampleCount: previous.sampleCount + 1,
-                updatedAtMs: event.timestampMs,
-                points: [...previous.points, { timestampMs: event.timestampMs, value: field.value }].slice(-MAX_SAMPLES_PER_CHANNEL),
-              }
+              variables[field.name] = updateVariableFromTelemetrySample(previous, field.name, event, nextNumericValue, displayValue, field.unit ?? previous.unit ?? null)
             }
 
             const nextSelectedChannels = autoSelectChannels(selectedChannels, schemaFields[0]?.name ?? 'acc_x')
@@ -699,7 +721,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           }
 
           const channelId = event.trigger.channelId
-          const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs, runtimeDeviceRef(session, state.config))
+          const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs, runtimeDeviceRef(session, state.config), 'protocol-text')
 
           if (!variablesChanged) {
             variables = { ...variables }
@@ -730,8 +752,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         if (consoleChanged) {
           nextState.consoleEntries = consoleEntries
         }
-        if (variablesChanged) {
-          nextState.variables = variables
+          if (variablesChanged) {
+            nextState.variables = variables
+          scriptDefinitions = syncScriptDefinitions(scriptDefinitions, variables)
+          nextState.scriptDefinitions = scriptDefinitions
 
           if (state.imuMapMode === 'auto') {
             const nextImuChannelMap = autoDetectImuChannelMap(variables, imuChannelMap)
@@ -895,9 +919,15 @@ const asConsoleEntry = (event: Extract<SerialBusEvent, { kind: 'line' }>): Conso
   parser: event.parser,
 })
 
-const createVariableEntry = (channelId: string, updatedAtMs: number, deviceRef: string | null): VariableEntry => ({
+const createVariableEntry = (
+  channelId: string,
+  updatedAtMs: number,
+  deviceRef: string | null,
+  sourceKind: VariableSourceKind = 'protocol-text',
+): VariableEntry => ({
   name: channelId,
   deviceRef,
+  sourceKind,
   currentValue: '—',
   trend: 'flat',
   unit: null,
@@ -913,20 +943,196 @@ const createVariableEntry = (channelId: string, updatedAtMs: number, deviceRef: 
 function createProtocolHookExamples(): UiScriptHookExample[] {
   return [
     {
-      name: 'Schema callback',
+      name: 'Schema definition entrypoint',
       snippet: `onSchema((fields, rateHz, sampleLen) => {
   // Use logger.debug in your hook to avoid leaking console logs in production
   logger.debug('BMI088 schema', { rateHz, sampleLen, fields })
 })`,
     },
     {
-      name: 'Sample callback',
+      name: 'Sample extraction entrypoint',
       snippet: `onSample((record) => {
   const { roll, pitch, yaw } = record
   logger.debug('BMI088 sample', { roll, pitch, yaw })
 })`,
     },
   ]
+}
+
+function createProtocolHookDefinitions(): HookDefinition[] {
+  return createProtocolHookExamples().map((example, index) => ({
+    id: index === 0 ? 'schema-hook' : 'sample-hook',
+    name: example.name,
+    event: index === 0 ? 'schema' : 'sample',
+    summary: index === 0
+      ? 'Capture the published telemetry schema and keep it available to the Scripts surface.'
+      : 'Draft runtime extraction rules from incoming telemetry samples.',
+    source: example.snippet,
+    enabled: true,
+    status: 'seeded',
+    updatedAtMs: DEFINITION_SEED_TIMESTAMP_MS,
+  }))
+}
+
+function extractorKindForVariable(variable: VariableEntry): VariableExtractorKind {
+  return variable.sourceKind === 'telemetry-sample' ? 'sample-field' : 'parser-field'
+}
+
+function sourceLabelForVariable(variable: VariableEntry) {
+  if (variable.sourceKind === 'telemetry-sample') {
+    return variable.parserName ?? 'telemetry sample'
+  }
+
+  return variable.parserName ? `${variable.parserName} text` : 'protocol text'
+}
+
+function bindingFieldForVariable(variable: VariableEntry) {
+  if (variable.sourceKind === 'telemetry-sample') {
+    return 'sample.value'
+  }
+
+  return variable.parserName ? 'parser.fields.value' : 'line.parser.fields.value'
+}
+
+function aliasForVariable(variable: VariableEntry) {
+  return variable.name.includes('.') ? variable.name.split('.').slice(-1)[0] ?? null : null
+}
+
+function presentationUnitForVariable(variable: VariableEntry) {
+  return variable.unit ?? null
+}
+
+function visibilityForVariable(variable: VariableEntry): VariableDefinitionVisibility {
+  if (variable.sourceKind === 'telemetry-sample') {
+    return 'both'
+  }
+
+  if (variable.latestTrigger) {
+    return 'runtime'
+  }
+
+  return variable.sampleCount > 0 ? 'variables' : 'hidden'
+}
+
+function updateVariableFromProtocolText(
+  previous: VariableEntry,
+  channelId: string,
+  event: Extract<SerialBusEvent, { kind: 'line' }>,
+  rawValue: string,
+  numericValue: number,
+  nextPoints: SamplePoint[],
+): VariableEntry {
+  return {
+    ...previous,
+    name: channelId,
+    sourceKind: 'protocol-text',
+    currentValue: rawValue,
+    previousValue: previous.numericValue,
+    numericValue: Number.isFinite(numericValue) ? numericValue : previous.numericValue,
+    trend: resolveTrendFromValues(previous.numericValue, Number.isFinite(numericValue) ? numericValue : previous.numericValue),
+    unit: event.parser.fields.unit ?? previous.unit ?? null,
+    parserName: event.parser.parserName,
+    sampleCount: previous.sampleCount + 1,
+    updatedAtMs: event.timestampMs,
+    points: nextPoints,
+  }
+}
+
+function updateVariableFromTelemetrySample(
+  previous: VariableEntry,
+  channelId: string,
+  event: Extract<SerialBusEvent, { kind: 'telemetrySample' }>,
+  nextNumericValue: number,
+  displayValue: string,
+  unit: string | null,
+): VariableEntry {
+  return {
+    ...previous,
+    name: channelId,
+    sourceKind: 'telemetry-sample',
+    currentValue: displayValue,
+    previousValue: previous.numericValue,
+    numericValue: nextNumericValue,
+    trend: resolveTrendFromValues(previous.numericValue, nextNumericValue),
+    unit,
+    parserName: 'bmi088_sample',
+    sampleCount: previous.sampleCount + 1,
+    updatedAtMs: event.timestampMs,
+    points: [...previous.points, { timestampMs: event.timestampMs, value: nextNumericValue }].slice(-MAX_SAMPLES_PER_CHANNEL),
+  }
+}
+
+function createVariableDefinitions(variables: Record<string, VariableEntry>): VariableDefinition[] {
+  return Object.values(variables)
+    .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
+    .map((variable) => ({
+      id: `variable:${variable.name}`,
+      name: variable.name,
+      deviceRef: variable.deviceRef ?? null,
+      sourceKind: variable.sourceKind,
+      sourceLabel: sourceLabelForVariable(variable),
+      summary:
+        variable.sourceKind === 'telemetry-sample'
+          ? variable.deviceRef
+            ? `Observed on ${variable.deviceRef} as a reusable telemetry sample target.`
+            : 'Observed telemetry sample promoted into a reusable extraction seed.'
+          : variable.parserName
+            ? `Observed in ${variable.parserName} parser output and promoted into a reusable text extraction seed.`
+            : 'Observed protocol text promoted into a reusable extraction seed.',
+      extractor: variable.parserName ? `${variable.parserName}.${variable.name}` : variable.name,
+      extractorKind: extractorKindForVariable(variable),
+      bindingField: bindingFieldForVariable(variable),
+      alias: aliasForVariable(variable),
+      presentationUnit: presentationUnitForVariable(variable),
+      visibility: visibilityForVariable(variable),
+      parserName: variable.parserName ?? null,
+      lastObservedValue: variable.currentValue,
+      lastObservedAtMs: variable.updatedAtMs,
+      status: variable.latestTrigger ? 'observed' : variable.sampleCount > 0 ? 'draft' : 'seeded',
+      updatedAtMs: variable.updatedAtMs,
+    }))
+}
+
+function createScriptDefinitions(variables: Record<string, VariableEntry>): UiScriptsDefinitionModel {
+  return {
+    scripts: [
+      {
+        id: 'bmi088-protocol-script',
+        name: 'BMI088 protocol definition',
+        summary: 'Seeded protocol script for handshake and telemetry definition ownership.',
+        language: 'typescript',
+        source: BMI088_PROTOCOL_SCRIPT,
+        status: 'seeded',
+        updatedAtMs: DEFINITION_SEED_TIMESTAMP_MS,
+      },
+    ],
+    hooks: createProtocolHookDefinitions(),
+    variables: createVariableDefinitions(variables),
+  }
+}
+
+function syncScriptDefinitions(current: UiScriptsDefinitionModel, variables: Record<string, VariableEntry>): UiScriptsDefinitionModel {
+  const nextVariables = createVariableDefinitions(variables)
+  const currentById = new Map(current.variables.map((definition) => [definition.id, definition]))
+
+  return {
+    ...current,
+    variables: nextVariables.map((definition) => {
+      const existing = currentById.get(definition.id)
+      if (!existing) {
+        return definition
+      }
+
+      return {
+        ...definition,
+        bindingField: existing.bindingField,
+        alias: existing.alias ?? null,
+        presentationUnit: existing.presentationUnit ?? null,
+        visibility: existing.visibility,
+        status: existing.status === 'observed' ? 'observed' : existing.status === 'draft' ? 'draft' : definition.status,
+      }
+    }),
+  }
 }
 
 function createRuntimeCatalog(protocol: UiProtocolSnapshot, runtimeDevice: UiRuntimeDeviceSnapshot): UiRuntimeCatalogSnapshot {
@@ -1034,6 +1240,7 @@ function defaultProtocolSnapshot(): UiProtocolSnapshot {
     transportLabel: 'BMI088 UART4',
     baudRate: 115200,
     phase: 'stopped',
+    identity: null,
     schema: null,
     lastPacketKind: null,
     lastPacketRawFrame: null,
@@ -1050,7 +1257,7 @@ const ingestProtocolConnection = (
 ): UiProtocolSnapshot => {
   const nextPhase =
     event.connection.state === 'connected'
-      ? 'awaitingSchema'
+      ? 'awaitingIdentity'
       : event.connection.state === 'stopped'
         ? 'stopped'
         : protocol.phase
@@ -1058,7 +1265,7 @@ const ingestProtocolConnection = (
   const timeline = appendProtocolTimeline(protocol.timeline, {
     timestampMs: event.timestampMs,
     direction: 'rx',
-    command: event.connection.state === 'stopped' ? 'STOP' : 'REQ_SCHEMA',
+    command: event.connection.state === 'stopped' ? 'STOP' : 'REQ_IDENTITY',
     note: connectionMessage(event),
     parserStatus: 'unparsed',
   })
@@ -1086,7 +1293,18 @@ const ingestProtocolLine = (
     return protocol
   }
 
-  const nextPhase = command === 'ACK' ? 'awaitingStart' : command === 'START' ? 'streaming' : command === 'STOP' ? 'stopped' : protocol.phase
+  const nextPhase =
+    command === 'ACK'
+      ? 'awaitingStart'
+      : command === 'START'
+        ? 'streaming'
+        : command === 'STOP'
+          ? 'stopped'
+          : command === 'REQ_IDENTITY'
+            ? 'awaitingIdentity'
+            : command === 'REQ_SCHEMA'
+              ? 'awaitingSchema'
+              : protocol.phase
 
   return {
     ...protocol,
@@ -1105,6 +1323,27 @@ const ingestProtocolLine = (
     }),
   }
 }
+
+const ingestProtocolIdentity = (
+  protocol: UiProtocolSnapshot,
+  event: Extract<SerialBusEvent, { kind: 'telemetryIdentity' }>,
+): UiProtocolSnapshot => ({
+  ...protocol,
+  active: true,
+  parserName: event.parser.parserName ?? protocol.parserName,
+  phase: protocol.schema ? protocol.phase : 'awaitingSchema',
+  identity: event.identity,
+  lastPacketKind: 'command' as const,
+  lastPacketRawFrame: event.rawFrame,
+  lastHandshakeAtMs: event.timestampMs,
+  timeline: appendProtocolTimeline(protocol.timeline, {
+    timestampMs: event.timestampMs,
+    direction: 'rx',
+    command: 'IDENTITY',
+    note: `${event.identity.deviceName} · ${event.identity.boardName} · ${event.identity.firmwareVersion}`,
+    parserStatus: event.parser.status,
+  }),
+})
 
 const ingestProtocolSchema = (
   protocol: UiProtocolSnapshot,
@@ -1161,6 +1400,9 @@ const protocolCommandFromLine = (text: string): UiProtocolHandshakeEvent['comman
   if (normalized === 'ACK' || normalized === 'START' || normalized === 'STOP' || normalized === 'REQ_SCHEMA') {
     return normalized
   }
+  if (normalized === 'REQ_IDENTITY') {
+    return normalized
+  }
   return null
 }
 
@@ -1174,6 +1416,8 @@ const protocolCommandNote = (command: string) => {
       return 'Stop streaming'
     case 'REQ_SCHEMA':
       return 'Request schema'
+    case 'REQ_IDENTITY':
+      return 'Request identity'
     default:
       return command
   }

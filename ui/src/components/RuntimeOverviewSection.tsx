@@ -13,7 +13,6 @@ export function RuntimeOverviewSection({
   consoleEntries,
   recentTraffic,
   hookStatus,
-  protocolHookExamples,
 }: {
   runtimeDevice: UiRuntimeDeviceSnapshot
   protocolActive: boolean
@@ -26,7 +25,6 @@ export function RuntimeOverviewSection({
   consoleEntries: ConsoleEntry[]
   recentTraffic: ConsoleEntry[]
   hookStatus: HookStatus
-  protocolHookExamples: unknown[]
 }) {
   return (
     <section className="runtime-overview" aria-label="Runtime summary and flow">
@@ -57,10 +55,10 @@ export function RuntimeOverviewSection({
           <small>Raw traffic feeds the parsed protocol view</small>
         </article>
         <article className="runtime-card">
-          <span className="mcp-label">Hooks</span>
+          <span className="mcp-label">Runtime activity</span>
           <strong>{hookStatus.label}</strong>
           <small>{hookStatus.detail}</small>
-          <small>{protocolHookExamples.length} examples available</small>
+          <small>Definition details live in the Scripts surface.</small>
         </article>
       </div>
 

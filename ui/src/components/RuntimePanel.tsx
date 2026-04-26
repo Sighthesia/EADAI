@@ -1,13 +1,12 @@
 import { useMemo } from 'react'
 import { useAppStore } from '../store/appStore'
-import type { UiRuntimeDeviceSnapshot } from '../types'
 import { RuntimeCommandCenter } from './RuntimeCommandCenter'
 import { RuntimeCatalogSection } from './RuntimeCatalogSection'
 import { RuntimeConsoleSection } from './RuntimeConsoleSection'
 import { RuntimeHookSection } from './RuntimeHookSection'
 import { RuntimeOverviewSection } from './RuntimeOverviewSection'
 import { RuntimeProtocolSection } from './RuntimeProtocolSection'
-import { buildHookStatus, collectRecentTriggers } from './runtimeUtils'
+import { buildRuntimeActivityStatus, collectRecentTriggers, countVariableDefinitionsBySourceKind, countVariableDefinitionsByVisibility, filterVariableDefinitionsBySurface, groupVariableDefinitionsByDevice } from './runtimeUtils'
 
 export function RuntimePanel() {
   const protocol = useAppStore((state) => state.protocol)
@@ -15,11 +14,10 @@ export function RuntimePanel() {
   const consoleDisplayMode = useAppStore((state) => state.consoleDisplayMode)
   const commandInput = useAppStore((state) => state.commandInput)
   const appendNewline = useAppStore((state) => state.appendNewline)
-  const protocolScript = useAppStore((state) => state.protocolScript)
-  const protocolHookExamples = useAppStore((state) => state.protocolHookExamples)
   const runtimeCatalog = useAppStore((state) => state.runtimeCatalog)
   const runtimeDevice = useAppStore((state) => state.runtimeDevice)
   const variables = useAppStore((state) => state.variables)
+  const variableDefinitions = useAppStore((state) => state.scriptDefinitions.variables)
   const setCommandInput = useAppStore((state) => state.setCommandInput)
   const setAppendNewline = useAppStore((state) => state.setAppendNewline)
   const setConsoleDisplayMode = useAppStore((state) => state.setConsoleDisplayMode)
@@ -29,7 +27,12 @@ export function RuntimePanel() {
   const recentTraffic = useMemo(() => consoleEntries.slice(-5).reverse(), [consoleEntries])
   const recentTimeline = useMemo(() => protocol.timeline.slice(-5).reverse(), [protocol.timeline])
   const recentTriggers = useMemo(() => collectRecentTriggers(variables), [variables])
-  const hookStatus = useMemo(() => buildHookStatus(protocolScript, protocolHookExamples.length, recentTriggers.length), [protocolHookExamples.length, protocolScript, recentTriggers.length])
+  const runtimeDefinitions = useMemo(() => filterVariableDefinitionsBySurface(variableDefinitions, 'runtime'), [variableDefinitions])
+  const variableDefinitionsForVariablesPanel = useMemo(() => filterVariableDefinitionsBySurface(variableDefinitions, 'variables'), [variableDefinitions])
+  const visibilityCounts = useMemo(() => countVariableDefinitionsByVisibility(variableDefinitions), [variableDefinitions])
+  const definitionGroups = useMemo(() => groupVariableDefinitionsByDevice(runtimeDefinitions, runtimeDevice.id), [runtimeDevice.id, runtimeDefinitions])
+  const definitionSourceCounts = useMemo(() => countVariableDefinitionsBySourceKind(variableDefinitions), [variableDefinitions])
+  const hookStatus = useMemo(() => buildRuntimeActivityStatus(recentTriggers.length), [recentTriggers.length])
 
   return (
     <section className="panel panel-scroll runtime-panel">
@@ -56,7 +59,6 @@ export function RuntimePanel() {
         consoleEntries={consoleEntries}
         recentTraffic={recentTraffic}
         hookStatus={hookStatus}
-        protocolHookExamples={protocolHookExamples}
       />
 
       <div className="runtime-inspector-grid">
@@ -69,7 +71,30 @@ export function RuntimePanel() {
         <RuntimeConsoleSection runtimeCommands={runtimeCatalog.commands} commandInput={commandInput} consoleDisplayMode={consoleDisplayMode} consoleEntries={consoleEntries} appendNewline={appendNewline} onCommandInputChange={setCommandInput} onAppendNewlineChange={setAppendNewline} onDisplayModeChange={setConsoleDisplayMode} onSend={() => void send()} onSendCommand={(command) => void sendBmi088Command(command)} />
         <RuntimeProtocolSection protocol={protocol} recentTimeline={recentTimeline} runtimeCommands={runtimeCatalog.commands} onSendCommand={(command) => void sendBmi088Command(command)} />
         <RuntimeCatalogSection runtimeCatalog={runtimeCatalog} />
-        <RuntimeHookSection hookStatus={hookStatus} protocolScript={protocolScript} protocolHookExamples={protocolHookExamples} recentTriggers={recentTriggers} />
+        <RuntimeHookSection hookStatus={hookStatus} recentTriggers={recentTriggers} />
+        <section className="runtime-section runtime-definition-link-section">
+          <div className="runtime-section-header">
+            <div>
+              <span className="mcp-label">Definition links</span>
+              <h3>Variable definitions tied to runtime variables</h3>
+            </div>
+            <small>First-pass UI mapping between Scripts and Runtime / Variables</small>
+          </div>
+          <div className="runtime-summary-grid runtime-definition-link-grid">
+            <article className="runtime-card">
+              <span className="mcp-label">Linked definitions</span>
+              <strong>{definitionGroups.reduce((count, group) => count + group.definitions.length, 0)}</strong>
+              <small>{definitionGroups[0]?.label ?? 'Waiting for runtime observations'}</small>
+            </article>
+            <article className="runtime-card">
+              <span className="mcp-label">Presentation scope</span>
+              <strong>UI-safe MVP</strong>
+              <small>{definitionSourceCounts['protocol-text']} protocol-text · {definitionSourceCounts['telemetry-sample']} telemetry-sample</small>
+              <small>{visibilityCounts.runtime} runtime · {visibilityCounts.variables} variables · {visibilityCounts.both} both · {visibilityCounts.hidden} hidden</small>
+            </article>
+          </div>
+          <small>{variableDefinitionsForVariablesPanel.length} definitions visible in Variables panel</small>
+        </section>
       </div>
     </section>
   )

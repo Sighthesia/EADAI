@@ -14,6 +14,20 @@ export function RuntimeProtocolSection({
     active: boolean
     lastPacketKind?: string | null
     lastHandshakeAtMs?: number | null
+    identity?: {
+      deviceName: string
+      boardName: string
+      firmwareVersion: string
+      protocolName: string
+      protocolVersion: string
+      transportName: string
+      sampleRateHz: number
+      schemaFieldCount: number
+      samplePayloadLen: number
+      featureFlags: number
+      baudRate: number
+      protocolMinorVersion: number
+    } | null
     schema?: { rateHz: number; sampleLen: number; fields: { name: string; unit: string; scaleQ: number }[] } | null
     timeline: UiProtocolHandshakeEvent[]
     lastPacketRawFrame?: number[] | null
@@ -61,6 +75,45 @@ export function RuntimeProtocolSection({
         </div>
       </section>
 
+      {protocol.identity ? (
+        <section className="runtime-section-card">
+          <div className="protocol-schema-header">
+            <strong>Identity</strong>
+            <small>
+              {protocol.identity.deviceName} · {protocol.identity.boardName}
+            </small>
+          </div>
+          <div className="protocol-field-grid">
+            <div className="protocol-field-pill">
+              <strong>Firmware</strong>
+              <small>{protocol.identity.firmwareVersion}</small>
+            </div>
+            <div className="protocol-field-pill">
+              <strong>Protocol</strong>
+              <small>
+                {protocol.identity.protocolName} {protocol.identity.protocolVersion}.{protocol.identity.protocolMinorVersion}
+              </small>
+            </div>
+            <div className="protocol-field-pill">
+              <strong>Transport</strong>
+              <small>
+                {protocol.identity.transportName} · {protocol.identity.baudRate} baud
+              </small>
+            </div>
+            <div className="protocol-field-pill">
+              <strong>Telemetry</strong>
+              <small>
+                {protocol.identity.sampleRateHz} Hz · {protocol.identity.schemaFieldCount} fields · {protocol.identity.samplePayloadLen} bytes
+              </small>
+            </div>
+            <div className="protocol-field-pill">
+              <strong>Features</strong>
+              <small>{formatFeatureFlags(protocol.identity.featureFlags)}</small>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {protocol.schema ? (
         <section className="runtime-section-card">
           <div className="protocol-schema-header">
@@ -105,4 +158,17 @@ export function RuntimeProtocolSection({
       ) : null}
     </section>
   )
+}
+
+function formatFeatureFlags(flags: number) {
+  const features = [
+    [0x0001, 'binary commands'],
+    [0x0002, 'shell mode'],
+    [0x0004, 'identity'],
+    [0x0008, 'schema'],
+    [0x0010, 'streaming'],
+  ] as const
+
+  const enabled = features.filter(([bit]) => (flags & bit) !== 0).map(([, label]) => label)
+  return enabled.length > 0 ? `${enabled.join(' · ')} (0x${flags.toString(16).toUpperCase().padStart(4, '0')})` : `0x${flags.toString(16).toUpperCase().padStart(4, '0')}`
 }

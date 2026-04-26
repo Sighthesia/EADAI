@@ -9,6 +9,7 @@ import { FrequencySpectrumPage } from './FrequencySpectrumPage'
 import { ImuPanel } from './ImuPanel'
 import { LogicAnalyzerPage } from './LogicAnalyzerPage'
 import { RuntimePanel } from './RuntimePanel'
+import { ScriptsPanel } from './ScriptsPanel'
 
 const panelRenderProfilers = new Map<string, ReturnType<typeof createDevTimingLogger>>()
 
@@ -70,9 +71,10 @@ const layoutJson: IJsonModel = {
       type: 'border',
       location: 'right',
       selected: 0,
-      size: 360,
+      size: 420,
       children: [
         { type: 'tab', name: 'Runtime', component: 'runtime' },
+        { type: 'tab', name: 'Scripts', component: 'scripts' },
       ],
     },
     {
@@ -130,6 +132,8 @@ function factory(node: TabNode) {
       return renderManagedPanel(node, 'LogicAnalyzerPage', <LogicAnalyzerPage />)
     case 'runtime':
       return renderManagedPanel(node, 'RuntimePanel', <RuntimePanel />)
+    case 'scripts':
+      return renderManagedPanel(node, 'ScriptsPanel', <ScriptsPanel />)
     default:
       return null
   }

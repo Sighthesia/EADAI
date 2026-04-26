@@ -18,8 +18,10 @@ import type {
   ImuQuaternionMap,
   ImuQuaternionRole,
   UiAnalysisPayload,
+  VariableDefinition,
   VariableEntry,
 } from '../types'
+import { describeVariableSourceKind, describeVariableVisibility, filterVariableDefinitionsBySurface } from './runtimeUtils'
 
 type ContextMenuState = {
   channel: string
@@ -63,6 +65,7 @@ const TREND_REGRESSION_POINT_COUNT = 8
 
 export function VariablesPanel() {
   const variables = useAppStore((state) => state.variables)
+  const variableDefinitions = useAppStore((state) => state.scriptDefinitions.variables)
   const selectedChannels = useAppStore((state) => state.selectedChannels)
   const imuChannelMap = useAppStore((state) => state.imuChannelMap)
   const imuAttitudeMap = useAppStore((state) => state.imuAttitudeMap)
@@ -85,6 +88,11 @@ export function VariablesPanel() {
     [variables],
   )
   const groupedRows = useMemo(() => groupVariablesByDevice(rows), [rows])
+  const visibleVariableDefinitions = useMemo(() => filterVariableDefinitionsBySurface(variableDefinitions, 'variables'), [variableDefinitions])
+  const definitionByName = useMemo(
+    () => new Map(visibleVariableDefinitions.map((definition) => [definition.name, definition])),
+    [visibleVariableDefinitions],
+  )
   const selectedChannelSet = useMemo(() => new Set(selectedChannels), [selectedChannels])
   const colorByChannel = useMemo(() => {
     const map = new Map<string, string>()
@@ -184,6 +192,7 @@ export function VariablesPanel() {
           </div>
         </div>
       </div>
+      <small className="variables-definition-note">{visibleVariableDefinitions.length} variable definitions are visible in this surface</small>
       <div className="variables-device-groups">
         {groupedRows.map((group) => (
           <section key={group.deviceRef} className="variables-device-group panel panel-scroll">
@@ -201,6 +210,7 @@ export function VariablesPanel() {
                   <VariableRow
                     key={channel}
                     variable={variable}
+                    definition={definitionByName.get(channel) ?? null}
                     selected={selectedChannelSet.has(channel)}
                     roleLabels={channelRoleMap[channel] ?? []}
                     metricDisplayMode={metricDisplayMode}
@@ -264,6 +274,7 @@ function groupVariablesByDevice(rows: VariableEntry[]): VariableDeviceGroup[] {
 
 const VariableRow = memo(function VariableRow({
   variable,
+  definition,
   selected,
   roleLabels,
   metricDisplayMode,
@@ -272,6 +283,7 @@ const VariableRow = memo(function VariableRow({
   onOpenContextMenu,
 }: {
   variable: VariableEntry
+  definition: VariableDefinition | null
   selected: boolean
   roleLabels: string[]
   metricDisplayMode: MetricDisplayMode
@@ -283,6 +295,8 @@ const VariableRow = memo(function VariableRow({
   const primaryValue = useMemo(() => formatPrimaryValue(variable), [variable])
   const trendText = useMemo(() => trendLabel(variable, metricDisplayMode), [metricDisplayMode, variable])
   const summaryMetric = useMemo(() => renderSummaryMetric(variable, metricDisplayMode), [metricDisplayMode, variable])
+  const definitionLabel = definition ? `${definition.status} definition` : 'No definition seed yet'
+  const presentationLabel = definition?.alias ? `${definition.alias}${definition.presentationUnit ? ` · ${definition.presentationUnit}` : ''}` : definition?.presentationUnit ?? 'raw'
 
   return (
     <article
@@ -320,14 +334,17 @@ const VariableRow = memo(function VariableRow({
           ) : null}
         </div>
         <div className="variable-subline">
-          <small>{variable.parserName ?? 'raw'}</small>
+          <small>{describeVariableSourceKind(variable.sourceKind)} · {variable.parserName ?? 'raw'}</small>
           <span className="metric-chip">◌ {variable.sampleCount}</span>
+          <span className={`metric-chip ${definition ? 'selected' : ''}`}>{definitionLabel}</span>
+          {definition ? <span className="metric-chip">{describeVariableVisibility(definition.visibility)}</span> : null}
           {variable.latestTrigger ? (
             <span className={`trigger-pill trigger-pill-${variable.latestTrigger.severity}`}>
               {variable.latestTrigger.ruleId}
             </span>
           ) : null}
         </div>
+        {definition ? <small>{definition.bindingField} · {presentationLabel}</small> : <small>Script-side definition hidden</small>}
       </div>
       <div className="variable-metric">
         <strong>{primaryValue}</strong>

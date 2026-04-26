@@ -1,10 +1,24 @@
-import type { Bmi088HostCommand, ConsoleEntry, UiProtocolHandshakeEvent, UiProtocolHandshakePhase, UiTriggerPayload, VariableEntry } from '../types'
+import type { Bmi088HostCommand, ConsoleEntry, UiProtocolHandshakeEvent, UiProtocolHandshakePhase, UiTriggerPayload, VariableDefinition, VariableDefinitionVisibility, VariableEntry, VariableSourceKind } from '../types'
 import type { useAppStore } from '../store/appStore'
 
 export type HookStatus = {
   label: string
   detail: string
 }
+
+export type SurfaceStatus = {
+  label: string
+  detail: string
+}
+
+export type VariableDefinitionDeviceGroup = {
+  deviceRef: string
+  label: string
+  detail: string
+  definitions: VariableDefinition[]
+}
+
+export type VariableDefinitionSurface = 'runtime' | 'variables'
 
 export function RuntimeSectionHeader({ title, description }: { title: string; description: string }) {
   return (
@@ -38,10 +52,20 @@ export function summarizeLatestTraffic(entry: ConsoleEntry | null) {
   return `${parserLabel}${entry.direction.toUpperCase()} ${entry.raw.length} B`
 }
 
-export function buildHookStatus(script: string, exampleCount: number, triggerCount: number): HookStatus {
+export function buildScriptSurfaceStatus(script: string, exampleCount: number, extractionCount: number): SurfaceStatus {
+  if (script.trim().length === 0) return { label: 'Definition missing', detail: 'Add the shared protocol definition before authoring new authoring lanes.' }
+  if (exampleCount > 0 || extractionCount > 0) {
+    return {
+      label: 'Definition ready',
+      detail: `${exampleCount} definition examples and ${extractionCount} extraction targets are available.`,
+    }
+  }
+  return { label: 'Definition ready', detail: 'The protocol definition is loaded and ready for new authoring lanes.' }
+}
+
+export function buildRuntimeActivityStatus(triggerCount: number): SurfaceStatus {
   if (triggerCount > 0) return { label: 'Runtime firing', detail: `${triggerCount} recent trigger events captured.` }
-  if (exampleCount > 0 && script.trim().length > 0) return { label: 'Hook ready', detail: `${exampleCount} examples and the shared script are available.` }
-  return { label: 'Hook idle', detail: 'Waiting for script examples or trigger activity.' }
+  return { label: 'Idle', detail: 'Waiting for trigger activity.' }
 }
 
 export function formatTime(timestampMs: number | null) {
@@ -65,6 +89,83 @@ export function collectRecentTriggers(variables: Record<string, VariableEntry>) 
     .slice(0, 5)
 }
 
+export function collectRecentVariableDefinitions(definitions: VariableDefinition[]) {
+  return [...definitions]
+    .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
+    .slice(0, 5)
+}
+
+export function describeVariableSourceKind(sourceKind: VariableSourceKind) {
+  if (sourceKind === 'protocol-text') return 'Protocol text'
+  return 'Telemetry sample'
+}
+
+export function describeVariableVisibility(visibility: VariableDefinitionVisibility) {
+  if (visibility === 'both') return 'Runtime + Variables'
+  if (visibility === 'runtime') return 'Runtime only'
+  if (visibility === 'variables') return 'Variables only'
+  return 'Hidden'
+}
+
+export function isVariableDefinitionVisibleInSurface(definition: VariableDefinition, surface: VariableDefinitionSurface) {
+  return definition.visibility === 'both' || definition.visibility === surface
+}
+
+export function filterVariableDefinitionsBySurface(definitions: VariableDefinition[], surface: VariableDefinitionSurface) {
+  return definitions.filter((definition) => isVariableDefinitionVisibleInSurface(definition, surface))
+}
+
+export function countVariableDefinitionsByVisibility(definitions: VariableDefinition[]) {
+  return definitions.reduce(
+    (counts, definition) => {
+      counts[definition.visibility] += 1
+      return counts
+    },
+    { both: 0, runtime: 0, variables: 0, hidden: 0 } as Record<VariableDefinitionVisibility, number>,
+  )
+}
+
+export function countVariableDefinitionsBySourceKind(definitions: VariableDefinition[]) {
+  return definitions.reduce(
+    (counts, definition) => {
+      counts[definition.sourceKind] += 1
+      return counts
+    },
+    { 'protocol-text': 0, 'telemetry-sample': 0 } as Record<VariableSourceKind, number>,
+  )
+}
+
+export function groupVariableDefinitionsByDevice(definitions: VariableDefinition[], activeDeviceRef?: string | null) {
+  const groups = new Map<string, VariableDefinitionDeviceGroup>()
+
+  for (const definition of definitions) {
+    const deviceRef = definition.deviceRef ?? 'unassigned'
+    const existing = groups.get(deviceRef)
+    if (existing) {
+      existing.definitions.push(definition)
+      continue
+    }
+
+    groups.set(deviceRef, {
+      deviceRef,
+      label: deviceRef === 'unassigned' ? 'Ungrouped runtime variables' : deviceRef,
+      detail: deviceRef === 'unassigned' ? 'Variable definitions without a stable device ref yet' : 'Variable definitions tied to this runtime device',
+      definitions: [definition],
+    })
+  }
+
+  return [...groups.values()].sort((left, right) => {
+    const leftPriority = left.deviceRef === (activeDeviceRef ?? '') ? 0 : left.deviceRef === 'unassigned' ? 2 : 1
+    const rightPriority = right.deviceRef === (activeDeviceRef ?? '') ? 0 : right.deviceRef === 'unassigned' ? 2 : 1
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority
+    return left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' })
+  })
+}
+
+export function findVariableDefinition(definitions: VariableDefinition[], name: string) {
+  return definitions.find((definition) => definition.name === name) ?? null
+}
+
 export function protocolCommandStates(phase: UiProtocolHandshakePhase, commands: ReturnType<typeof useAppStore.getState>['runtimeCatalog']['commands']) {
   const recommended = recommendedCommandForPhase(phase)
 
@@ -79,6 +180,8 @@ export function protocolCommandStates(phase: UiProtocolHandshakePhase, commands:
 
 export function recommendedCommandForPhase(phase: UiProtocolHandshakePhase): Bmi088HostCommand | null {
   switch (phase) {
+    case 'awaitingIdentity':
+      return 'REQ_IDENTITY'
     case 'awaitingSchema':
       return 'REQ_SCHEMA'
     case 'awaitingAck':
@@ -88,7 +191,7 @@ export function recommendedCommandForPhase(phase: UiProtocolHandshakePhase): Bmi
     case 'streaming':
       return 'STOP'
     case 'stopped':
-      return 'REQ_SCHEMA'
+      return 'REQ_IDENTITY'
     default:
       return null
   }
@@ -99,6 +202,7 @@ export function isCommandActiveForPhase(phase: UiProtocolHandshakePhase, command
 }
 
 export function isCommandDisabledForPhase(phase: UiProtocolHandshakePhase, command: Bmi088HostCommand) {
+  if (phase === 'awaitingIdentity') return command === 'ACK' || command === 'START' || command === 'STOP'
   if (phase === 'awaitingSchema') return command === 'ACK' || command === 'START'
   if (phase === 'awaitingAck') return command === 'START'
   if (phase === 'stopped') return command === 'ACK'
