@@ -1,66 +1,95 @@
-# Workbench UI Visual Unification
+# Workbench Runtime and Scripts Refactor
 
-## Purpose
+## Goal
 
-Polish the current workbench UI so that the dock tabs, Runtime panel, and Scripts panel feel like one coherent product surface.
-The new styling should follow a hybrid direction:
-- base card stability from the Variables panel variable cards
-- elevated/floating visual quality from the Waveform Controls floating panel
+Refactor the `Runtime` and `Scripts` tabs so they stop feeling like dense multi-purpose dashboards and instead guide the user through one primary task at a time.
 
-## Primary Targets
+The target operating model is:
 
-1. Dock tab labels and dock button presentation in the workbench layout
-2. Runtime panel layout, card hierarchy, spacing, and visual consistency
-3. Scripts panel layout, lane switcher, browser/editor presentation, and spacing
-4. Cross-panel visual consistency issues in borders, radii, backgrounds, chips, and text hierarchy
-
-## Design Direction
-
-Use a balanced visual language:
-- main information cards should feel stable, dense, and readable like variable cards
-- controls, tab affordances, and highlighted surfaces may use a lighter floating/glass treatment inspired by the waveform floating panel
-- avoid making Runtime or Scripts feel overly decorative or detached from the rest of the workbench
+- `Runtime` = observe + act + diagnose
+- `Scripts` = browse + edit + runtime impact
 
 ## Requirements
 
-### 1. Tab presentation
-- Improve the visual quality of the workbench tab/dock labels
-- Make selected, idle, and hover states clearer and more consistent with the rest of the UI
-- Keep the tab treatment compatible with the existing flexlayout workbench structure
+### Runtime
 
-### 2. Runtime surface cleanup
-- Reduce visual noise in Runtime without hiding useful information
-- Normalize card hierarchy, spacing, padding, border strength, and headline rhythm
-- Fix layout issues caused by rigid summary/inspector grids on medium widths
-- Make Runtime visually align with Variables and stage-adjacent surfaces
+- Keep one compact top-level summary area that answers the current runtime state quickly.
+- Make command sending the primary workspace block.
+- Keep raw serial inspection available, but demote it below the primary action area.
+- Move protocol detail, device catalog detail, trigger history, and definition-link explanation behind progressive disclosure instead of giving each equal first-screen weight.
+- Remove repeated metadata where the same protocol/device/telemetry context is already visible elsewhere in the same panel.
 
-### 3. Scripts surface cleanup
-- Make the lane switcher feel like a deliberate navigation control instead of generic chips
-- Improve the browser/editor split so it reads as a unified authoring workspace
-- Normalize list item states, selected states, and editor shell styling
-- Fix spacing/alignment issues that make the panel feel uneven
+### Scripts
 
-### 4. Shared visual system
-- Unify repeated values where practical: panel background treatment, border colors, radii, shadows, and compact chip styling
-- Preserve existing dark theme and current information density
-- Prefer low-risk CSS and small markup refinements over broad component rewrites
+- Replace the large summary-card deck with a compact authoring overview.
+- Keep lane selection and definition browsing together as the browse workspace.
+- Keep the editor as the dominant pane.
+- Demote runtime context into a compact impact panel instead of a competing summary surface.
+- Preserve existing editing behavior for protocol, hook, and variable definitions.
 
-### 5. Responsiveness and regression safety
-- Add or refine breakpoints for Runtime and Scripts so they remain readable at narrower dock widths
-- Preserve the Variables panel and Waveform/Frequency Spectrum floating surfaces as reference-quality UI
-- Avoid regressions in adjacent surfaces that reuse the same shared CSS classes
+### Shared UX / Visual Rules
 
-## Out of Scope
+- Reuse the current variable-card-inspired visual language from the workbench UI pass.
+- Preserve the current dark theme and panel styling direction.
+- Prefer structural simplification and progressive disclosure over adding more cards.
+- Use `details` or equivalent low-risk disclosure patterns for secondary diagnostics.
 
-- No product flow changes
-- No state/store logic changes unless strictly needed for layout polish
-- No workbench model restructuring unless required for a minor styling fix
-- No git commit or PR creation in this task
+### Responsiveness
+
+- Keep the dock-width experience readable at medium and narrow panel widths.
+- Avoid layouts where multiple secondary sections compete side-by-side in the first scroll viewport.
 
 ## Acceptance Criteria
 
-- Runtime and Scripts visually feel aligned with Variables and Waveform control surfaces
-- Tab styling is cleaner and selected/idle states are easier to scan
-- Runtime and Scripts show fewer spacing and hierarchy inconsistencies
-- Medium/narrow widths no longer produce obvious grid crowding or broken composition
-- `npm --prefix ui run build` passes
+- `Runtime` has a visible primary action path and no longer presents all diagnostic/reference sections as equal peers.
+- `Scripts` has a clearly dominant browse/edit workflow with less top-level summary noise.
+- Repeated protocol/device/telemetry context is reduced across both panels.
+- Secondary detail is still accessible through disclosure, not removed entirely.
+- `npm --prefix ui run build` passes.
+
+## Definition of Done
+
+- Runtime and Scripts structure updated in React components
+- Shared styles updated to support the new disclosure/workspace layout
+- Frontend build passes
+
+## Technical Approach
+
+- Refactor Runtime from a flat multi-section inspector grid into a staged flow:
+  - top summary
+  - primary workspace row
+  - diagnostics disclosure group
+- Refactor Scripts from summary-heavy layout into:
+  - compact authoring overview
+  - lane browser
+  - dominant editor
+  - compact runtime impact strip
+- Keep store wiring intact; only component composition and presentation should change.
+
+## Decision (ADR-lite)
+
+**Context**: Both tabs currently mix monitoring, operation, reference, and authoring context with duplicated metadata and equal visual weight.
+
+**Decision**: Reorganize by user task flow instead of by raw data categories.
+
+**Consequences**:
+
+- Pros: clearer focus, less duplicated context, better first-screen clarity
+- Cons: some deep protocol/catalog data becomes one click further away
+
+## Research References
+
+- [`research/runtime-scripts-information-architecture.md`](research/runtime-scripts-information-architecture.md) — Recommended direction is Runtime = observe + act + diagnose, Scripts = browse + edit + runtime impact.
+
+## Out of Scope
+
+- No store or backend data model changes
+- No new persistence behavior for script drafts
+- No new protocol/runtime capabilities
+- No git commit or PR creation in this task
+
+## Technical Notes
+
+- Current Runtime entrypoint: `ui/src/components/RuntimePanel.tsx`
+- Current Scripts entrypoint: `ui/src/components/ScriptsPanel.tsx`
+- Runtime detail sections currently live in dedicated subcomponents and can be re-ordered or wrapped without changing store behavior.

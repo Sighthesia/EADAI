@@ -6,7 +6,7 @@ import { RuntimeConsoleSection } from './RuntimeConsoleSection'
 import { RuntimeHookSection } from './RuntimeHookSection'
 import { RuntimeOverviewSection } from './RuntimeOverviewSection'
 import { RuntimeProtocolSection } from './RuntimeProtocolSection'
-import { buildRuntimeActivityStatus, collectRecentTriggers, countVariableDefinitionsBySourceKind, countVariableDefinitionsByVisibility, filterVariableDefinitionsBySurface, groupVariableDefinitionsByDevice } from './runtimeUtils'
+import { buildRuntimeActivityStatus, collectRecentTriggers, countVariableDefinitionsBySourceKind, filterVariableDefinitionsBySurface, groupVariableDefinitionsByDevice } from './runtimeUtils'
 
 export function RuntimePanel() {
   const protocol = useAppStore((state) => state.protocol)
@@ -29,7 +29,6 @@ export function RuntimePanel() {
   const recentTriggers = useMemo(() => collectRecentTriggers(variables), [variables])
   const runtimeDefinitions = useMemo(() => filterVariableDefinitionsBySurface(variableDefinitions, 'runtime'), [variableDefinitions])
   const variableDefinitionsForVariablesPanel = useMemo(() => filterVariableDefinitionsBySurface(variableDefinitions, 'variables'), [variableDefinitions])
-  const visibilityCounts = useMemo(() => countVariableDefinitionsByVisibility(variableDefinitions), [variableDefinitions])
   const definitionGroups = useMemo(() => groupVariableDefinitionsByDevice(runtimeDefinitions, runtimeDevice.id), [runtimeDevice.id, runtimeDefinitions])
   const definitionSourceCounts = useMemo(() => countVariableDefinitionsBySourceKind(variableDefinitions), [variableDefinitions])
   const hookStatus = useMemo(() => buildRuntimeActivityStatus(recentTriggers.length), [recentTriggers.length])
@@ -61,41 +60,42 @@ export function RuntimePanel() {
         hookStatus={hookStatus}
       />
 
-      <div className="runtime-inspector-grid">
+      <div className="runtime-primary-layout">
         <RuntimeCommandCenter
-          runtimeDevice={runtimeDevice}
           protocolPhase={protocol.phase}
           runtimeCatalog={runtimeCatalog}
           onSendCommand={(command) => void sendBmi088Command(command)}
         />
         <RuntimeConsoleSection runtimeCommands={runtimeCatalog.commands} commandInput={commandInput} consoleDisplayMode={consoleDisplayMode} consoleEntries={consoleEntries} appendNewline={appendNewline} onCommandInputChange={setCommandInput} onAppendNewlineChange={setAppendNewline} onDisplayModeChange={setConsoleDisplayMode} onSend={() => void send()} onSendCommand={(command) => void sendBmi088Command(command)} />
-        <RuntimeProtocolSection protocol={protocol} recentTimeline={recentTimeline} runtimeCommands={runtimeCatalog.commands} onSendCommand={(command) => void sendBmi088Command(command)} />
-        <RuntimeCatalogSection runtimeCatalog={runtimeCatalog} />
-        <RuntimeHookSection hookStatus={hookStatus} recentTriggers={recentTriggers} />
-        <section className="runtime-section runtime-definition-link-section">
-          <div className="runtime-section-header">
-            <div>
-              <span className="mcp-label">Definition links</span>
-              <h3>Variable definitions tied to runtime variables</h3>
-            </div>
-            <small>First-pass UI mapping between Scripts and Runtime / Variables</small>
-          </div>
-          <div className="runtime-summary-grid runtime-definition-link-grid">
-            <article className="runtime-card">
-              <span className="mcp-label">Linked definitions</span>
-              <strong>{definitionGroups.reduce((count, group) => count + group.definitions.length, 0)}</strong>
-              <small>{definitionGroups[0]?.label ?? 'Waiting for runtime observations'}</small>
-            </article>
-            <article className="runtime-card">
-              <span className="mcp-label">Presentation scope</span>
-              <strong>UI-safe MVP</strong>
-              <small>{definitionSourceCounts['protocol-text']} protocol-text · {definitionSourceCounts['telemetry-sample']} telemetry-sample</small>
-              <small>{visibilityCounts.runtime} runtime · {visibilityCounts.variables} variables · {visibilityCounts.both} both · {visibilityCounts.hidden} hidden</small>
-            </article>
-          </div>
-          <small>{variableDefinitionsForVariablesPanel.length} definitions visible in Variables panel</small>
-        </section>
       </div>
+
+      <details className="runtime-diagnostic-shell">
+        <summary>
+          <strong>Diagnostics and references</strong>
+        </summary>
+        <div className="runtime-inspector-grid">
+          <RuntimeProtocolSection protocol={protocol} recentTimeline={recentTimeline} runtimeCommands={runtimeCatalog.commands} onSendCommand={(command) => void sendBmi088Command(command)} />
+          <RuntimeHookSection hookStatus={hookStatus} recentTriggers={recentTriggers} />
+          <RuntimeCatalogSection runtimeCatalog={runtimeCatalog} />
+          <section className="runtime-section runtime-definition-link-section">
+            <div className="runtime-section-header">
+              <h3>Runtime-to-definition mapping</h3>
+            </div>
+            <div className="runtime-summary-grid runtime-definition-link-grid">
+              <article className="runtime-card">
+                <span className="mcp-label">Linked definitions</span>
+                <strong>{definitionGroups.reduce((count, group) => count + group.definitions.length, 0)}</strong>
+                <small>{definitionGroups[0]?.label ?? 'Waiting for runtime observations'}</small>
+              </article>
+              <article className="runtime-card">
+                <span className="mcp-label">Presentation scope</span>
+                <strong>{variableDefinitionsForVariablesPanel.length}</strong>
+                <small>{definitionSourceCounts['protocol-text']} text · {definitionSourceCounts['telemetry-sample']} samples</small>
+              </article>
+            </div>
+          </section>
+        </div>
+      </details>
     </section>
   )
 }

@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Bmi088HostCommand, UiProtocolHandshakePhase, UiRuntimeCatalogSnapshot, UiRuntimeCommandCatalogItem, UiRuntimeCommandParameter, UiRuntimeDeviceSnapshot } from '../types'
+import type { Bmi088HostCommand, UiProtocolHandshakePhase, UiRuntimeCatalogSnapshot, UiRuntimeCommandCatalogItem, UiRuntimeCommandParameter } from '../types'
 import { RuntimeSectionHeader } from './runtimeUtils'
 
 type ParameterDraft = Record<string, string | number | boolean>
 
 export function RuntimeCommandCenter({
-  runtimeDevice,
   runtimeCatalog,
   protocolPhase,
   onSendCommand,
 }: {
-  runtimeDevice: UiRuntimeDeviceSnapshot
   runtimeCatalog: UiRuntimeCatalogSnapshot
   protocolPhase: UiProtocolHandshakePhase
   onSendCommand: (command: Bmi088HostCommand) => void
@@ -45,35 +43,16 @@ export function RuntimeCommandCenter({
 
   return (
     <section className="runtime-section runtime-command-center">
-      <RuntimeSectionHeader title="Command center" description="Catalog-driven commands, quick send, and reusable parameter composition" />
-      <div className="runtime-summary-grid runtime-command-center-summary-grid">
-        <article className="runtime-card runtime-device-card">
-          <span className="mcp-label">Device</span>
-          <strong>{runtimeDevice.label}</strong>
-          <small>{runtimeDevice.status}</small>
-          <small>{runtimeDevice.portLabel ?? runtimeDevice.transportLabel}</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Commands</span>
-          <strong>{runtimeCatalog.commands.length}</strong>
-          <small>Runtime catalog entries</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Phase</span>
-          <strong>{protocolPhase}</strong>
-          <small>Selection is context-aware</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Selection</span>
-          <strong>{selectedItem?.command ?? '-'}</strong>
-          <small>{selectedItem?.label ?? 'Choose a command'}</small>
-        </article>
+      <RuntimeSectionHeader title="Quick actions" />
+      <div className="runtime-command-strip">
+        <span className="metric-chip">{runtimeCatalog.commands.length} commands</span>
+        <span className="metric-chip">{protocolPhase}</span>
+        <span className="metric-chip">{selectedItem?.command ?? 'no command selected'}</span>
       </div>
 
       <section className="runtime-section-card">
         <div className="protocol-schema-header">
           <strong>Command list</strong>
-          <small>One-click send and lightweight editing for future catalog expansion</small>
         </div>
         <div className="runtime-command-list" role="list" aria-label="Runtime command list">
           {runtimeCatalog.commands.map((item) => {
@@ -106,7 +85,7 @@ export function RuntimeCommandCenter({
       <section className="runtime-section-card">
         <div className="protocol-schema-header">
           <strong>Selected command</strong>
-          <small>{selectedItem ? buildPayloadPreview(selectedItem, selectedDraft) : 'No command selected'}</small>
+          {selectedItem ? <small>{buildPayloadPreview(selectedItem, selectedDraft)}</small> : null}
         </div>
         {selectedItem ? (
           <div className="runtime-command-detail">

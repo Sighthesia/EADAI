@@ -10,18 +10,11 @@ export function RuntimeCatalogSection({ runtimeCatalog }: { runtimeCatalog: UiRu
 
   return (
     <section className="runtime-section runtime-catalog-section">
-      <RuntimeSectionHeader title="Device catalog" description="Device-centered command and telemetry metadata for the active runtime" />
+      <RuntimeSectionHeader title="Catalog reference" />
       <div className="runtime-summary-grid runtime-catalog-summary-grid">
-        <article className="runtime-card runtime-device-card">
-          <span className="mcp-label">Device</span>
-          <strong>{runtimeCatalog.device.label}</strong>
-          <small>{runtimeCatalog.device.detail}</small>
-          <small>{runtimeCatalog.device.transportLabel} · {runtimeCatalog.device.status}</small>
-        </article>
         <article className="runtime-card">
           <span className="mcp-label">Commands</span>
           <strong>{runtimeCatalog.commands.length}</strong>
-          <small>Host actions for the active device</small>
         </article>
         <article className="runtime-card">
           <span className="mcp-label">Telemetry</span>
@@ -31,63 +24,70 @@ export function RuntimeCatalogSection({ runtimeCatalog }: { runtimeCatalog: UiRu
         <article className="runtime-card">
           <span className="mcp-label">Parser</span>
           <strong>{runtimeCatalog.telemetry.parserName}</strong>
-          <small>Shared device schema source</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Freshness</span>
-          <strong>{runtimeCatalog.telemetry.lastSampleAtMs ? 'Live schema' : 'Idle catalog'}</strong>
-          <small>Schema {runtimeCatalog.telemetry.lastSchemaAtMs ? 'seen' : 'pending'} · Sample {runtimeCatalog.telemetry.lastSampleAtMs ? 'seen' : 'pending'}</small>
         </article>
       </div>
 
-      <section className="runtime-section-card">
-        <div className="protocol-schema-header">
+      <details className="runtime-disclosure">
+        <summary>
           <strong>Command catalog</strong>
-          <small>Stable device actions for the command center</small>
+        </summary>
+        <div className="runtime-disclosure-body">
+          <section className="runtime-section-card">
+            <div className="runtime-catalog-list">
+              {runtimeCatalog.commands.length > 0 ? (
+                runtimeCatalog.commands.map((item) => (
+                  <article key={item.command} className="runtime-example-item">
+                    <strong>
+                      {item.command} · {item.label}
+                    </strong>
+                    <small>{item.description}</small>
+                    {item.payloadPreview ? <code>{item.payloadPreview}</code> : null}
+                  </article>
+                ))
+              ) : (
+                <div className="protocol-empty">No command catalog entries available yet.</div>
+              )}
+            </div>
+          </section>
         </div>
-        <div className="runtime-catalog-list">
-          {runtimeCatalog.commands.map((item) => (
-            <article key={item.command} className="runtime-example-item">
-              <strong>
-                {item.command} · {item.label}
-              </strong>
-              <small>{item.description}</small>
-              {item.payloadPreview ? <code>{item.payloadPreview}</code> : null}
-            </article>
-          ))}
-        </div>
-      </section>
+      </details>
 
-      <section className="runtime-section-card">
-        <div className="protocol-schema-header">
+      <details className="runtime-disclosure">
+        <summary>
           <strong>Telemetry catalog</strong>
-          <small>{runtimeCatalog.telemetry.sampleLen ?? '-'} bytes · grouped by readable sections</small>
+        </summary>
+        <div className="runtime-disclosure-body">
+          <section className="runtime-section-card">
+            <div className="runtime-telemetry-group-stack">
+              {telemetryGroups.length > 0 ? (
+                telemetryGroups.map((group) => <TelemetryGroupCard key={group.key} group={group} />)
+              ) : (
+                <div className="protocol-empty">Awaiting telemetry schema.</div>
+              )}
+            </div>
+          </section>
         </div>
-        <div className="runtime-telemetry-group-stack">
-          {telemetryGroups.length > 0 ? (
-            telemetryGroups.map((group) => <TelemetryGroupCard key={group.key} group={group} />)
-          ) : (
-            <div className="protocol-empty">Awaiting telemetry schema.</div>
-          )}
-        </div>
-      </section>
+      </details>
 
       <details className="runtime-telemetry-disclosure">
         <summary>
           <strong>Raw schema order</strong>
-          <small>Exact protocol field sequence for drill-down inspection</small>
         </summary>
         <div className="protocol-field-grid runtime-telemetry-raw-grid">
-          {runtimeCatalog.telemetry.fields.map((field) => (
-            <div key={`${field.index}-${field.name}`} className="protocol-field-pill">
-              <strong>
-                {field.index + 1}. {field.name}
-              </strong>
-              <small>
-                {field.unit} · q{field.scaleQ}
-              </small>
-            </div>
-          ))}
+          {runtimeCatalog.telemetry.fields.length > 0 ? (
+            runtimeCatalog.telemetry.fields.map((field) => (
+              <div key={`${field.index}-${field.name}`} className="protocol-field-pill">
+                <strong>
+                  {field.index + 1}. {field.name}
+                </strong>
+                <small>
+                  {field.unit} · q{field.scaleQ}
+                </small>
+              </div>
+            ))
+          ) : (
+            <div className="protocol-empty">Awaiting telemetry schema.</div>
+          )}
         </div>
       </details>
     </section>

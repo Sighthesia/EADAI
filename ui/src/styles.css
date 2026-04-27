@@ -360,6 +360,32 @@ button {
   padding: 0;
 }
 
+.runtime-compact-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.runtime-command-strip,
+.runtime-console-strip,
+.scripts-overview-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.runtime-compact-card {
+  min-height: 100%;
+}
+
+.runtime-primary-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 12px;
+  align-items: start;
+}
+
 .runtime-inspector-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
@@ -371,6 +397,42 @@ button {
 
 .runtime-section,
 .runtime-section-card {
+  display: grid;
+  gap: 10px;
+}
+
+.runtime-diagnostic-shell,
+.runtime-disclosure {
+  display: grid;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid var(--eadai-surface-border);
+  border-radius: var(--eadai-surface-radius);
+  background: rgba(18, 22, 30, 0.985);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.runtime-diagnostic-shell > summary,
+.runtime-disclosure > summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.runtime-diagnostic-shell > summary::-webkit-details-marker,
+.runtime-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.runtime-diagnostic-shell > summary small,
+.runtime-disclosure > summary small {
+  color: #9ba8b7;
+}
+
+.runtime-disclosure-body {
   display: grid;
   gap: 10px;
 }
@@ -486,7 +548,7 @@ button {
 }
 
 .runtime-catalog-summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .runtime-telemetry-group-stack {
@@ -715,6 +777,34 @@ button {
   padding: 11px;
 }
 
+.scripts-overview-card {
+  gap: 12px;
+}
+
+.scripts-overview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scripts-overview-header strong,
+.scripts-overview-header small {
+  display: block;
+}
+
+.scripts-overview-header small {
+  color: #9ba8b7;
+  margin-top: 4px;
+}
+
+.scripts-overview-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .scripts-browser-layout {
   display: grid;
   grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
@@ -894,12 +984,15 @@ button {
 }
 
 @container (max-width: 1180px) {
+  .runtime-primary-layout,
   .runtime-inspector-grid,
   .runtime-summary-grid,
   .runtime-dashboard-summary-grid,
+  .runtime-compact-strip,
   .runtime-detail-grid,
   .runtime-hook-grid,
-  .runtime-definition-link-grid {
+  .runtime-definition-link-grid,
+  .scripts-overview-strip {
     grid-template-columns: 1fr;
   }
 
@@ -922,6 +1015,7 @@ button {
 }
 
 @container (max-width: 840px) {
+  .scripts-overview-header,
   .scripts-editor-header,
   .scripts-editor-toolbar,
   .runtime-header {
@@ -934,9 +1028,16 @@ button {
   }
 
   .runtime-header-meta,
+  .scripts-overview-metrics,
   .scripts-editor-header-actions,
   .scripts-editor-preview {
     justify-content: flex-start;
+  }
+
+  .runtime-command-strip,
+  .runtime-console-strip,
+  .scripts-overview-strip {
+    align-items: flex-start;
   }
 }
 

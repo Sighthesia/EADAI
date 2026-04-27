@@ -24,33 +24,18 @@ export function RuntimeConsoleSection({
   onSend: () => void
   onSendCommand: (command: Bmi088HostCommand) => void
 }) {
-  const recentEntries = consoleEntries.slice(-8).reverse()
-
   return (
     <section className="runtime-section runtime-console-section">
-      <RuntimeSectionHeader title="Raw serial inspector" description="Console tools and recent bytes for quick traffic inspection" />
-      <div className="runtime-summary-grid runtime-console-summary-grid">
-        <article className="runtime-card">
-          <span className="mcp-label">Traffic</span>
-          <strong>{consoleEntries.length} lines</strong>
-          <small>{recentEntries[0] ? summarizeLatestTraffic(recentEntries[0]) : 'Waiting for the first line'}</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Display</span>
-          <strong>{consoleDisplayMode.toUpperCase()}</strong>
-          <small>Toggle how payload bytes are rendered</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Compose</span>
-          <strong>{appendNewline ? 'Newline on' : 'Newline off'}</strong>
-          <small>Send typed payloads directly to the serial line</small>
-        </article>
+      <RuntimeSectionHeader title="Serial tools" />
+      <div className="runtime-console-strip">
+        <span className="metric-chip">{consoleDisplayMode.toUpperCase()}</span>
+        <span className="metric-chip">{consoleEntries.length} lines</span>
+        <span className="metric-chip">{appendNewline ? 'newline on' : 'newline off'}</span>
       </div>
 
       <section className="runtime-section-card">
         <div className="protocol-schema-header">
           <strong>Console tools</strong>
-          <small>Keep raw traffic visible while changing display mode or sending payloads</small>
         </div>
         <div className="toolbar-row runtime-console-toolbar">
           <div className="console-display-switch" role="group" aria-label="Console display mode">
@@ -85,10 +70,11 @@ export function RuntimeConsoleSection({
       <section className="runtime-section-card">
         <div className="protocol-schema-header">
           <strong>Latest traffic</strong>
-          <small>Raw serial entries and parser state</small>
         </div>
         <div className="runtime-entry-list runtime-console-entry-list">
-          {recentEntries.length > 0 ? recentEntries.map((entry) => <RuntimeTrafficRow key={entry.id} entry={entry} mode={consoleDisplayMode} />) : <div className="protocol-empty">Awaiting serial traffic.</div>}
+          {consoleEntries.slice(-8).reverse().length > 0
+            ? consoleEntries.slice(-8).reverse().map((entry) => <RuntimeTrafficRow key={entry.id} entry={entry} mode={consoleDisplayMode} />)
+            : <div className="protocol-empty">Awaiting serial traffic.</div>}
         </div>
       </section>
     </section>
@@ -113,10 +99,4 @@ function RuntimeTrafficRow({ entry, mode = 'text' }: { entry: ConsoleEntry; mode
       </div>
     </article>
   )
-}
-
-function summarizeLatestTraffic(entry: ConsoleEntry | null) {
-  if (!entry) return 'Waiting for the first line'
-  const parserLabel = entry.parser?.parserName ? `${entry.parser.parserName} · ` : ''
-  return `${parserLabel}${entry.direction.toUpperCase()} ${entry.raw.length} B`
 }

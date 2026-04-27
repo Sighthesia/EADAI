@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import type { HookDefinition, ScriptDefinition, UiDefinitionStatus, VariableDefinition, VariableDefinitionVisibility } from '../types'
-import { buildScriptSurfaceStatus, countVariableDefinitionsBySourceKind, describeVariableSourceKind, describeVariableVisibility, formatTime, groupVariableDefinitionsByDevice } from './runtimeUtils'
+import { buildScriptSurfaceStatus, countVariableDefinitionsBySourceKind, describeVariableSourceKind, formatTime, groupVariableDefinitionsByDevice } from './runtimeUtils'
 
 type DefinitionLane = 'protocol' | 'hooks' | 'variables'
 
@@ -195,52 +195,37 @@ export function ScriptsPanel() {
       <div className="runtime-header scripts-header">
         <div>
           <span className="mcp-label">Scripts surface</span>
-          <h2>Definition-first authoring lanes</h2>
+          <h2>Definition browse and edit</h2>
         </div>
         <div className="runtime-header-meta">
-          <span className="metric-chip">{runtimeCatalog.commands.length} commands</span>
-          <span className="metric-chip">{runtimeCatalog.telemetry.fields.length} fields</span>
+          <span className={`metric-chip ${selectedDefinitionDirty ? 'selected' : ''}`}>{selectedDefinitionDirty ? 'Draft changed' : 'Synced'}</span>
+          <span className="metric-chip">{laneCounts[selectedLane]} in lane</span>
         </div>
       </div>
 
-        <div className="runtime-summary-grid scripts-summary-grid">
-          <article className="runtime-card">
-          <span className="mcp-label">Definition status</span>
-          <strong>{surfaceStatus.label}</strong>
-          <small>{surfaceStatus.detail}</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Protocol definition</span>
-          <strong>{protocolDefinition?.name ?? protocol.parserName}</strong>
-          <small>{protocol.transportLabel} · {protocol.baudRate} baud</small>
-          <small>{protocol.schema ? `${protocol.schema.fields.length} telemetry fields loaded` : 'Schema will appear here as the device publishes it.'}</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Hook definitions</span>
-          <strong>{laneCounts.hooks} rules</strong>
-          <small>Schema, sample, and trigger hooks stay separate.</small>
-          <small>Latest hook update {formatTime(definitionHooks[0]?.updatedAtMs ?? null)}</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Variable extraction</span>
-          <strong>{laneCounts.variables} targets</strong>
-          <small>
-            {variableSourceCounts['protocol-text']} protocol-text · {variableSourceCounts['telemetry-sample']} telemetry-sample
-          </small>
-          <small>{variableDefinitions[0] ? `Latest update ${formatTime(variableDefinitions[0].updatedAtMs)}` : 'No extracted variables yet.'}</small>
-        </article>
-        <article className="runtime-card">
-          <span className="mcp-label">Draft mode</span>
-          <strong>Frontend-local</strong>
-          <small>Edits stay in the browser until persistence is added.</small>
-          <small>Switch lanes to browse protocol, hook, and variable concerns independently.</small>
-        </article>
-      </div>
+      <section className="runtime-section-card scripts-overview-card">
+        <div className="scripts-overview-header">
+          <div>
+            <span className="mcp-label">Authoring overview</span>
+            <strong>{surfaceStatus.label}</strong>
+            <small>{surfaceStatus.detail}</small>
+          </div>
+          <div className="scripts-overview-metrics">
+            <span className="metric-chip">{laneCounts.protocol} protocol</span>
+            <span className="metric-chip">{laneCounts.hooks} hooks</span>
+            <span className="metric-chip">{laneCounts.variables} variables</span>
+          </div>
+        </div>
+        <div className="scripts-overview-strip">
+          <span className="metric-chip">{protocolDefinition?.name ?? protocol.parserName}</span>
+          <span className="metric-chip">{runtimeCatalog.telemetry.fields.length} telemetry fields</span>
+          <span className="metric-chip">{variableSourceCounts['protocol-text']} text · {variableSourceCounts['telemetry-sample']} samples</span>
+        </div>
+      </section>
 
       <section className="runtime-section-card scripts-browser-shell">
         <div className="protocol-schema-header">
-          <strong>Definition browser</strong>
-          <small>Pick a lane to inspect the current definition seed and edit a local draft</small>
+          <strong>Browse and edit definitions</strong>
         </div>
         <div className="scripts-browser-layout">
           <aside className="scripts-browser-sidebar">
@@ -259,7 +244,6 @@ export function ScriptsPanel() {
             <div className="scripts-browser-group">
               <div className="protocol-schema-header">
                 <strong>{laneTitle(selectedLane)}</strong>
-                <small>{laneDescription(selectedLane)}</small>
               </div>
               <div className="scripts-browser-list">
                 {selectedLaneItems.length > 0 ? (
@@ -268,7 +252,6 @@ export function ScriptsPanel() {
                       <section key={group.deviceRef} className="scripts-definition-group">
                         <div className="protocol-schema-header">
                           <strong>{group.label}</strong>
-                          <small>{group.detail}</small>
                         </div>
                         <div className="scripts-browser-list scripts-browser-list-nested">
                           {group.definitions.map((item) => (
@@ -286,10 +269,10 @@ export function ScriptsPanel() {
                               <span className="mcp-label">Variable extraction</span>
                               <strong>{item.name}</strong>
                               <small>{item.summary}</small>
-                                <small>
-                                  {describeVariableSourceKind(item.sourceKind)} · {item.extractorKind} · {describeVariableVisibility(item.visibility)}
-                                </small>
-                              <small>{item.status} · updated {formatTime(item.updatedAtMs)}</small>
+                              <small>
+                                {describeVariableSourceKind(item.sourceKind)} · {item.extractorKind}
+                              </small>
+                               <small>{item.status} · updated {formatTime(item.updatedAtMs)}</small>
                             </button>
                           ))}
                         </div>
@@ -303,11 +286,11 @@ export function ScriptsPanel() {
                         className={`scripts-browser-item ${item.id === selectedDefinition?.id ? 'selected' : ''}`}
                         onClick={() => selectDefinition(item)}
                       >
-                      <span className="mcp-label">{item.lane === 'protocol' ? 'Protocol script' : item.lane === 'hooks' ? 'Hook definition' : 'Variable extraction'}</span>
-                      <strong>{item.label}</strong>
-                      <small>{item.detail}</small>
-                      <small>{item.status} · updated {formatTime(item.updatedAtMs)}</small>
-                    </button>
+                        <span className="mcp-label">{item.lane === 'protocol' ? 'Protocol script' : item.lane === 'hooks' ? 'Hook definition' : 'Variable extraction'}</span>
+                        <strong>{item.label}</strong>
+                        <small>{item.detail}</small>
+                        <small>{item.status} · updated {formatTime(item.updatedAtMs)}</small>
+                      </button>
                     ))
                   )
                 ) : (
@@ -323,12 +306,11 @@ export function ScriptsPanel() {
             ) : (
               <>
                 <div className="scripts-editor-header">
-                  <div>
-                    <span className="mcp-label">Selected definition</span>
-                    <h3>{selectedDefinition.label}</h3>
-                    <small>{selectedDefinition.detail}</small>
-                    <small>{selectedLane === 'protocol' ? 'protocol' : selectedLane} lane · {laneCounts[selectedLane]} definitions</small>
-                  </div>
+                    <div>
+                      <span className="mcp-label">Editor</span>
+                      <h3>{selectedDefinition.label}</h3>
+                      <small>{selectedDefinition.detail}</small>
+                    </div>
                   <div className="scripts-editor-header-actions">
                     <span className="metric-chip">{selectedDefinition.lane}</span>
                     <span className={`metric-chip ${selectedDefinitionDirty ? 'selected' : ''}`}>{selectedDefinitionDirty ? 'Draft changed' : 'Synced from store'}</span>
@@ -438,19 +420,11 @@ export function ScriptsPanel() {
 
                 <div className="scripts-editor-toolbar">
                   <div className="scripts-editor-preview">
-                    <span className="mcp-label">Runtime context</span>
-                    <small>
-                      {runtimeCatalog.telemetry.fields.length > 0
-                        ? `${runtimeCatalog.telemetry.fields.length} telemetry fields · ${runtimeCatalog.telemetry.parserName}`
-                        : 'Telemetry schema is still waiting to be published.'}
-                    </small>
+                    <span className="mcp-label">Runtime impact</span>
+                    <small>{runtimeCatalog.telemetry.fields.length > 0 ? `${runtimeCatalog.telemetry.fields.length} telemetry fields · ${runtimeCatalog.telemetry.parserName}` : 'Telemetry schema pending'}</small>
                     <small>{selectedDefinition.lane === 'variables' ? `Observed value ${selectedDefinition.definition.lastObservedValue ?? '—'}` : `Protocol phase ${protocol.phase}`}</small>
-                    {selectedDefinition.lane === 'variables' ? (
-                      <small>
-                        {describeVariableSourceKind(selectedDefinition.definition.sourceKind)} · {selectedDefinition.definition.extractorKind} · {describeVariableVisibility(selectedDefinition.definition.visibility)}
-                      </small>
-                    ) : null}
-                    </div>
+                    {selectedDefinition.lane === 'variables' ? <small>{describeVariableSourceKind(selectedDefinition.definition.sourceKind)} · {selectedDefinition.definition.extractorKind}</small> : null}
+                  </div>
                   <div className="scripts-editor-header-actions">
                     {selectedDefinition.lane === 'variables' ? (
                       <button type="button" className="ghost-button" onClick={saveSelectedDraft}>
@@ -541,10 +515,4 @@ function laneTitle(lane: DefinitionLane) {
   if (lane === 'protocol') return 'Protocol lane'
   if (lane === 'hooks') return 'Hook lane'
   return 'Variable lane'
-}
-
-function laneDescription(lane: DefinitionLane) {
-  if (lane === 'protocol') return 'The shared script seed that anchors parsing and handshake ownership.'
-  if (lane === 'hooks') return 'Reusable hook definitions for schema, sample, and trigger events.'
-  return 'Extraction rules promoted from observed runtime variables.'
 }

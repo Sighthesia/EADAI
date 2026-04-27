@@ -175,9 +175,8 @@ export function VariablesPanel() {
   return (
     <section className="panel panel-scroll variables-panel">
       <div className="variables-header">
-        <span>Auto-discovered channels</span>
         <div className="variables-header-actions">
-          <span>{rows.length} · Right-click to assign IMU source or tune waveform overlays</span>
+          <span>{rows.length} channels</span>
           <div className="metric-display-switch" role="group" aria-label="Metric display mode">
             {METRIC_DISPLAY_MODES.map((mode) => (
               <button
@@ -192,7 +191,6 @@ export function VariablesPanel() {
           </div>
         </div>
       </div>
-      <small className="variables-definition-note">{visibleVariableDefinitions.length} variable definitions are visible in this surface</small>
       <div className="variables-device-groups">
         {groupedRows.map((group) => (
           <section key={group.deviceRef} className="variables-device-group panel panel-scroll">

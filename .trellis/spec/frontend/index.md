@@ -16,6 +16,7 @@ The current pattern is a small app shell plus focused workspace components.
 | Guide | Description | Status |
 |-------|-------------|--------|
 | [Logic Analyzer Workspace](./logic-analyzer-workspace.md) | Independent logic-analyzer page and Tauri bridge contract | Filled |
+| [Workbench Visual Language](./workbench-visual-language.md) | Compact task-first chrome, progressive disclosure, and summary-strip conventions | Filled |
 
 ---
 

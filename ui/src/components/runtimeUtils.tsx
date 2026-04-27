@@ -20,14 +20,10 @@ export type VariableDefinitionDeviceGroup = {
 
 export type VariableDefinitionSurface = 'runtime' | 'variables'
 
-export function RuntimeSectionHeader({ title, description }: { title: string; description: string }) {
+export function RuntimeSectionHeader({ title }: { title: string }) {
   return (
     <div className="runtime-section-header">
-      <div>
-        <span className="mcp-label">Runtime section</span>
-        <h3>{title}</h3>
-      </div>
-      <small>{description}</small>
+      <h3>{title}</h3>
     </div>
   )
 }

@@ -224,13 +224,6 @@ export function ConnectionPanel() {
     <section className="panel connection-panel">
       <div className="connection-layout">
         <section className="connection-device-deck">
-          <div className="variables-header">
-            <span>Connected and discovered devices</span>
-            <div className="variables-header-actions">
-              <span>{deviceCards.length} · Right-click a card to edit alias and note</span>
-            </div>
-          </div>
-
           <div className="variables-list connection-device-list">
             {deviceCards.map((card, index) => (
               <article
