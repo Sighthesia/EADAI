@@ -1,0 +1,44 @@
+{
+  "id": "imu-motion-trajectory-zoom",
+  "name": "imu-motion-trajectory-zoom",
+  "title": "为IMU界面增加速度计运动轨迹显示功能，允许IMU界面缩放，使用对应加速度计颜色线条表示旧轨迹",
+  "description": "",
+  "status": "planning",
+  "dev_type": "frontend",
+  "scope": "IMU",
+  "priority": "P2",
+  "creator": "Sighthesia",
+  "assignee": "Sighthesia",
+  "createdAt": "2026-04-20",
+  "completedAt": null,
+  "branch": "feature/imu-motion-trajectory-zoom",
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 3,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

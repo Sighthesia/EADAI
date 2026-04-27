@@ -1,0 +1,4 @@
+{"file": ".opencode/commands/trellis/check-frontend.md", "reason": "Frontend check spec"}
+{"file": "ui/src/components/ImuPanel.tsx", "reason": "Primary place for rendering and interaction bugs"}
+{"file": "ui/src/store/appStore.ts", "reason": "History buffering and sample ingestion issues"}
+{"file": "ui/src/lib/imu-view.ts", "reason": "Derived vector trajectory math and coordinate projection issues"}

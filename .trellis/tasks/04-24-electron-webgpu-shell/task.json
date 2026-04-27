@@ -1,0 +1,44 @@
+{
+  "id": "electron-webgpu-shell",
+  "name": "electron-webgpu-shell",
+  "title": "Experiment Electron shell with Vulkan and unsafe WebGPU instead of Tauri",
+  "description": "Create an experimental Electron desktop shell that enables Chromium Vulkan and unsafe WebGPU flags, reuses the existing UI/runtime where possible, and serves as a branch-isolated alternative to the current Tauri desktop shell.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "priority": "P1",
+  "creator": "Sighthesia",
+  "assignee": "Sighthesia",
+  "createdAt": "2026-04-24",
+  "completedAt": null,
+  "branch": "exp/electron-webgpu",
+  "base_branch": "main",
+  "worktree_path": "/home/Sighthesia/0_Files/Producing/Software/trellis-worktrees/exp/electron-webgpu",
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

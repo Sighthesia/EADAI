@@ -1,0 +1,6 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".opencode/commands/trellis/check-frontend.md", "reason": "Frontend check spec"}
+{"file": "ui/src/components/ImuPanel.tsx", "reason": "Verify stage layout, zoom interaction, and trail rendering integration"}
+{"file": "ui/src/store/appStore.ts", "reason": "Verify bounded history updates and stable per-channel color assignment"}
+{"file": "ui/src/styles.css", "reason": "Verify zoom affordances and old-trace visual contrast"}
+{"file": "ui/src/components/WaveformPanel.tsx", "reason": "Reference zoom interaction pattern for consistent IMU behavior"}

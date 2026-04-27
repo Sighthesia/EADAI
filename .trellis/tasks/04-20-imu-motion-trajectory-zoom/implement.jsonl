@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/logic-analyzer-workspace.md", "reason": "Shared stage-style presentation and frontend bridge pattern reference"}
+{"file": "ui/src/components/ImuPanel.tsx", "reason": "Main IMU surface for trajectory layer and zoom controls"}
+{"file": "ui/src/store/appStore.ts", "reason": "Current sample history storage pattern and channel color source"}
+{"file": "ui/src/lib/imu-view.ts", "reason": "Existing IMU-derived rendering helpers and vector math"}
+{"file": "ui/src/lib/imu.ts", "reason": "IMU channel-role mapping and color-label conventions"}
+{"file": "ui/src/types.ts", "reason": "Shared UI data shapes for IMU history and trajectory state"}
+{"file": "ui/src/styles.css", "reason": "IMU stage, zoom controls, and trajectory styling"}

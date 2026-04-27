@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": "ui/src/components/Workbench.tsx", "reason": "Dock tab layout and tab naming surface"}
+{"file": "ui/src/components/RuntimePanel.tsx", "reason": "Runtime surface structure and summary grids"}
+{"file": "ui/src/components/ScriptsPanel.tsx", "reason": "Scripts browser and editor layout"}
+{"file": "ui/src/components/VariablesPanel.tsx", "reason": "Reference visual language from variable cards"}
+{"file": "ui/src/components/WaveformPanel.tsx", "reason": "Reference floating control panel visual language"}
+{"file": "ui/src/components/FrequencySpectrumPage.tsx", "reason": "Shared floating control styling compatibility"}
+{"file": "ui/src/styles.css", "reason": "Primary visual system, tabs, runtime, scripts, and reference styles"}

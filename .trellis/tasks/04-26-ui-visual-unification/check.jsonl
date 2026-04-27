@@ -1,0 +1,9 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".opencode/commands/trellis/check-frontend.md", "reason": "Frontend check spec"}
+{"file": "ui/src/components/Workbench.tsx", "reason": "Verify dock tab styling remains coherent"}
+{"file": "ui/src/components/RuntimePanel.tsx", "reason": "Verify runtime layout and responsive card presentation"}
+{"file": "ui/src/components/ScriptsPanel.tsx", "reason": "Verify scripts lane/browser/editor layout and consistency"}
+{"file": "ui/src/components/VariablesPanel.tsx", "reason": "Verify reference card style remains consistent"}
+{"file": "ui/src/components/WaveformPanel.tsx", "reason": "Verify floating panel styling still anchors the shared visual language"}
+{"file": "ui/src/components/FrequencySpectrumPage.tsx", "reason": "Verify shared floating menu style does not regress sibling surface"}
+{"file": "ui/src/styles.css", "reason": "Verify token alignment, spacing, tabs, and responsive behavior"}
