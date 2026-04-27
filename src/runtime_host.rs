@@ -159,7 +159,11 @@ impl SessionRuntimeHost {
     }
 
     /// Sends one BMI088 host command through the active runtime session.
-    pub fn send_bmi088_command(&self, command: Bmi088HostCommand) -> Result<(), AppError> {
+    pub fn send_bmi088_command(
+        &self,
+        command: Bmi088HostCommand,
+        payload: Option<Vec<u8>>,
+    ) -> Result<(), AppError> {
         let snapshot = self.adapter.session_snapshot();
         let connection = snapshot.connection.ok_or_else(|| {
             AppError::Io(std::io::Error::new(
@@ -183,7 +187,7 @@ impl SessionRuntimeHost {
             ))
         })?;
 
-        running.control.send_bmi088_command(command)
+        running.control.send_bmi088_command(command, payload)
     }
 
     /// Lists serial ports using the shared backend helper.
@@ -214,11 +218,18 @@ impl RuntimeControl {
         }
     }
 
-    fn send_bmi088_command(&self, command: Bmi088HostCommand) -> Result<(), AppError> {
+    fn send_bmi088_command(
+        &self,
+        command: Bmi088HostCommand,
+        payload: Option<Vec<u8>>,
+    ) -> Result<(), AppError> {
         match self {
-            Self::Serial { command_handle, .. } => command_handle.send_bmi088_command(command),
+            Self::Serial { command_handle, .. } => command_handle.send_bmi088_command(command, payload),
             Self::Fake(handle) => handle
-                .send_payload(crate::bmi088::encode_host_command(command))
+                .send_payload(match payload.as_deref() {
+                    Some(payload) => crate::bmi088::encode_host_command_with_payload(command, payload),
+                    None => crate::bmi088::encode_host_command(command),
+                })
                 .map_err(|error| AppError::Io(std::io::Error::new(ErrorKind::BrokenPipe, error))),
         }
     }

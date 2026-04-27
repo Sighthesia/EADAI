@@ -453,6 +453,22 @@ impl AiContextState {
                     trigger: None,
                 });
             }
+            MessageKind::ShellOutput(line) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: line.direction,
+                        text: line.payload.text,
+                        raw_length: line.payload.raw.len(),
+                        parser: message.parser,
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
             MessageKind::TelemetryIdentity(identity) => {
                 self.push_event(AiRecentEvent {
                     timestamp_ms,

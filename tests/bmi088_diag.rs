@@ -11,6 +11,9 @@ fn encodes_host_commands_with_seq_and_len_byte() {
 
     let identity = encode_host_command(HostCommand::ReqIdentity, 8);
     assert_eq!(&identity[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x14, 0x08, 0x00]);
+
+    let shell = encode_host_command(HostCommand::ShellExec, 9);
+    assert_eq!(&shell[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x28, 0x09, 0x00]);
 }
 
 #[test]

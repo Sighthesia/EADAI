@@ -4,7 +4,7 @@ use crate::bmi088::{
     decode_frame_envelope, decode_sample_raw_values, encode_host_command_with_seq, find_sof,
     frame_len_from_payload_len,
 };
-use crate::serial::{FramedLine, LineFramer};
+use crate::serial::{FrameStatus, FramedLine, LineFramer};
 
 pub const SOF: [u8; 2] = bmi088::BMI088_SOF;
 pub const VERSION: u8 = bmi088::BMI088_VERSION;
@@ -30,6 +30,9 @@ pub enum HostCommand {
     Stop,
     ReqSchema,
     ReqIdentity,
+    ReqTuning,
+    SetTuning,
+    ShellExec,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +57,7 @@ pub enum Frame {
     Identity(IdentityFrame),
     Schema(SchemaFrame),
     Sample(SampleFrame),
+    ShellOutput(FramedLine),
     Unknown {
         frame_type: u8,
         command: u8,
@@ -216,6 +220,9 @@ pub fn ascii_command_bytes(command: HostCommand, newline_mode: NewlineMode) -> V
         HostCommand::Stop => "stop",
         HostCommand::ReqSchema => "req_schema",
         HostCommand::ReqIdentity => "req_identity",
+        HostCommand::ReqTuning => "req_tuning",
+        HostCommand::SetTuning => "set_tuning",
+        HostCommand::ShellExec => "shell_exec",
     };
 
     let mut bytes = command_text.as_bytes().to_vec();
@@ -251,6 +258,13 @@ fn decode_frame_with_schema(
             Bmi088Frame::Schema(schema) => Ok(Frame::Schema(schema)),
             _ => Err(DecodeError::Malformed("unexpected non-schema frame")),
         },
+        (FRAME_TYPE_EVENT, bmi088::BMI088_CMD_SHELL_OUTPUT) => Ok(Frame::ShellOutput(FramedLine {
+            payload: crate::message::LinePayload {
+                text: String::from_utf8_lossy(payload).into_owned(),
+                raw: payload.to_vec(),
+            },
+            status: FrameStatus::Complete,
+        })),
         (FRAME_TYPE_EVENT, CMD_SAMPLE) => {
             let raw_values = decode_sample_raw_values(payload).map_err(map_decode_error)?;
             Ok(Frame::Sample(SampleFrame { seq, raw_values }))
@@ -276,11 +290,14 @@ fn map_decode_error(error: Bmi088DecodeError) -> DecodeError {
 }
 
 fn to_bmi088_command(command: HostCommand) -> Bmi088HostCommand {
-    match command {
+        match command {
         HostCommand::Ack => Bmi088HostCommand::Ack,
         HostCommand::Start => Bmi088HostCommand::Start,
         HostCommand::Stop => Bmi088HostCommand::Stop,
         HostCommand::ReqSchema => Bmi088HostCommand::ReqSchema,
         HostCommand::ReqIdentity => Bmi088HostCommand::ReqIdentity,
+        HostCommand::ReqTuning => Bmi088HostCommand::ReqTuning,
+        HostCommand::SetTuning => Bmi088HostCommand::SetTuning,
+        HostCommand::ShellExec => Bmi088HostCommand::ShellExec,
     }
 }

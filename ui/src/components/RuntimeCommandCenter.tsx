@@ -11,7 +11,7 @@ export function RuntimeCommandCenter({
 }: {
   runtimeCatalog: UiRuntimeCatalogSnapshot
   protocolPhase: UiProtocolHandshakePhase
-  onSendCommand: (command: Bmi088HostCommand) => void
+  onSendCommand: (command: Bmi088HostCommand, payload?: string | null) => void
 }) {
   const [selectedCommand, setSelectedCommand] = useState<Bmi088HostCommand | null>(runtimeCatalog.commands[0]?.command ?? null)
   const [drafts, setDrafts] = useState<Partial<Record<Bmi088HostCommand, ParameterDraft>>>({})
@@ -72,7 +72,7 @@ export function RuntimeCommandCenter({
                     Details
                   </button>
                   {item.recommendedPhase === protocolPhase ? <span className="metric-chip tone-success">recommended</span> : null}
-                  <button type="button" className="ghost-button" onClick={() => onSendCommand(item.command)}>
+                   <button type="button" className="ghost-button" onClick={() => onSendCommand(item.command, selectedDraft.payload as string | undefined)}>
                     Send
                   </button>
                 </div>
@@ -109,7 +109,7 @@ export function RuntimeCommandCenter({
             )}
             <div className="toolbar-row runtime-command-detail-actions">
               <code>{buildPayloadPreview(selectedItem, selectedDraft)}</code>
-              <button type="button" className="primary-button" onClick={() => onSendCommand(selectedItem.command)}>
+              <button type="button" className="primary-button" onClick={() => onSendCommand(selectedItem.command, selectedDraft.payload as string | undefined)}>
                 Send now
               </button>
             </div>

@@ -375,7 +375,17 @@ function buildPlotModel(selectedVariables: SelectedWaveformVariable[], visualAid
         : Date.now()
 
     const windowEndMs = latestTimestampMs
-    const dataWindowStartMs = windowEndMs - timeWindowMs
+    let dataWindowStartMs = windowEndMs - timeWindowMs
+
+    for (const item of stagedVariables) {
+      if (!isNumericVariable(item.variable) || item.variable.points.length === 0) {
+        continue
+      }
+      const earliest = item.variable.points[0]!.timestampMs
+      if (Number.isFinite(earliest) && earliest > dataWindowStartMs) {
+        dataWindowStartMs = earliest
+      }
+    }
 
     const numericTracks: PlotTrack[] = []
     const textTracks: TextTrack[] = []

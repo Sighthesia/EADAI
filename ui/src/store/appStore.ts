@@ -132,6 +132,45 @@ const RUNTIME_COMMAND_CATALOG: UiRuntimeCommandCatalogItem[] = [
     recommendedPhase: 'streaming',
     payloadPreview: 'STOP',
   },
+  {
+    command: 'REQ_TUNING',
+    label: 'Request tuning',
+    description: 'Fetch current tuning state before editing values.',
+    recommendedPhase: null,
+    payloadPreview: 'REQ_TUNING',
+  },
+  {
+    command: 'SET_TUNING',
+    label: 'Apply tuning',
+    description: 'Send a tuning payload to update device parameters.',
+    recommendedPhase: null,
+    parameters: [
+      {
+        name: 'payload',
+        label: 'Tuning payload',
+        kind: 'text',
+        placeholder: 'key=value',
+        description: 'ASCII tuning payload without trailing newline.',
+      },
+    ],
+    payloadPreview: 'SET_TUNING · payload=value',
+  },
+  {
+    command: 'SHELL_EXEC',
+    label: 'Run shell command',
+    description: 'Bridge one firmware shell command over the framed UART path.',
+    recommendedPhase: null,
+    parameters: [
+      {
+        name: 'payload',
+        label: 'Shell command',
+        kind: 'text',
+        placeholder: 'echo hello',
+        description: 'ASCII command line without trailing newline.',
+      },
+    ],
+    payloadPreview: 'SHELL_EXEC · payload=echo hello',
+  },
 ]
 
 type AppStore = {
@@ -174,7 +213,7 @@ type AppStore = {
   connect: () => Promise<void>
   disconnect: () => Promise<void>
   send: () => Promise<void>
-  sendBmi088Command: (command: Bmi088HostCommand) => Promise<void>
+  sendBmi088Command: (command: Bmi088HostCommand, payload?: string | null) => Promise<void>
   ingestEvent: (event: SerialBusEvent) => void
   ingestEvents: (events: SerialBusEvent[]) => void
   toggleChannel: (channel: string) => void
@@ -533,8 +572,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       status: { tone: 'success', message: `Sent ${payload}.` },
     })
   },
-  sendBmi088Command: async (command) => {
-    await sendBmi088Command({ command })
+  sendBmi088Command: async (command, payload) => {
+    await sendBmi088Command({ command, payload: payload ?? null })
     set({
       status: { tone: 'success', message: `Sent BMI088 ${command}.` },
     })
@@ -628,6 +667,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
             }
 
             shouldRecomputeImuQuality = true
+            continue
+          }
+
+          if (event.kind === 'shellOutput') {
+            const consoleEntry = asConsoleEntry({
+              ...event,
+              kind: 'line',
+            } as Extract<SerialBusEvent, { kind: 'line' }>)
+            consoleEntries = [...consoleEntries, consoleEntry].slice(-MAX_CONSOLE_ENTRIES)
+            consoleChanged = true
+            protocol = ingestProtocolShellOutput(protocol, event)
+            protocolChanged = true
             continue
           }
 
@@ -1392,12 +1443,40 @@ const ingestProtocolSample = (
   }),
 })
 
+const ingestProtocolShellOutput = (
+  protocol: UiProtocolSnapshot,
+  event: Extract<SerialBusEvent, { kind: 'shellOutput' }>,
+): UiProtocolSnapshot => ({
+  ...protocol,
+  active: true,
+  parserName: event.parser.parserName ?? protocol.parserName,
+  lastPacketKind: 'command' as const,
+  lastPacketRawFrame: event.line.raw,
+  lastHandshakeAtMs: event.timestampMs,
+  timeline: appendProtocolTimeline(protocol.timeline, {
+    timestampMs: event.timestampMs,
+    direction: 'rx',
+    command: 'SHELL_OUTPUT',
+    note: event.line.text,
+    parserStatus: event.parser.status,
+  }),
+})
+
 const appendProtocolTimeline = (timeline: UiProtocolHandshakeEvent[], next: UiProtocolHandshakeEvent) =>
   [...timeline, next].slice(-PROTOCOL_TIMELINE_LIMIT)
 
 const protocolCommandFromLine = (text: string): UiProtocolHandshakeEvent['command'] | null => {
   const normalized = text.trim().toUpperCase()
-  if (normalized === 'ACK' || normalized === 'START' || normalized === 'STOP' || normalized === 'REQ_SCHEMA') {
+  if (
+    normalized === 'ACK' ||
+    normalized === 'START' ||
+    normalized === 'STOP' ||
+    normalized === 'REQ_SCHEMA' ||
+    normalized === 'REQ_TUNING' ||
+    normalized === 'SET_TUNING' ||
+    normalized === 'SHELL_EXEC' ||
+    normalized === 'SHELL_OUTPUT'
+  ) {
     return normalized
   }
   if (normalized === 'REQ_IDENTITY') {

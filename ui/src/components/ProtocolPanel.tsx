@@ -122,7 +122,7 @@ type ProtocolCommandState = {
 function protocolCommandStates(phase: UiProtocolHandshakePhase): ProtocolCommandState[] {
   const recommended = recommendedCommandForPhase(phase)
 
-  return (['ACK', 'START', 'STOP', 'REQ_SCHEMA'] as const).map((command) => ({
+  return (['ACK', 'START', 'STOP', 'REQ_SCHEMA', 'REQ_TUNING', 'SET_TUNING', 'SHELL_EXEC'] as const).map((command) => ({
     command,
     recommended: command === recommended,
     disabled: isCommandDisabledForPhase(phase, command),

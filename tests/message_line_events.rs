@@ -56,6 +56,26 @@ fn creates_transmitted_line_messages() {
 }
 
 #[test]
+fn creates_shell_output_messages() {
+    let source = MessageSource::serial("/dev/ttyUSB0", 115_200);
+    let message = BusMessage::shell_output(
+        &source,
+        LinePayload {
+            text: "hello shell".to_string(),
+            raw: b"hello shell".to_vec(),
+        },
+    );
+
+    match message.kind {
+        MessageKind::ShellOutput(line) => {
+            assert_eq!(line.direction, LineDirection::Rx);
+            assert_eq!(line.payload.text, "hello shell");
+        }
+        _ => panic!("expected shell output message"),
+    }
+}
+
+#[test]
 fn preserves_parser_metadata_on_line_messages() {
     let source = MessageSource::serial("/dev/ttyUSB0", 115_200);
     let mut fields = BTreeMap::new();

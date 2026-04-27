@@ -64,9 +64,9 @@ export function RuntimePanel() {
         <RuntimeCommandCenter
           protocolPhase={protocol.phase}
           runtimeCatalog={runtimeCatalog}
-          onSendCommand={(command) => void sendBmi088Command(command)}
+          onSendCommand={(command, payload) => void sendBmi088Command(command, payload)}
         />
-        <RuntimeConsoleSection runtimeCommands={runtimeCatalog.commands} commandInput={commandInput} consoleDisplayMode={consoleDisplayMode} consoleEntries={consoleEntries} appendNewline={appendNewline} onCommandInputChange={setCommandInput} onAppendNewlineChange={setAppendNewline} onDisplayModeChange={setConsoleDisplayMode} onSend={() => void send()} onSendCommand={(command) => void sendBmi088Command(command)} />
+        <RuntimeConsoleSection runtimeCommands={runtimeCatalog.commands} commandInput={commandInput} consoleDisplayMode={consoleDisplayMode} consoleEntries={consoleEntries} appendNewline={appendNewline} onCommandInputChange={setCommandInput} onAppendNewlineChange={setAppendNewline} onDisplayModeChange={setConsoleDisplayMode} onSend={() => void send()} onSendCommand={(command, payload) => void sendBmi088Command(command, payload)} />
       </div>
 
       <details className="runtime-diagnostic-shell">
@@ -74,7 +74,7 @@ export function RuntimePanel() {
           <strong>Diagnostics and references</strong>
         </summary>
         <div className="runtime-inspector-grid">
-          <RuntimeProtocolSection protocol={protocol} recentTimeline={recentTimeline} runtimeCommands={runtimeCatalog.commands} onSendCommand={(command) => void sendBmi088Command(command)} />
+        <RuntimeProtocolSection protocol={protocol} recentTimeline={recentTimeline} runtimeCommands={runtimeCatalog.commands} onSendCommand={(command, payload) => void sendBmi088Command(command, payload)} />
           <RuntimeHookSection hookStatus={hookStatus} recentTriggers={recentTriggers} />
           <RuntimeCatalogSection runtimeCatalog={runtimeCatalog} />
           <section className="runtime-section runtime-definition-link-section">

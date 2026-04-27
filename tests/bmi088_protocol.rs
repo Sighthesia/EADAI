@@ -10,7 +10,7 @@ fn encodes_and_decodes_identity_frames() {
 
     match bmi088::decode_binary_frame(&frame).expect("decode identity") {
         Bmi088Frame::Identity(decoded) => {
-            assert_eq!(decoded.device_name, "BMI088 Bringup");
+    assert_eq!(decoded.device_name, "BMI088 Bringup");
             assert_eq!(decoded.board_name, "TC264 Board");
             assert_eq!(decoded.protocol_version, "1.0");
             assert_eq!(decoded.sample_rate_hz, 100);
@@ -28,7 +28,7 @@ fn encodes_and_decodes_schema_frames() {
     match bmi088::decode_binary_frame(&frame).expect("decode schema") {
         Bmi088Frame::Schema(decoded) => {
             assert_eq!(decoded.rate_hz, 100);
-            assert_eq!(decoded.fields.len(), 9);
+            assert_eq!(decoded.fields.len(), 19);
             assert_eq!(decoded.fields[0].unit, "raw");
             assert_eq!(decoded.fields[6].scale_q, -2);
             assert_eq!(decoded.fields[6].unit, "deg");
@@ -44,7 +44,7 @@ fn encodes_and_decodes_sample_frames() {
 
     match bmi088::decode_binary_frame(&frame).expect("decode sample") {
         Bmi088Frame::Sample(decoded) => {
-            assert_eq!(decoded.fields.len(), 9);
+            assert_eq!(decoded.fields.len(), 19);
             assert_eq!(decoded.fields[0].name, "acc_x");
         }
         _ => panic!("expected sample frame"),
@@ -109,6 +109,28 @@ fn host_handshake_commands_encode_to_binary_request_frames() {
     assert_eq!(&req_schema[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x13, 0x00, 0x00]);
     assert_eq!(&ack[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x10, 0x00, 0x00]);
     assert_eq!(&start[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x11, 0x00, 0x00]);
+}
+
+#[test]
+fn shell_command_and_output_frames_round_trip() {
+    let shell = bmi088::encode_host_command_with_payload(
+        Bmi088HostCommand::ShellExec,
+        b"help",
+    );
+    assert_eq!(&shell[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x28, 0x00, 0x04]);
+
+    let output = bmi088::encode_shell_output_frame(
+        &eadai::message::LinePayload {
+            text: "ok".to_string(),
+            raw: b"ok".to_vec(),
+        },
+        12,
+    );
+
+    match bmi088::decode_binary_frame(&output).expect("decode shell output") {
+        Bmi088Frame::ShellOutput(decoded) => assert_eq!(decoded.text, "ok"),
+        _ => panic!("expected shell output frame"),
+    }
 }
 
 #[test]
@@ -203,8 +225,8 @@ fn sample_identity() -> bmi088::Bmi088IdentityFrame {
         protocol_version: "1.0".to_string(),
         transport_name: "uart4".to_string(),
         sample_rate_hz: 100,
-        schema_field_count: 9,
-        sample_payload_len: 18,
+        schema_field_count: 19,
+        sample_payload_len: 38,
         protocol_version_byte: 1,
         feature_flags: 0x001D,
         baud_rate: 115_200,

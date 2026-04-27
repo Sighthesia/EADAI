@@ -164,6 +164,14 @@ fn print_messages(subscription: BusSubscription) {
                     line.payload.text
                 );
             }
+            MessageKind::ShellOutput(line) => {
+                println!(
+                    "[shell-output] port={} bytes={} text={}",
+                    message.source.port,
+                    line.payload.raw.len(),
+                    line.payload.text
+                );
+            }
             MessageKind::Analysis(frame) => {
                 println!(
                     "[analysis] channel={} samples={} freq={:?} duty={:?} rms={:?} triggers={:?}",

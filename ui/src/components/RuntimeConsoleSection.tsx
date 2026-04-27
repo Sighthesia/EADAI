@@ -22,7 +22,7 @@ export function RuntimeConsoleSection({
   onAppendNewlineChange: (value: boolean) => void
   onDisplayModeChange: (value: 'text' | 'hex' | 'binary') => void
   onSend: () => void
-  onSendCommand: (command: Bmi088HostCommand) => void
+  onSendCommand: (command: Bmi088HostCommand, payload?: string | null) => void
 }) {
   return (
     <section className="runtime-section runtime-console-section">

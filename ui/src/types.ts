@@ -18,7 +18,15 @@ export interface SendRequest {
   appendNewline: boolean
 }
 
-export type Bmi088HostCommand = 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA' | 'REQ_IDENTITY'
+export type Bmi088HostCommand =
+  | 'ACK'
+  | 'START'
+  | 'STOP'
+  | 'REQ_SCHEMA'
+  | 'REQ_IDENTITY'
+  | 'REQ_TUNING'
+  | 'SET_TUNING'
+  | 'SHELL_EXEC'
 
 export type UiRuntimeCommandParameterKind = 'text' | 'number' | 'boolean' | 'select'
 
@@ -40,6 +48,7 @@ export interface UiRuntimeCommandParameter {
 
 export interface Bmi088CommandRequest {
   command: Bmi088HostCommand
+  payload?: string | null
 }
 
 export interface SessionSnapshot {
@@ -205,12 +214,19 @@ export interface UiTelemetrySamplePayload {
   fields: UiTelemetrySampleField[]
 }
 
+export interface UiShellOutputPayload {
+  text: string
+  raw: number[]
+  rawLength: number
+  direction: UiLineDirection
+}
+
 export type UiProtocolHandshakePhase = 'awaitingIdentity' | 'awaitingSchema' | 'awaitingAck' | 'awaitingStart' | 'streaming' | 'stopped'
 
 export interface UiProtocolHandshakeEvent {
   timestampMs: number
   direction: 'tx' | 'rx'
-  command: 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA' | 'REQ_IDENTITY' | 'SCHEMA' | 'IDENTITY' | 'SAMPLE'
+  command: 'ACK' | 'START' | 'STOP' | 'REQ_SCHEMA' | 'REQ_IDENTITY' | 'REQ_TUNING' | 'SET_TUNING' | 'SHELL_EXEC' | 'SHELL_OUTPUT' | 'SCHEMA' | 'IDENTITY' | 'SAMPLE'
   note: string
   parserStatus: 'unparsed' | 'parsed' | 'malformed'
 }
@@ -378,6 +394,13 @@ export type SerialBusEvent =
     }
   | {
       kind: 'line'
+      timestampMs: number
+      source: UiSource
+      line: UiLinePayload
+      parser: UiParserMeta
+    }
+  | {
+      kind: 'shellOutput'
       timestampMs: number
       source: UiSource
       line: UiLinePayload

@@ -22,6 +22,7 @@ fn fake_session_feeds_subscription_and_shared_adapter() {
             && matches!(
                 message.kind,
                 MessageKind::Line(_)
+                    | MessageKind::ShellOutput(_)
                     | MessageKind::TelemetrySchema(_)
                     | MessageKind::TelemetrySample(_)
                     | MessageKind::Analysis(_)

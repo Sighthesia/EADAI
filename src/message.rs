@@ -114,6 +114,7 @@ impl ParserMeta {
 pub enum MessageKind {
     Connection(ConnectionEvent),
     Line(LineEvent),
+    ShellOutput(LineEvent),
     TelemetryIdentity(Bmi088IdentityFrame),
     TelemetrySchema(Bmi088SchemaFrame),
     TelemetrySample(Bmi088SampleFrame),
@@ -165,6 +166,18 @@ impl BusMessage {
 
     pub fn tx_line(source: &MessageSource, payload: LinePayload) -> Self {
         Self::line(source, LineDirection::Tx, payload)
+    }
+
+    pub fn shell_output(source: &MessageSource, payload: LinePayload) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::ShellOutput(LineEvent {
+                direction: LineDirection::Rx,
+                payload,
+            }),
+            parser: ParserMeta::default(),
+        }
     }
 
     pub fn with_parser(mut self, parser: ParserMeta) -> Self {

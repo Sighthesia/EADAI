@@ -17,6 +17,7 @@ import type {
   ImuChannelRole,
   ImuQuaternionMap,
   ImuQuaternionRole,
+  Bmi088HostCommand,
   UiAnalysisPayload,
   VariableDefinition,
   VariableEntry,
@@ -62,6 +63,8 @@ const METRIC_DISPLAY_LABELS: Record<MetricDisplayMode, string> = {
 }
 const METRIC_DISPLAY_STORAGE_KEY = 'eadai:variables:metricDisplayMode'
 const TREND_REGRESSION_POINT_COUNT = 8
+const ADJUSTABLE_VARIABLE_NAMES = new Set(['pid_r', 'pid_p', 'pid_y', 'pid_t', 'pid_i', 'pid_d'])
+const ADJUSTABLE_VARIABLE_STEP = 0.01
 
 export function VariablesPanel() {
   const variables = useAppStore((state) => state.variables)
@@ -77,7 +80,10 @@ export function VariablesPanel() {
   const colorForChannel = useAppStore((state) => state.colorForChannel)
   const visualAidState = useAppStore((state) => state.visualAidState)
   const setVisualAidEnabled = useAppStore((state) => state.setVisualAidEnabled)
+  const sendBmi088Command = useAppStore((state) => state.sendBmi088Command)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [activeAdjustableChannel, setActiveAdjustableChannel] = useState<string | null>(null)
+  const [adjustmentDrafts, setAdjustmentDrafts] = useState<Record<string, string>>({})
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const [metricDisplayMode, setMetricDisplayMode] = useState<MetricDisplayMode>(() => readMetricDisplayMode())
   const rows = useMemo(
@@ -107,6 +113,7 @@ export function VariablesPanel() {
     () => buildChannelRoleMap(imuChannelMap, imuAttitudeMap, imuQuaternionMap),
     [imuAttitudeMap, imuChannelMap, imuQuaternionMap],
   )
+  const adjustableVariables = useMemo(() => buildAdjustableVariableMap(rows), [rows])
 
   useEffect(() => {
     window.localStorage.setItem(METRIC_DISPLAY_STORAGE_KEY, metricDisplayMode)
@@ -139,6 +146,12 @@ export function VariablesPanel() {
       window.removeEventListener('keydown', closeOnEscape)
     }
   }, [contextMenu])
+
+  useEffect(() => {
+    if (activeAdjustableChannel && !adjustableVariables.has(activeAdjustableChannel)) {
+      setActiveAdjustableChannel(null)
+    }
+  }, [activeAdjustableChannel, adjustableVariables])
 
   const assignImuRole = (channel: string, action: MappingAction) => {
     if (action.type === 'raw') {
@@ -213,8 +226,42 @@ export function VariablesPanel() {
                     roleLabels={channelRoleMap[channel] ?? []}
                     metricDisplayMode={metricDisplayMode}
                     color={colorByChannel.get(channel) ?? colorForChannel(channel)}
+                    adjustable={adjustableVariables.get(channel) ?? null}
+                    isAdjusting={activeAdjustableChannel === channel}
+                    adjustmentDraft={adjustmentDrafts[channel] ?? null}
                     onToggle={toggleChannel}
                     onOpenContextMenu={(channel, x, y) => setContextMenu({ channel, x, y })}
+                    onOpenAdjuster={(channel) => {
+                      const current = adjustableVariables.get(channel)
+                      if (!current) return
+                      const initialValue = formatAdjustableValue(variables[channel]?.numericValue ?? variable.numericValue ?? 0)
+                      setAdjustmentDrafts((drafts) => ({
+                        ...drafts,
+                        [channel]: drafts[channel] ?? initialValue,
+                      }))
+                      setActiveAdjustableChannel((currentChannel) => (currentChannel === channel ? null : channel))
+                    }}
+                    onDraftChange={(channel, value) => {
+                      setAdjustmentDrafts((drafts) => ({ ...drafts, [channel]: value }))
+                    }}
+                    onCommitAdjustment={async (channel, value) => {
+                      const adjustable = adjustableVariables.get(channel)
+                      if (!adjustable) return
+                      const numericValue = Number(value)
+                      if (!Number.isFinite(numericValue)) return
+                      await sendBmi088Command(adjustable.command, formatTuningPayload(channel, numericValue))
+                      setAdjustmentDrafts((drafts) => ({ ...drafts, [channel]: formatAdjustableValue(numericValue) }))
+                      setActiveAdjustableChannel(null)
+                    }}
+                    onStepAdjustment={async (channel, delta) => {
+                      const adjustable = adjustableVariables.get(channel)
+                      if (!adjustable) return
+                      const currentValue = Number(adjustmentDrafts[channel] ?? variables[channel]?.numericValue ?? variable.numericValue ?? 0)
+                      const nextValue = Number.isFinite(currentValue) ? currentValue + delta : delta
+                      const nextText = formatAdjustableValue(nextValue)
+                      setAdjustmentDrafts((drafts) => ({ ...drafts, [channel]: nextText }))
+                      await sendBmi088Command(adjustable.command, formatTuningPayload(channel, nextValue))
+                    }}
                   />
                 )
               })}
@@ -270,6 +317,46 @@ function groupVariablesByDevice(rows: VariableEntry[]): VariableDeviceGroup[] {
   return [...groups.values()].sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' }))
 }
 
+type AdjustableVariableConfig = {
+  command: Bmi088HostCommand
+  step: number
+  stepText: string
+}
+
+function buildAdjustableVariableMap(rows: VariableEntry[]) {
+  const map = new Map<string, AdjustableVariableConfig>()
+
+  for (const row of rows) {
+    if (!isAdjustableVariable(row)) {
+      continue
+    }
+
+    map.set(row.name, {
+      command: 'SET_TUNING',
+      step: ADJUSTABLE_VARIABLE_STEP,
+      stepText: formatAdjustableValue(ADJUSTABLE_VARIABLE_STEP),
+    })
+  }
+
+  return map
+}
+
+function isAdjustableVariable(variable: VariableEntry) {
+  return ADJUSTABLE_VARIABLE_NAMES.has(variable.name) && Number.isFinite(variable.numericValue)
+}
+
+function formatAdjustableValue(value: number) {
+  if (!Number.isFinite(value)) {
+    return '0'
+  }
+
+  return Number.isInteger(value) ? `${value}` : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function formatTuningPayload(name: string, value: number) {
+  return `${name}=${formatAdjustableValue(value)}`
+}
+
 const VariableRow = memo(function VariableRow({
   variable,
   definition,
@@ -277,8 +364,15 @@ const VariableRow = memo(function VariableRow({
   roleLabels,
   metricDisplayMode,
   color,
+  adjustable,
+  isAdjusting,
+  adjustmentDraft,
   onToggle,
   onOpenContextMenu,
+  onOpenAdjuster,
+  onDraftChange,
+  onCommitAdjustment,
+  onStepAdjustment,
 }: {
   variable: VariableEntry
   definition: VariableDefinition | null
@@ -286,8 +380,15 @@ const VariableRow = memo(function VariableRow({
   roleLabels: string[]
   metricDisplayMode: MetricDisplayMode
   color: string
+  adjustable: AdjustableVariableConfig | null
+  isAdjusting: boolean
+  adjustmentDraft: string | null
   onToggle: (channel: string) => void
   onOpenContextMenu: (channel: string, x: number, y: number) => void
+  onOpenAdjuster: (channel: string) => void
+  onDraftChange: (channel: string, value: string) => void
+  onCommitAdjustment: (channel: string, value: string) => void
+  onStepAdjustment: (channel: string, delta: number) => void
 }) {
   const mapped = roleLabels.length > 0
   const primaryValue = useMemo(() => formatPrimaryValue(variable), [variable])
@@ -295,6 +396,17 @@ const VariableRow = memo(function VariableRow({
   const summaryMetric = useMemo(() => renderSummaryMetric(variable, metricDisplayMode), [metricDisplayMode, variable])
   const definitionLabel = definition ? `${definition.status} definition` : 'No definition seed yet'
   const presentationLabel = definition?.alias ? `${definition.alias}${definition.presentationUnit ? ` · ${definition.presentationUnit}` : ''}` : definition?.presentationUnit ?? 'raw'
+  const currentAdjustValue = adjustmentDraft ?? (Number.isFinite(variable.numericValue) ? formatAdjustableValue(variable.numericValue as number) : '0')
+  const adjustInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!isAdjusting) {
+      return
+    }
+
+    adjustInputRef.current?.focus()
+    adjustInputRef.current?.select()
+  }, [isAdjusting])
 
   return (
     <article
@@ -307,6 +419,9 @@ const VariableRow = memo(function VariableRow({
         onOpenContextMenu(variable.name, event.clientX, event.clientY)
       }}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) {
+          return
+        }
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           onToggle(variable.name)
@@ -332,7 +447,6 @@ const VariableRow = memo(function VariableRow({
           ) : null}
         </div>
         <div className="variable-subline">
-          <small>{describeVariableSourceKind(variable.sourceKind)} · {variable.parserName ?? 'raw'}</small>
           <span className="metric-chip">◌ {variable.sampleCount}</span>
           <span className={`metric-chip ${definition ? 'selected' : ''}`}>{definitionLabel}</span>
           {definition ? <span className="metric-chip">{describeVariableVisibility(definition.visibility)}</span> : null}
@@ -342,12 +456,107 @@ const VariableRow = memo(function VariableRow({
             </span>
           ) : null}
         </div>
-        {definition ? <small>{definition.bindingField} · {presentationLabel}</small> : <small>Script-side definition hidden</small>}
       </div>
-      <div className="variable-metric">
-        <strong>{primaryValue}</strong>
-        <small className={`trend trend-${variable.trend}`}>{trendText}</small>
+      <div className={`variable-metric ${adjustable ? 'adjustable' : ''}`}>
+        <div className="variable-metric-primary-row">
+          {adjustable ? (
+            <button
+              type="button"
+              className="variable-current-value adjustable"
+              onPointerDown={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenAdjuster(variable.name)
+              }}
+            >
+              <strong>{primaryValue}</strong>
+            </button>
+          ) : (
+            <strong className="variable-current-value">{primaryValue}</strong>
+          )}
+          <small className={`trend trend-${variable.trend}`}>{trendText}</small>
+        </div>
         <small>{summaryMetric}</small>
+        {adjustable ? (
+          <div className={`variable-adjuster-footer ${isAdjusting ? 'active' : ''}`}>
+            <button
+              type="button"
+              className="variable-adjust-button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                onStepAdjustment(variable.name, -adjustable.step)
+              }}
+            >
+              −
+            </button>
+            <span className="variable-adjust-step">{adjustable.stepText}</span>
+            <button
+              type="button"
+              className="variable-adjust-button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                onStepAdjustment(variable.name, adjustable.step)
+              }}
+            >
+              +
+            </button>
+          </div>
+        ) : null}
+        {adjustable && isAdjusting ? (
+          <div className="variable-adjust-editor">
+            <div className="variable-adjust-editor-row">
+              <button
+                type="button"
+                className="variable-adjust-button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onStepAdjustment(variable.name, -adjustable.step)
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                className="variable-adjust-input"
+                step={adjustable.step}
+                value={currentAdjustValue}
+                onPointerDown={(event) => event.stopPropagation()}
+                ref={adjustInputRef}
+                onChange={(event) => onDraftChange(variable.name, event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  event.stopPropagation()
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    onCommitAdjustment(variable.name, currentAdjustValue)
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    onOpenAdjuster(variable.name)
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="variable-adjust-button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onStepAdjustment(variable.name, adjustable.step)
+                }}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </article>
   )

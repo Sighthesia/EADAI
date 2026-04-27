@@ -55,10 +55,10 @@ export function ConsolePanel() {
           ))}
         </div>
         <div className="console-command-strip" role="group" aria-label="BMI088 commands">
-          {(['ACK', 'START', 'STOP', 'REQ_SCHEMA'] as const).map((command) => (
-            <button key={command} type="button" className="ghost-button" onClick={() => void sendBmi088Command(command)}>
-              {command}
-            </button>
+          {(['ACK', 'START', 'STOP', 'REQ_SCHEMA', 'REQ_TUNING', 'SET_TUNING', 'SHELL_EXEC'] as const).map((command) => (
+              <button key={command} type="button" className="ghost-button" onClick={() => void sendBmi088Command(command)}>
+                {command}
+              </button>
           ))}
         </div>
       </div>

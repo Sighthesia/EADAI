@@ -1,3 +1,4 @@
+use crate::message::LinePayload;
 use crate::serial::{FramedLine, LineFramer};
 use serde::Serialize;
 
@@ -12,19 +13,27 @@ pub const BMI088_CMD_START: u8 = 0x11;
 pub const BMI088_CMD_STOP: u8 = 0x12;
 pub const BMI088_CMD_REQ_SCHEMA: u8 = 0x13;
 pub const BMI088_CMD_REQ_IDENTITY: u8 = 0x14;
+pub const BMI088_CMD_REQ_TUNING: u8 = 0x26;
+pub const BMI088_CMD_SET_TUNING: u8 = 0x27;
+pub const BMI088_CMD_SHELL_EXEC: u8 = 0x28;
 pub const BMI088_CMD_SCHEMA: u8 = 0x80;
 pub const BMI088_CMD_SAMPLE: u8 = 0x81;
 pub const BMI088_CMD_IDENTITY: u8 = 0x82;
+pub const BMI088_CMD_SHELL_OUTPUT: u8 = 0x83;
 pub const BMI088_SCHEMA_VERSION: u8 = 0x01;
 pub const BMI088_FIELD_TYPE_I16: u8 = 0x01;
 
-pub const BMI088_SAMPLE_FIELD_NAMES: [&str; 9] = [
+pub const BMI088_SAMPLE_FIELD_NAMES: [&str; 19] = [
     "acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z", "roll", "pitch", "yaw",
+    "m_lr", "m_lf", "m_rf", "m_rr", "pid_r", "pid_p", "pid_y", "pid_t", "pid_i", "pid_d",
 ];
-pub const BMI088_SAMPLE_UNITS: [&str; 9] = [
+pub const BMI088_SAMPLE_UNITS: [&str; 19] = [
     "raw", "raw", "raw", "raw", "raw", "raw", "deg", "deg", "deg",
+    "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw",
 ];
-pub const BMI088_SAMPLE_SCALE_Q: [i8; 9] = [0, 0, 0, 0, 0, 0, -2, -2, -2];
+pub const BMI088_SAMPLE_SCALE_Q: [i8; 19] = [
+    0, 0, 0, 0, 0, 0, -2, -2, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
 
 pub const BMI088_HEADER_LEN: usize = 7;
 pub const BMI088_CRC_LEN: usize = 2;
@@ -95,6 +104,9 @@ pub enum Bmi088HostCommand {
     Stop,
     ReqSchema,
     ReqIdentity,
+    ReqTuning,
+    SetTuning,
+    ShellExec,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -102,11 +114,13 @@ pub enum Bmi088Frame {
     Identity(Bmi088IdentityFrame),
     Schema(Bmi088SchemaFrame),
     Sample(Bmi088SampleFrame),
+    ShellOutput(LinePayload),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TelemetryPacket {
     Text(FramedLine),
+    ShellOutput(LinePayload),
     Identity(Bmi088IdentityFrame),
     Schema(Bmi088SchemaFrame),
     Sample(Bmi088SampleFrame),
@@ -255,6 +269,7 @@ impl Bmi088SessionState {
                 self.identity = Some(identity.clone());
                 Vec::new()
             }
+            Bmi088Frame::ShellOutput(_) => Vec::new(),
             Bmi088Frame::Schema(schema) => {
                 self.schema = Some(schema.clone());
                 self.phase = Bmi088SessionPhase::AwaitingAck;
@@ -273,7 +288,10 @@ impl Bmi088SessionState {
             Bmi088HostCommand::Start => Bmi088SessionPhase::Streaming,
             Bmi088HostCommand::Stop => Bmi088SessionPhase::Stopped,
             Bmi088HostCommand::ReqSchema => Bmi088SessionPhase::AwaitingSchema,
-            Bmi088HostCommand::ReqIdentity => self.phase,
+            Bmi088HostCommand::ReqIdentity
+            | Bmi088HostCommand::ReqTuning
+            | Bmi088HostCommand::SetTuning
+            | Bmi088HostCommand::ShellExec => self.phase,
         };
     }
 }
@@ -347,6 +365,10 @@ impl Bmi088StreamDecoder {
                         self.buffer.drain(..frame_len);
                         packets.push(TelemetryPacket::Sample(sample));
                     }
+                    Ok(Bmi088Frame::ShellOutput(output)) => {
+                        self.buffer.drain(..frame_len);
+                        packets.push(TelemetryPacket::ShellOutput(output));
+                    }
                     Err(
                         Bmi088DecodeError::InvalidCrc
                         | Bmi088DecodeError::InvalidVersion
@@ -386,27 +408,34 @@ impl Bmi088StreamDecoder {
 }
 
 pub fn encode_host_command(command: Bmi088HostCommand) -> Vec<u8> {
-    let command_code = match command {
-        Bmi088HostCommand::Ack => BMI088_CMD_ACK,
-        Bmi088HostCommand::Start => BMI088_CMD_START,
-        Bmi088HostCommand::Stop => BMI088_CMD_STOP,
-        Bmi088HostCommand::ReqSchema => BMI088_CMD_REQ_SCHEMA,
-        Bmi088HostCommand::ReqIdentity => BMI088_CMD_REQ_IDENTITY,
-    };
-
-    encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, 0, &[])
+    encode_host_command_with_payload(command, &[])
 }
 
 pub fn encode_host_command_with_seq(command: Bmi088HostCommand, seq: u8) -> Vec<u8> {
+    encode_host_command_with_seq_and_payload(command, seq, &[])
+}
+
+pub fn encode_host_command_with_payload(command: Bmi088HostCommand, payload: &[u8]) -> Vec<u8> {
+    encode_host_command_with_seq_and_payload(command, 0, payload)
+}
+
+pub fn encode_host_command_with_seq_and_payload(
+    command: Bmi088HostCommand,
+    seq: u8,
+    payload: &[u8],
+) -> Vec<u8> {
     let command_code = match command {
         Bmi088HostCommand::Ack => BMI088_CMD_ACK,
         Bmi088HostCommand::Start => BMI088_CMD_START,
         Bmi088HostCommand::Stop => BMI088_CMD_STOP,
         Bmi088HostCommand::ReqSchema => BMI088_CMD_REQ_SCHEMA,
         Bmi088HostCommand::ReqIdentity => BMI088_CMD_REQ_IDENTITY,
+        Bmi088HostCommand::ReqTuning => BMI088_CMD_REQ_TUNING,
+        Bmi088HostCommand::SetTuning => BMI088_CMD_SET_TUNING,
+        Bmi088HostCommand::ShellExec => BMI088_CMD_SHELL_EXEC,
     };
 
-    encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, seq, &[])
+    encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, seq, payload)
 }
 
 pub fn host_command_label(command: &Bmi088HostCommand) -> &'static str {
@@ -416,6 +445,9 @@ pub fn host_command_label(command: &Bmi088HostCommand) -> &'static str {
         Bmi088HostCommand::Stop => "STOP",
         Bmi088HostCommand::ReqSchema => "REQ_SCHEMA",
         Bmi088HostCommand::ReqIdentity => "REQ_IDENTITY",
+        Bmi088HostCommand::ReqTuning => "REQ_TUNING",
+        Bmi088HostCommand::SetTuning => "SET_TUNING",
+        Bmi088HostCommand::ShellExec => "SHELL_EXEC",
     }
 }
 
@@ -426,6 +458,9 @@ pub fn host_command_from_text(text: &str) -> Option<Bmi088HostCommand> {
         "stop" => Some(Bmi088HostCommand::Stop),
         "req_schema" => Some(Bmi088HostCommand::ReqSchema),
         "req_identity" => Some(Bmi088HostCommand::ReqIdentity),
+        "req_tuning" => Some(Bmi088HostCommand::ReqTuning),
+        "set_tuning" => Some(Bmi088HostCommand::SetTuning),
+        "shell_exec" => Some(Bmi088HostCommand::ShellExec),
         _ => None,
     }
 }
@@ -452,10 +487,6 @@ pub fn encode_schema_frame_with_seq(schema: &Bmi088SchemaFrame, seq: u8) -> Vec<
 }
 
 pub fn encode_sample_frame(sample: &Bmi088SampleFrame) -> Vec<u8> {
-    let mut payload = Vec::with_capacity(sample.fields.len() * 2);
-    for field in &sample.fields {
-        payload.extend_from_slice(&field.raw.to_le_bytes());
-    }
     encode_sample_frame_with_seq(sample, sample.seq)
 }
 
@@ -465,6 +496,10 @@ pub fn encode_sample_frame_with_seq(sample: &Bmi088SampleFrame, seq: u8) -> Vec<
         payload.extend_from_slice(&field.raw.to_le_bytes());
     }
     encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SAMPLE, seq, &payload)
+}
+
+pub fn encode_shell_output_frame(output: &LinePayload, seq: u8) -> Vec<u8> {
+    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SHELL_OUTPUT, seq, &output.raw)
 }
 
 pub fn default_schema() -> Bmi088SchemaFrame {
@@ -483,6 +518,16 @@ pub fn default_sample(sample_index: u64) -> Bmi088SampleFrame {
         (((phase * 0.54).sin() * 36.0) as i16),
         ((((phase * 0.49) + 0.4).sin() * 24.0) as i16),
         (normalize_signed_angle_deg((phase * 22.0).sin() * 65.0) * 4.0) as i16,
+        (((phase * 0.35).sin() * 180.0) as i16),
+        (((phase * 0.41).cos() * 160.0) as i16),
+        (((phase * 0.47).sin() * 150.0) as i16),
+        (((phase * 0.53).cos() * 140.0) as i16),
+        (((phase * 0.59).sin() * 120.0) as i16),
+        (((phase * 0.65).cos() * 110.0) as i16),
+        (((phase * 0.71).sin() * 100.0) as i16),
+        (((phase * 0.77).cos() * 90.0) as i16),
+        (((phase * 0.83).sin() * 80.0) as i16),
+        (((phase * 0.89).cos() * 70.0) as i16),
     ];
 
     Bmi088SampleFrame::from_raw_values(&default_schema(), &raw_values)
@@ -536,6 +581,12 @@ pub fn decode_binary_frame_with_schema(
         (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SCHEMA) => {
             Ok(Bmi088Frame::Schema(decode_schema_payload_with_seq(seq, payload)?))
         }
+        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SHELL_OUTPUT) => Ok(Bmi088Frame::ShellOutput(
+            LinePayload {
+                text: String::from_utf8_lossy(payload).into_owned(),
+                raw: payload.to_vec(),
+            },
+        )),
         (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SAMPLE) => Ok(Bmi088Frame::Sample(
             decode_sample_payload_with_schema_and_seq(payload, schema.unwrap_or(&default_schema()), seq)?,
         )),

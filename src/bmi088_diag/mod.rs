@@ -390,6 +390,15 @@ fn handle_packet(state: &mut RunState, packet: Packet) {
                 );
             }
         }
+        Packet::Frame(Frame::ShellOutput(line)) => {
+            state.stats.unknown_frame_count += 1;
+            println!(
+                "[rx/shell-output] count={} seq=? bytes={} text={}",
+                state.stats.unknown_frame_count,
+                line.payload.raw.len(),
+                line.payload.text
+            );
+        }
         Packet::Frame(Frame::Unknown {
             frame_type,
             command,

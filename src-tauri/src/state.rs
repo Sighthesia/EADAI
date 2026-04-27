@@ -158,7 +158,10 @@ impl DesktopState {
 
     pub fn send_bmi088_command(&self, request: Bmi088CommandRequest) -> Result<(), String> {
         self.runtime
-            .send_bmi088_command(request.command.into())
+            .send_bmi088_command(
+                request.command.clone().into(),
+                request.command.payload_bytes(request.payload.as_deref()),
+            )
             .map_err(|error| error.to_string())
     }
 }

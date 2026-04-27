@@ -34,7 +34,7 @@ export function RuntimeProtocolSection({
   }
   recentTimeline: UiProtocolHandshakeEvent[]
   runtimeCommands: UiRuntimeCommandCatalogItem[]
-  onSendCommand: (command: Bmi088HostCommand) => void
+  onSendCommand: (command: Bmi088HostCommand, payload?: string | null) => void
 }) {
   const commandStates = protocolCommandStates(protocol.phase, runtimeCommands)
 
@@ -70,7 +70,7 @@ export function RuntimeProtocolSection({
             </div>
             <div className="protocol-command-row runtime-protocol-command-row" role="group" aria-label="BMI088 protocol commands">
               {commandStates.map((item) => (
-                <button key={item.command} type="button" className={`ghost-button protocol-command-button ${item.recommended ? 'recommended' : ''}`} disabled={item.disabled} onClick={() => onSendCommand(item.command)} title={item.reason}>
+                 <button key={item.command} type="button" className={`ghost-button protocol-command-button ${item.recommended ? 'recommended' : ''}`} disabled={item.disabled} onClick={() => onSendCommand(item.command)} title={item.reason}>
                   <span>{item.command}</span>
                   {item.recommended ? <small>recommended</small> : null}
                   {!item.recommended && !item.disabled && item.active ? <small>active</small> : null}

@@ -1987,6 +1987,109 @@ button {
   align-items: flex-end;
 }
 
+.variable-metric-primary-row {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.variable-metric.adjustable {
+  gap: 6px;
+}
+
+.variable-current-value {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: right;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.variable-metric-primary-row .trend {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.variable-current-value.adjustable strong {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.variable-adjuster-footer,
+.variable-adjust-editor-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.variable-adjuster-footer {
+  flex-direction: row;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.variable-adjust-step {
+  min-width: 44px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid #2a3240;
+  background: rgba(17, 22, 30, 0.96);
+  color: #9ba8b7;
+  text-align: center;
+}
+
+.variable-adjust-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid #2f3847;
+  border-radius: 8px;
+  background: rgba(24, 29, 38, 0.96);
+  color: #d8dee9;
+}
+
+.variable-adjust-button:hover {
+  border-color: rgba(79, 124, 255, 0.34);
+  background: rgba(31, 42, 63, 0.98);
+}
+
+.variable-adjust-editor {
+  display: grid;
+  gap: 6px;
+  width: fit-content;
+  padding: 8px;
+  border: 1px solid #2a3240;
+  border-radius: 12px;
+  background: rgba(12, 16, 22, 0.98);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.34);
+}
+
+.variable-adjust-input {
+  width: 88px;
+  min-width: 88px;
+  padding: 6px 10px;
+  border: 1px solid #2a3240;
+  border-radius: 8px;
+  background: #11161e;
+  color: #d8dee9;
+  text-align: center;
+}
+
+.variable-adjust-input:focus {
+  outline: none;
+  border-color: rgba(79, 124, 255, 0.45);
+  box-shadow: 0 0 0 1px rgba(79, 124, 255, 0.18);
+}
+
 .variable-analysis-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

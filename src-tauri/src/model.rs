@@ -43,6 +43,8 @@ pub struct SendRequest {
 #[serde(rename_all = "camelCase")]
 pub struct Bmi088CommandRequest {
     pub command: UiBmi088HostCommand,
+    #[serde(default)]
+    pub payload: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -53,6 +55,18 @@ pub enum UiBmi088HostCommand {
     Stop,
     ReqSchema,
     ReqIdentity,
+    ReqTuning,
+    SetTuning,
+    ShellExec,
+}
+
+impl UiBmi088HostCommand {
+    pub fn payload_bytes(&self, payload: Option<&str>) -> Option<Vec<u8>> {
+        match self {
+            Self::ShellExec | Self::SetTuning => payload.map(|value| value.as_bytes().to_vec()),
+            _ => None,
+        }
+    }
 }
 
 impl From<UiBmi088HostCommand> for Bmi088HostCommand {
@@ -63,6 +77,9 @@ impl From<UiBmi088HostCommand> for Bmi088HostCommand {
             UiBmi088HostCommand::Stop => Self::Stop,
             UiBmi088HostCommand::ReqSchema => Self::ReqSchema,
             UiBmi088HostCommand::ReqIdentity => Self::ReqIdentity,
+            UiBmi088HostCommand::ReqTuning => Self::ReqTuning,
+            UiBmi088HostCommand::SetTuning => Self::SetTuning,
+            UiBmi088HostCommand::ShellExec => Self::ShellExec,
         }
     }
 }
@@ -308,6 +325,12 @@ pub enum UiBusEvent {
         line: UiLinePayload,
         parser: UiParserMeta,
     },
+    ShellOutput {
+        timestamp_ms: u64,
+        source: UiSource,
+        line: UiLinePayload,
+        parser: UiParserMeta,
+    },
     TelemetrySchema {
         timestamp_ms: u64,
         source: UiSource,
@@ -525,6 +548,17 @@ impl From<BusMessage> for UiBusEvent {
                 connection: connection.into(),
             },
             MessageKind::Line(line) => Self::Line {
+                timestamp_ms,
+                source,
+                line: UiLinePayload {
+                    direction: line.direction.into(),
+                    raw_length: line.payload.raw.len(),
+                    text: line.payload.text,
+                    raw: line.payload.raw,
+                },
+                parser: parser.into(),
+            },
+            MessageKind::ShellOutput(line) => Self::ShellOutput {
                 timestamp_ms,
                 source,
                 line: UiLinePayload {
