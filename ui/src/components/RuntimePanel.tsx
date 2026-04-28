@@ -2,13 +2,13 @@ import { useAppStore } from '../store/appStore'
 import { RuntimeConsoleSection } from './RuntimeConsoleSection'
 
 export function RuntimePanel() {
-  const protocol = useAppStore((state) => state.protocol)
+  const protocolPhase = useAppStore((state) => state.protocol.phase)
   const consoleEntries = useAppStore((state) => state.consoleEntries)
   const sentConsoleEntries = useAppStore((state) => state.sentConsoleEntries)
   const consoleDisplayMode = useAppStore((state) => state.consoleDisplayMode)
   const commandInput = useAppStore((state) => state.commandInput)
   const appendNewline = useAppStore((state) => state.appendNewline)
-  const runtimeCatalog = useAppStore((state) => state.runtimeCatalog)
+  const runtimeCommands = useAppStore((state) => state.runtimeCatalog.commands)
   const setCommandInput = useAppStore((state) => state.setCommandInput)
   const setAppendNewline = useAppStore((state) => state.setAppendNewline)
   const setConsoleDisplayMode = useAppStore((state) => state.setConsoleDisplayMode)
@@ -18,8 +18,8 @@ export function RuntimePanel() {
   return (
     <section className="panel runtime-panel">
       <RuntimeConsoleSection
-        runtimeCatalog={runtimeCatalog}
-        protocolPhase={protocol.phase}
+        runtimeCommands={runtimeCommands}
+        protocolPhase={protocolPhase}
         commandInput={commandInput}
         consoleDisplayMode={consoleDisplayMode}
         consoleEntries={consoleEntries}

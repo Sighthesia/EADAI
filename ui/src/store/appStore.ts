@@ -598,6 +598,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       set((state) => {
         let consoleEntries = state.consoleEntries
+        const pendingConsoleEntries: ConsoleEntry[] = []
         let variables = state.variables
         let selectedChannels = state.selectedChannels
         let imuChannelMap = state.imuChannelMap
@@ -643,8 +644,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
           if (event.kind === 'line') {
             const consoleEntry = asConsoleEntry(event)
-            consoleEntries = [...consoleEntries, consoleEntry].slice(-MAX_CONSOLE_ENTRIES)
-            consoleChanged = true
+            pendingConsoleEntries.push(consoleEntry)
 
             protocol = ingestProtocolLine(protocol, event)
             protocolChanged = true
@@ -680,12 +680,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
           }
 
           if (event.kind === 'shellOutput') {
-            const consoleEntry = asConsoleEntry({
+            pendingConsoleEntries.push(asConsoleEntry({
               ...event,
               kind: 'line',
-            } as Extract<SerialBusEvent, { kind: 'line' }>)
-            consoleEntries = [...consoleEntries, consoleEntry].slice(-MAX_CONSOLE_ENTRIES)
-            consoleChanged = true
+            } as Extract<SerialBusEvent, { kind: 'line' }>))
             protocol = ingestProtocolShellOutput(protocol, event)
             protocolChanged = true
             continue
@@ -809,6 +807,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
 
         const nextState: Partial<AppStore> = {}
+        if (pendingConsoleEntries.length > 0) {
+          consoleEntries = appendConsoleHistoryBatch(consoleEntries, pendingConsoleEntries, MAX_CONSOLE_ENTRIES)
+          consoleChanged = true
+        }
         if (consoleChanged) {
           nextState.consoleEntries = consoleEntries
         }
@@ -872,8 +874,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
         if (protocolChanged) {
           nextState.protocol = protocol
-          nextState.runtimeDevice = createRuntimeDeviceSnapshot(session, state.config, state.ports)
-          nextState.runtimeCatalog = createRuntimeCatalog(protocol, createRuntimeDeviceSnapshot(session, state.config, state.ports))
+          const nextRuntimeDevice = createRuntimeDeviceSnapshot(session, state.config, state.ports)
+          nextState.runtimeDevice = nextRuntimeDevice
+
+          const telemetryCatalogChanged =
+            protocol.schema !== state.protocol.schema ||
+            protocol.parserName !== state.protocol.parserName ||
+            protocol.lastSchemaAtMs !== state.protocol.lastSchemaAtMs
+
+          const deviceCatalogChanged =
+            nextRuntimeDevice.id !== state.runtimeDevice.id ||
+            nextRuntimeDevice.status !== state.runtimeDevice.status ||
+            nextRuntimeDevice.baudRate !== state.runtimeDevice.baudRate ||
+            nextRuntimeDevice.portLabel !== state.runtimeDevice.portLabel ||
+            nextRuntimeDevice.transportLabel !== state.runtimeDevice.transportLabel ||
+            nextRuntimeDevice.connected !== state.runtimeDevice.connected
+
+          if (telemetryCatalogChanged || deviceCatalogChanged) {
+            nextState.runtimeCatalog = createRuntimeCatalog(protocol, nextRuntimeDevice)
+          }
         }
 
         return nextState as AppStore
@@ -996,6 +1015,15 @@ const createSentConsoleEntry = (text: string, appendNewline: boolean): ConsoleEn
 
 const appendConsoleHistory = (entries: ConsoleEntry[], entry: ConsoleEntry, limit: number) =>
   [...entries, entry].slice(-limit)
+
+const appendConsoleHistoryBatch = (entries: ConsoleEntry[], nextEntries: ConsoleEntry[], limit: number) => {
+  if (nextEntries.length === 0) {
+    return entries
+  }
+
+  const combined = entries.concat(nextEntries)
+  return combined.length > limit ? combined.slice(combined.length - limit) : combined
+}
 
 const createVariableEntry = (
   channelId: string,
@@ -1192,25 +1220,62 @@ function createScriptDefinitions(variables: Record<string, VariableEntry>): UiSc
 function syncScriptDefinitions(current: UiScriptsDefinitionModel, variables: Record<string, VariableEntry>): UiScriptsDefinitionModel {
   const nextVariables = createVariableDefinitions(variables)
   const currentById = new Map(current.variables.map((definition) => [definition.id, definition]))
+  let changed = nextVariables.length !== current.variables.length
+
+  const mergedVariables = nextVariables.map((definition) => {
+    const existing = currentById.get(definition.id)
+    if (!existing) {
+      changed = true
+      return definition
+    }
+
+    const mergedDefinition = {
+      ...definition,
+      bindingField: existing.bindingField,
+      alias: existing.alias ?? null,
+      presentationUnit: existing.presentationUnit ?? null,
+      visibility: existing.visibility,
+      status: existing.status === 'observed' ? 'observed' : existing.status === 'draft' ? 'draft' : definition.status,
+      lastObservedValue: existing.lastObservedValue ?? definition.lastObservedValue ?? null,
+      lastObservedAtMs: existing.lastObservedAtMs ?? definition.lastObservedAtMs ?? null,
+      updatedAtMs: existing.updatedAtMs,
+    }
+
+    if (!changed && !isSameVariableDefinition(existing, mergedDefinition)) {
+      changed = true
+    }
+
+    return mergedDefinition
+  })
+
+  if (!changed) {
+    return current
+  }
 
   return {
     ...current,
-    variables: nextVariables.map((definition) => {
-      const existing = currentById.get(definition.id)
-      if (!existing) {
-        return definition
-      }
-
-      return {
-        ...definition,
-        bindingField: existing.bindingField,
-        alias: existing.alias ?? null,
-        presentationUnit: existing.presentationUnit ?? null,
-        visibility: existing.visibility,
-        status: existing.status === 'observed' ? 'observed' : existing.status === 'draft' ? 'draft' : definition.status,
-      }
-    }),
+    variables: mergedVariables,
   }
+}
+
+function isSameVariableDefinition(left: VariableDefinition, right: VariableDefinition) {
+  return left.id === right.id &&
+    left.name === right.name &&
+    left.deviceRef === right.deviceRef &&
+    left.sourceKind === right.sourceKind &&
+    left.sourceLabel === right.sourceLabel &&
+    left.summary === right.summary &&
+    left.extractor === right.extractor &&
+    left.extractorKind === right.extractorKind &&
+    left.bindingField === right.bindingField &&
+    left.alias === right.alias &&
+    left.presentationUnit === right.presentationUnit &&
+    left.visibility === right.visibility &&
+    left.parserName === right.parserName &&
+    left.lastObservedValue === right.lastObservedValue &&
+    left.lastObservedAtMs === right.lastObservedAtMs &&
+    left.status === right.status &&
+    left.updatedAtMs === right.updatedAtMs
 }
 
 function createRuntimeCatalog(protocol: UiProtocolSnapshot, runtimeDevice: UiRuntimeDeviceSnapshot): UiRuntimeCatalogSnapshot {

@@ -1,4 +1,4 @@
-import { Profiler, useMemo, type ProfilerOnRenderCallback } from 'react'
+import { Profiler, useEffect, useMemo, useState, type ProfilerOnRenderCallback, type ReactNode } from 'react'
 import { Layout, Model, TabNode, type IJsonModel } from 'flexlayout-react'
 import { createDevTimingLogger } from '../lib/logger'
 import { ConnectionPanel } from './ConnectionPanel'
@@ -43,8 +43,29 @@ function renderProfiledPanel(id: string, node: JSX.Element) {
   )
 }
 
-function renderManagedPanel(_node: TabNode, id: string, content: JSX.Element) {
-  return renderProfiledPanel(id, content)
+function renderManagedPanel(node: TabNode, id: string, content: JSX.Element) {
+  return <VisibilityManagedPanel node={node} id={id}>{content}</VisibilityManagedPanel>
+}
+
+function VisibilityManagedPanel({ node, id, children }: { node: TabNode; id: string; children: ReactNode }) {
+  const [visible, setVisible] = useState(() => node.isVisible())
+
+  useEffect(() => {
+    setVisible(node.isVisible())
+    node.setEventListener('visibility', ({ visible: nextVisible }: { visible: boolean }) => {
+      setVisible(nextVisible)
+    })
+
+    return () => {
+      node.setEventListener('visibility', () => {})
+    }
+  }, [node])
+
+  if (!visible) {
+    return null
+  }
+
+  return renderProfiledPanel(id, <>{children}</>)
 }
 
 const layoutJson: IJsonModel = {

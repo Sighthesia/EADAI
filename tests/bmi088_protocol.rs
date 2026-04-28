@@ -14,7 +14,9 @@ fn encodes_and_decodes_identity_frames() {
             assert_eq!(decoded.board_name, "TC264 Board");
             assert_eq!(decoded.protocol_version, "1.0");
             assert_eq!(decoded.sample_rate_hz, 100);
-            assert_eq!(decoded.feature_flags, 0x001D);
+            assert_eq!(decoded.feature_flags, 0x003F);
+            assert_eq!(decoded.schema_field_count, 30);
+            assert_eq!(decoded.sample_payload_len, 60);
         }
         _ => panic!("expected identity frame"),
     }
@@ -28,10 +30,12 @@ fn encodes_and_decodes_schema_frames() {
     match bmi088::decode_binary_frame(&frame).expect("decode schema") {
         Bmi088Frame::Schema(decoded) => {
             assert_eq!(decoded.rate_hz, 100);
-            assert_eq!(decoded.fields.len(), 19);
+            assert_eq!(decoded.fields.len(), 30);
             assert_eq!(decoded.fields[0].unit, "raw");
             assert_eq!(decoded.fields[6].scale_q, -2);
             assert_eq!(decoded.fields[6].unit, "deg");
+            assert_eq!(decoded.fields[11].name, "motor_left_rear_wheel");
+            assert_eq!(decoded.sample_len, 60);
         }
         _ => panic!("expected schema frame"),
     }
@@ -44,8 +48,9 @@ fn encodes_and_decodes_sample_frames() {
 
     match bmi088::decode_binary_frame(&frame).expect("decode sample") {
         Bmi088Frame::Sample(decoded) => {
-            assert_eq!(decoded.fields.len(), 19);
+            assert_eq!(decoded.fields.len(), 30);
             assert_eq!(decoded.fields[0].name, "acc_x");
+            assert_eq!(decoded.fields[29].name, "bench_test_throttle");
         }
         _ => panic!("expected sample frame"),
     }
@@ -102,23 +107,23 @@ fn session_flow_requests_schema_then_ack_and_start() {
 fn host_handshake_commands_encode_to_binary_request_frames() {
     let req_identity = bmi088::encode_host_command(Bmi088HostCommand::ReqIdentity);
     let req_schema = bmi088::encode_host_command(Bmi088HostCommand::ReqSchema);
+    let req_tuning = bmi088::encode_host_command(Bmi088HostCommand::ReqTuning);
+    let set_tuning = bmi088::encode_host_command_with_payload(Bmi088HostCommand::SetTuning, b"payload");
+    let shell_exec = bmi088::encode_host_command_with_payload(Bmi088HostCommand::ShellExec, b"help");
     let ack = bmi088::encode_host_command(Bmi088HostCommand::Ack);
     let start = bmi088::encode_host_command(Bmi088HostCommand::Start);
 
     assert_eq!(&req_identity[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x14, 0x00, 0x00]);
     assert_eq!(&req_schema[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x13, 0x00, 0x00]);
+    assert_eq!(&req_tuning[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x26, 0x00, 0x00]);
+    assert_eq!(&set_tuning[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x27, 0x00, 0x07]);
+    assert_eq!(&shell_exec[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x28, 0x00, 0x04]);
     assert_eq!(&ack[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x10, 0x00, 0x00]);
     assert_eq!(&start[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x11, 0x00, 0x00]);
 }
 
 #[test]
 fn shell_command_and_output_frames_round_trip() {
-    let shell = bmi088::encode_host_command_with_payload(
-        Bmi088HostCommand::ShellExec,
-        b"help",
-    );
-    assert_eq!(&shell[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x28, 0x00, 0x04]);
-
     let output = bmi088::encode_shell_output_frame(
         &eadai::message::LinePayload {
             text: "ok".to_string(),
@@ -225,10 +230,10 @@ fn sample_identity() -> bmi088::Bmi088IdentityFrame {
         protocol_version: "1.0".to_string(),
         transport_name: "uart4".to_string(),
         sample_rate_hz: 100,
-        schema_field_count: 19,
-        sample_payload_len: 38,
+        schema_field_count: 30,
+        sample_payload_len: 60,
         protocol_version_byte: 1,
-        feature_flags: 0x001D,
+        feature_flags: 0x003F,
         baud_rate: 115_200,
         protocol_minor_version: 0,
     }

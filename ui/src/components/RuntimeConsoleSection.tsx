@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Bmi088HostCommand, ConsoleDisplayMode, ConsoleEntry, UiProtocolHandshakePhase, UiRuntimeCatalogSnapshot } from '../types'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import type { Bmi088HostCommand, ConsoleDisplayMode, ConsoleEntry, UiProtocolHandshakePhase, UiRuntimeCommandCatalogItem } from '../types'
 import { buildRuntimeCommandTemplateSelection, formatBytes, formatEntry, formatTime } from './runtimeUtils'
 
 type PacketGroup = {
@@ -15,8 +15,13 @@ type PacketToken = {
   numericValue?: number
 }
 
+const FLAT_RECEIVE_WINDOW_SIZE = 24
+const RAW_RECEIVE_WINDOW_SIZE = 40
+const SEND_WINDOW_SIZE = 120
+const RECEIVE_GROUP_WINDOW_SIZE = 24
+
 export function RuntimeConsoleSection({
-  runtimeCatalog,
+  runtimeCommands,
   protocolPhase,
   commandInput,
   consoleDisplayMode,
@@ -29,7 +34,7 @@ export function RuntimeConsoleSection({
   onSend,
   onSendCommand,
 }: {
-  runtimeCatalog: UiRuntimeCatalogSnapshot
+  runtimeCommands: UiRuntimeCommandCatalogItem[]
   protocolPhase: UiProtocolHandshakePhase
   commandInput: string
   consoleDisplayMode: ConsoleDisplayMode
@@ -42,27 +47,43 @@ export function RuntimeConsoleSection({
   onSend: () => void
   onSendCommand: (command: Bmi088HostCommand, payload?: string | null) => void
 }) {
-  const [selectedCommand, setSelectedCommand] = useState<Bmi088HostCommand | null>(runtimeCatalog.commands[0]?.command ?? null)
+  const [selectedCommand, setSelectedCommand] = useState<Bmi088HostCommand | null>(runtimeCommands[0]?.command ?? null)
+  const [receiveGroupingEnabled, setReceiveGroupingEnabled] = useState(false)
   const commandInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
-    const commandExists = selectedCommand ? runtimeCatalog.commands.some((item) => item.command === selectedCommand) : false
+    const commandExists = selectedCommand ? runtimeCommands.some((item) => item.command === selectedCommand) : false
     if (!commandExists) {
-      setSelectedCommand(runtimeCatalog.commands[0]?.command ?? null)
+      setSelectedCommand(runtimeCommands[0]?.command ?? null)
     }
-  }, [runtimeCatalog.commands, selectedCommand])
+  }, [runtimeCommands, selectedCommand])
 
   const selectedCommandItem = useMemo(
-    () => runtimeCatalog.commands.find((item) => item.command === selectedCommand) ?? null,
-    [runtimeCatalog.commands, selectedCommand],
+    () => runtimeCommands.find((item) => item.command === selectedCommand) ?? null,
+    [runtimeCommands, selectedCommand],
   )
 
-  const receivedEntries = useMemo(() => consoleEntries.filter((entry) => entry.direction === 'rx'), [consoleEntries])
-  const receivedGroups = useMemo(() => buildPacketGroups(receivedEntries, consoleDisplayMode), [consoleDisplayMode, receivedEntries])
-  const sentEntries = useMemo(() => sentConsoleEntries.slice().reverse(), [sentConsoleEntries])
+  const receivedEntries = useMemo(() => {
+    const received = consoleEntries.filter((entry) => entry.direction === 'rx')
+
+    if (consoleDisplayMode === 'ascii' && !receiveGroupingEnabled) {
+      return received.slice(-FLAT_RECEIVE_WINDOW_SIZE)
+    }
+
+    return received.slice(-RAW_RECEIVE_WINDOW_SIZE)
+  }, [consoleDisplayMode, consoleEntries, receiveGroupingEnabled])
+  const receivedGroupEntries = useMemo(
+    () => receivedEntries.slice(-RECEIVE_GROUP_WINDOW_SIZE),
+    [receivedEntries],
+  )
+  const receivedGroups = useMemo(
+    () => (consoleDisplayMode === 'ascii' && receiveGroupingEnabled ? buildPacketGroups(receivedGroupEntries, consoleDisplayMode) : []),
+    [consoleDisplayMode, receiveGroupingEnabled, receivedGroupEntries],
+  )
+  const sentEntries = useMemo(() => sentConsoleEntries.slice(-SEND_WINDOW_SIZE).reverse(), [sentConsoleEntries])
   const commandTemplate = useMemo(() => (selectedCommandItem ? buildRuntimeCommandTemplateSelection(selectedCommandItem) : null), [selectedCommandItem])
 
-  const applyCommandTemplate = (item: (typeof runtimeCatalog.commands)[number]) => {
+  const applyCommandTemplate = (item: UiRuntimeCommandCatalogItem) => {
     setSelectedCommand(item.command)
 
     if (item.parameters?.length === 0) {
@@ -105,10 +126,19 @@ export function RuntimeConsoleSection({
           <div className="protocol-schema-header">
             <div>
               <strong>Receive area</strong>
-              <small>{receivedEntries.length > 0 ? `${receivedEntries.length} serial lines` : 'Waiting for RX traffic'}</small>
+                <small>{receivedEntries.length > 0 ? `latest ${receivedEntries.length} serial lines` : 'Waiting for RX traffic'}</small>
             </div>
             <div className="runtime-terminal-header-actions">
               <span className="metric-chip">{protocolPhase}</span>
+              {consoleDisplayMode === 'ascii' ? (
+                <button
+                  type="button"
+                  className={`metric-display-button ${receiveGroupingEnabled ? 'active' : ''}`}
+                  onClick={() => setReceiveGroupingEnabled((value) => !value)}
+                >
+                  {receiveGroupingEnabled ? 'Grouped' : 'Flat'}
+                </button>
+              ) : null}
               <div className="runtime-terminal-mode-switch" role="group" aria-label="Terminal payload display mode">
                 {(['ascii', 'hex', 'binary'] as const).map((mode) => (
                   <button
@@ -127,8 +157,12 @@ export function RuntimeConsoleSection({
           <div className="runtime-terminal-stack runtime-terminal-receive-stack">
             <div className="runtime-entry-list runtime-console-entry-list runtime-terminal-entry-list runtime-terminal-fill-list">
               {receivedEntries.length > 0 ? (
-                consoleDisplayMode === 'ascii' ? (
+                consoleDisplayMode === 'ascii' && receiveGroupingEnabled ? (
                   receivedGroups.map((group) => <RuntimePacketGroupRow key={group.key} group={group} />)
+                ) : consoleDisplayMode === 'ascii' ? (
+                  receivedEntries.map((entry, index) => (
+                    <RuntimeFlatAsciiRow key={`${entry.id}-${index}`} entry={entry} />
+                  ))
                 ) : (
                   receivedEntries.map((entry, index) => (
                     <RuntimeTrafficRow key={`${entry.id}-${index}`} entry={entry} mode={consoleDisplayMode} />
@@ -158,12 +192,12 @@ export function RuntimeConsoleSection({
             <details className="runtime-disclosure runtime-terminal-command-disclosure" open>
               <summary>
                 <strong>Command list</strong>
-                <small>{runtimeCatalog.commands.length} commands</small>
+                <small>{runtimeCommands.length} commands</small>
               </summary>
               <div className="runtime-disclosure-body">
                 <div className="runtime-terminal-command-list" role="list" aria-label="Runtime command list">
-                  {runtimeCatalog.commands.length > 0 ? (
-                    runtimeCatalog.commands.map((item) => {
+                  {runtimeCommands.length > 0 ? (
+                    runtimeCommands.map((item) => {
                       const active = item.command === selectedCommand
                       return (
                         <button key={item.command} type="button" className={`runtime-terminal-command-row ${active ? 'active' : ''}`} onClick={() => applyCommandTemplate(item)}>
@@ -213,7 +247,7 @@ export function RuntimeConsoleSection({
   )
 }
 
-function RuntimeTrafficRow({ entry, mode = 'ascii' }: { entry: ConsoleEntry; mode?: ConsoleDisplayMode }) {
+const RuntimeTrafficRow = memo(function RuntimeTrafficRow({ entry, mode = 'ascii' }: { entry: ConsoleEntry; mode?: ConsoleDisplayMode }) {
   const content = formatEntry(entry, mode)
 
   return (
@@ -230,9 +264,41 @@ function RuntimeTrafficRow({ entry, mode = 'ascii' }: { entry: ConsoleEntry; mod
       </div>
     </article>
   )
-}
+})
 
-function RuntimePacketGroupRow({ group }: { group: PacketGroup }) {
+const RuntimeFlatAsciiRow = memo(function RuntimeFlatAsciiRow({ entry }: { entry: ConsoleEntry }) {
+  const preview = useMemo(() => truncateFlatPreview(entry.text), [entry.text])
+  const hasOverflow = preview !== (entry.text || '[empty text payload]')
+
+  return (
+    <article className="runtime-entry-row">
+      <div className="console-line-meta">
+        <span className="console-badge">{entry.direction.toUpperCase()}</span>
+        <span className="console-time">{formatTime(entry.timestampMs)}</span>
+        {entry.parser?.parserName ? <span className="metric-chip">{entry.parser.parserName}</span> : null}
+        <span className="metric-chip">{entry.raw.length} B</span>
+        {hasOverflow ? <span className="metric-chip">preview</span> : null}
+      </div>
+      <div className="runtime-entry-body">
+        <strong>{entry.parser?.parserName ? `${entry.parser.parserName} · ${entry.raw.length} bytes` : `${entry.raw.length} bytes`}</strong>
+        <div className="console-line-summary">{preview}</div>
+        {hasOverflow ? (
+          <details className="runtime-disclosure">
+            <summary>
+              <strong>Full payload</strong>
+              <small>{entry.raw.length} B</small>
+            </summary>
+            <div className="runtime-disclosure-body">
+              <code>{entry.text || '[empty text payload]'}</code>
+            </div>
+          </details>
+        ) : null}
+      </div>
+    </article>
+  )
+})
+
+const RuntimePacketGroupRow = memo(function RuntimePacketGroupRow({ group }: { group: PacketGroup }) {
   const latest = group.entries[group.entries.length - 1]!
   const oldest = group.entries[0]!
   const renderedEntries = [...group.entries].reverse()
@@ -261,9 +327,9 @@ function RuntimePacketGroupRow({ group }: { group: PacketGroup }) {
       </div>
     </article>
   )
-}
+})
 
-function RuntimePacketLine({ entry, previous, condensed }: { entry: ConsoleEntry; previous: ConsoleEntry | null; condensed: boolean }) {
+const RuntimePacketLine = memo(function RuntimePacketLine({ entry, previous, condensed }: { entry: ConsoleEntry; previous: ConsoleEntry | null; condensed: boolean }) {
   const tokens = useMemo(() => tokenizePacketText(entry.text), [entry.text])
   const previousTokens = useMemo(() => (previous ? tokenizePacketText(previous.text) : []), [previous])
   const renderedTokens = useMemo(() => renderTokenDiff(tokens, previousTokens), [previousTokens, tokens])
@@ -298,7 +364,7 @@ function RuntimePacketLine({ entry, previous, condensed }: { entry: ConsoleEntry
       )}
     </div>
   )
-}
+})
 
 function buildPacketGroups(entries: ConsoleEntry[], mode: ConsoleDisplayMode): PacketGroup[] {
   if (entries.length === 0) {
@@ -376,4 +442,13 @@ function renderTokenDiff(tokens: PacketToken[], previousTokens: PacketToken[]) {
 
     return { value: token.value, className: nextClassName, isNumeric: true, changed: true }
   })
+}
+
+function truncateFlatPreview(text: string, maxLength = 180) {
+  const normalized = (text || '[empty text payload]').replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, maxLength - 1)}…`
 }

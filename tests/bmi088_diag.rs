@@ -106,10 +106,10 @@ fn identity_payload() -> Vec<u8> {
     push_tlv(&mut payload, 0x05, b"1.0");
     push_tlv(&mut payload, 0x06, b"uart4");
     push_tlv(&mut payload, 0x07, &100_u16.to_le_bytes());
-    push_tlv(&mut payload, 0x08, &[9]);
-    push_tlv(&mut payload, 0x09, &[18]);
+    push_tlv(&mut payload, 0x08, &[30]);
+    push_tlv(&mut payload, 0x09, &[60]);
     push_tlv(&mut payload, 0x0A, &[1]);
-    push_tlv(&mut payload, 0x0B, &0x001D_u16.to_le_bytes());
+    push_tlv(&mut payload, 0x0B, &0x003F_u16.to_le_bytes());
     push_tlv(&mut payload, 0x0C, &115_200_u32.to_le_bytes());
     push_tlv(&mut payload, 0x0D, &[0]);
 

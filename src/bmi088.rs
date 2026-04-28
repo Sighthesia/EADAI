@@ -23,16 +23,54 @@ pub const BMI088_CMD_SHELL_OUTPUT: u8 = 0x83;
 pub const BMI088_SCHEMA_VERSION: u8 = 0x01;
 pub const BMI088_FIELD_TYPE_I16: u8 = 0x01;
 
-pub const BMI088_SAMPLE_FIELD_NAMES: [&str; 19] = [
-    "acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z", "roll", "pitch", "yaw",
-    "m_lr", "m_lf", "m_rf", "m_rr", "pid_r", "pid_p", "pid_y", "pid_t", "pid_i", "pid_d",
+pub const BMI088_SAMPLE_FIELD_NAMES: [&str; 30] = [
+    "acc_x",
+    "acc_y",
+    "acc_z",
+    "gyro_x",
+    "gyro_y",
+    "gyro_z",
+    "roll",
+    "pitch",
+    "yaw",
+    // FIXME: The pasted contract lists 30 fields but only names 28 of them.
+    "reserved_0",
+    "reserved_1",
+    "motor_left_rear_wheel",
+    "motor_left_front_wheel",
+    "motor_right_front_wheel",
+    "motor_right_rear_wheel",
+    "roll_correction_output",
+    "pitch_correction_output",
+    "yaw_correction_output",
+    "throttle_correction_output",
+    "roll_proportional_gain_x100",
+    "roll_integral_gain_x100",
+    "roll_derivative_gain_x100",
+    "pitch_proportional_gain_x100",
+    "pitch_integral_gain_x100",
+    "pitch_derivative_gain_x100",
+    "yaw_proportional_gain_x100",
+    "yaw_integral_gain_x100",
+    "yaw_derivative_gain_x100",
+    "output_limit",
+    "bench_test_throttle",
 ];
-pub const BMI088_SAMPLE_UNITS: [&str; 19] = [
+pub const BMI088_SAMPLE_UNITS: [&str; 30] = [
     "raw", "raw", "raw", "raw", "raw", "raw", "deg", "deg", "deg",
     "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw",
+    "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw",
+    "raw",
 ];
-pub const BMI088_SAMPLE_SCALE_Q: [i8; 19] = [
-    0, 0, 0, 0, 0, 0, -2, -2, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+pub const BMI088_SAMPLE_SCALE_Q: [i8; 30] = [
+    0, 0, 0, 0, 0, 0, -2, -2, -2,
+    0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    -2, -2, -2,
+    -2, -2, -2,
+    -2, -2, -2,
+    0, 0,
 ];
 
 pub const BMI088_HEADER_LEN: usize = 7;
@@ -182,6 +220,24 @@ impl Bmi088SchemaFrame {
     }
 
     pub fn encode_payload(&self) -> Vec<u8> {
+        if self.fields.iter().all(|field| field.name != "" && compact_field_code(&field.name).is_some()) {
+            let mut payload = Vec::with_capacity(4 + self.fields.len() * 5);
+            payload.push(self.schema_version);
+            payload.push(self.rate_hz.min(u8::MAX as u32) as u8);
+            payload.push(self.fields.len() as u8);
+            payload.push(self.sample_len.min(u8::MAX as usize) as u8);
+
+            for field in &self.fields {
+                payload.push(field.field_id);
+                payload.push(field.field_type);
+                payload.push(field.scale_q as u8);
+                payload.push(compact_field_code(&field.name).unwrap_or(0xFF));
+                payload.push(compact_unit_code(&field.unit).unwrap_or(0xFF));
+            }
+
+            return payload;
+        }
+
         let mut payload = Vec::new();
         payload.push(self.schema_version);
         payload.push(self.rate_hz.min(u8::MAX as u32) as u8);
@@ -528,6 +584,17 @@ pub fn default_sample(sample_index: u64) -> Bmi088SampleFrame {
         (((phase * 0.77).cos() * 90.0) as i16),
         (((phase * 0.83).sin() * 80.0) as i16),
         (((phase * 0.89).cos() * 70.0) as i16),
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
     ];
 
     Bmi088SampleFrame::from_raw_values(&default_schema(), &raw_values)
@@ -703,6 +770,62 @@ pub fn decode_schema_payload_with_seq(
     let rate_hz = payload[1] as u32;
     let field_count = payload[2] as usize;
     let sample_len = payload[3] as usize;
+    let compact_len = 4 + field_count * 5;
+
+    if payload.len() == compact_len {
+        let mut offset = 4;
+        let mut fields = Vec::with_capacity(field_count);
+
+        for _ in 0..field_count {
+            if payload.len() < offset + 5 {
+                return Err(Bmi088DecodeError::MalformedFrame(
+                    "field descriptor too short".to_string(),
+                ));
+            }
+
+            let field_id = payload[offset];
+            let field_type = payload[offset + 1];
+            if field_type != BMI088_FIELD_TYPE_I16 {
+                return Err(Bmi088DecodeError::MalformedFrame(
+                    "unsupported field type".to_string(),
+                ));
+            }
+            let scale_q = payload[offset + 2] as i8;
+            let name_code = payload[offset + 3];
+            let unit_code = payload[offset + 4];
+            offset += 5;
+
+            let name = compact_field_name(name_code).ok_or_else(|| {
+                Bmi088DecodeError::MalformedFrame("unknown compact field name".to_string())
+            })?;
+            let unit = compact_unit_name(unit_code).ok_or_else(|| {
+                Bmi088DecodeError::MalformedFrame("unknown compact field unit".to_string())
+            })?;
+
+            fields.push(Bmi088FieldDescriptor {
+                field_id,
+                field_type,
+                name,
+                unit,
+                scale_q,
+            });
+        }
+
+        if sample_len != fields.len() * 2 {
+            return Err(Bmi088DecodeError::SchemaMismatch(
+                "sample length does not match i16 field count".to_string(),
+            ));
+        }
+
+        return Ok(Bmi088SchemaFrame {
+            seq,
+            schema_version: BMI088_SCHEMA_VERSION,
+            rate_hz,
+            sample_len,
+            fields,
+        });
+    }
+
     let mut offset = 4;
     let mut fields = Vec::with_capacity(field_count);
 
@@ -998,6 +1121,96 @@ fn encode_tlv_bytes(payload: &mut Vec<u8>, tag: u8, value: &[u8]) {
     payload.push(tag);
     payload.push(u8::try_from(value.len()).expect("BMI088 identity TLV length exceeds u8"));
     payload.extend_from_slice(value);
+}
+
+fn compact_field_code(name: &str) -> Option<u8> {
+    match name {
+        "acc_x" => Some(0x00),
+        "acc_y" => Some(0x01),
+        "acc_z" => Some(0x02),
+        "gyro_x" => Some(0x03),
+        "gyro_y" => Some(0x04),
+        "gyro_z" => Some(0x05),
+        "roll" => Some(0x06),
+        "pitch" => Some(0x07),
+        "yaw" => Some(0x08),
+        "reserved_0" => Some(0x09),
+        "reserved_1" => Some(0x0A),
+        "motor_left_rear_wheel" => Some(0x0B),
+        "motor_left_front_wheel" => Some(0x0C),
+        "motor_right_front_wheel" => Some(0x0D),
+        "motor_right_rear_wheel" => Some(0x0E),
+        "roll_correction_output" => Some(0x0F),
+        "pitch_correction_output" => Some(0x10),
+        "yaw_correction_output" => Some(0x11),
+        "throttle_correction_output" => Some(0x12),
+        "roll_proportional_gain_x100" => Some(0x13),
+        "roll_integral_gain_x100" => Some(0x14),
+        "roll_derivative_gain_x100" => Some(0x15),
+        "pitch_proportional_gain_x100" => Some(0x16),
+        "pitch_integral_gain_x100" => Some(0x17),
+        "pitch_derivative_gain_x100" => Some(0x18),
+        "yaw_proportional_gain_x100" => Some(0x19),
+        "yaw_integral_gain_x100" => Some(0x1A),
+        "yaw_derivative_gain_x100" => Some(0x1B),
+        "output_limit" => Some(0x1C),
+        "bench_test_throttle" => Some(0x1D),
+        _ => None,
+    }
+}
+
+fn compact_field_name(code: u8) -> Option<String> {
+    Some(match code {
+        0x00 => "acc_x",
+        0x01 => "acc_y",
+        0x02 => "acc_z",
+        0x03 => "gyro_x",
+        0x04 => "gyro_y",
+        0x05 => "gyro_z",
+        0x06 => "roll",
+        0x07 => "pitch",
+        0x08 => "yaw",
+        0x09 => "reserved_0",
+        0x0A => "reserved_1",
+        0x0B => "motor_left_rear_wheel",
+        0x0C => "motor_left_front_wheel",
+        0x0D => "motor_right_front_wheel",
+        0x0E => "motor_right_rear_wheel",
+        0x0F => "roll_correction_output",
+        0x10 => "pitch_correction_output",
+        0x11 => "yaw_correction_output",
+        0x12 => "throttle_correction_output",
+        0x13 => "roll_proportional_gain_x100",
+        0x14 => "roll_integral_gain_x100",
+        0x15 => "roll_derivative_gain_x100",
+        0x16 => "pitch_proportional_gain_x100",
+        0x17 => "pitch_integral_gain_x100",
+        0x18 => "pitch_derivative_gain_x100",
+        0x19 => "yaw_proportional_gain_x100",
+        0x1A => "yaw_integral_gain_x100",
+        0x1B => "yaw_derivative_gain_x100",
+        0x1C => "output_limit",
+        0x1D => "bench_test_throttle",
+        _ => return None,
+    }
+    .to_string())
+}
+
+fn compact_unit_code(unit: &str) -> Option<u8> {
+    match unit {
+        "raw" => Some(0x00),
+        "deg" => Some(0x01),
+        _ => None,
+    }
+}
+
+fn compact_unit_name(code: u8) -> Option<String> {
+    Some(match code {
+        0x00 => "raw",
+        0x01 => "deg",
+        _ => return None,
+    }
+    .to_string())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

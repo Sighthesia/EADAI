@@ -52,12 +52,12 @@
 
 - Required TLVs: identity format version, device name, board name, firmware version, protocol name, protocol version, transport name, sample rate, schema field count, sample payload len, protocol version byte, feature flags, baud rate, protocol minor version.
 - Missing required TLVs, truncated TLV headers, or truncated TLV values are malformed frames.
-- The current identity contract must report schema field count `19` and sample payload length `38`.
+- The current identity contract must report schema field count `30` and sample payload length `60`.
 
 ### Schema/sample contract
 
-- Sample schema is 19 ordered `i16` fields.
-- Sample payload length is 38 bytes.
+- Sample schema is 30 ordered `i16` fields.
+- Sample payload length is 60 bytes.
 - Field order is fixed by the active schema and must match decoder order.
 - `SCHEMA` frames must not contain trailing bytes.
 - Sample payload length must be exactly `field_count * 2`.
@@ -89,7 +89,7 @@
 - Good: UI sends `REQ_IDENTITY`, host emits an `IDENTITY` TLV event, then `REQ_SCHEMA`, then `ACK` and `START`.
 - Good: UI sends `SHELL_EXEC` with payload bytes; host emits `SHELL_OUTPUT` as a typed event.
 - Base: `REQ_TUNING` and `SET_TUNING` share the same request frame path as the other BMI088 host commands.
-- Bad: keep assuming a 9-field sample layout after the identity/schema handshake now advertises 19 fields and 38 bytes.
+- Bad: keep assuming a 9-field sample layout after the identity/schema handshake now advertises 30 fields and 60 bytes.
 - Bad: treat `SHELL_OUTPUT` as plain text-only logging and drop the raw payload.
 
 ---
@@ -97,8 +97,8 @@
 ## 6. Tests Required
 
 - Protocol encode/decode tests must assert the request codes for `REQ_IDENTITY`, `REQ_TUNING`, `SET_TUNING`, and `SHELL_EXEC`.
-- Identity tests must assert TLV decoding, required fields, and the `schema_field_count=19` / `sample_payload_len=38` contract.
-- Schema/sample tests must assert 19 fields, 38-byte sample length, schema-order decoding, and CRC rejection.
+- Identity tests must assert TLV decoding, required fields, and the `schema_field_count=30` / `sample_payload_len=60` contract.
+- Schema/sample tests must assert 30 fields, 60-byte sample length, schema-order decoding, and CRC rejection.
 - Runtime/UI tests must assert `UiBmi088HostCommand` only forwards payload bytes for `SET_TUNING` and `SHELL_EXEC`.
 - Bus projection tests must assert `TelemetryIdentity`, `TelemetrySchema`, `TelemetrySample`, and `ShellOutput` are preserved as distinct event kinds.
 
@@ -117,10 +117,10 @@ assert_eq!(sample.fields.len(), 9);
 ### Correct
 
 ```rust
-// Correct: only payload-bearing commands forward bytes, and the active BMI088 schema is 19 fields.
+// Correct: only payload-bearing commands forward bytes, and the active BMI088 schema is 30 fields.
 host.send_bmi088_command(Bmi088HostCommand::ReqIdentity, None)?;
 host.send_bmi088_command(Bmi088HostCommand::ShellExec, Some(b"help".to_vec()))?;
-assert_eq!(sample.fields.len(), 19);
-assert_eq!(identity.schema_field_count, 19);
-assert_eq!(identity.sample_payload_len, 38);
+assert_eq!(sample.fields.len(), 30);
+assert_eq!(identity.schema_field_count, 30);
+assert_eq!(identity.sample_payload_len, 60);
 ```
