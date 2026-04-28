@@ -63,7 +63,28 @@ const METRIC_DISPLAY_LABELS: Record<MetricDisplayMode, string> = {
 }
 const METRIC_DISPLAY_STORAGE_KEY = 'eadai:variables:metricDisplayMode'
 const TREND_REGRESSION_POINT_COUNT = 8
-const ADJUSTABLE_VARIABLE_NAMES = new Set(['pid_r', 'pid_p', 'pid_y', 'pid_t', 'pid_i', 'pid_d'])
+const ADJUSTABLE_VARIABLE_NAMES = new Set([
+  'pid_r',
+  'pid_p',
+  'pid_y',
+  'pid_t',
+  'pid_i',
+  'pid_d',
+  'roll_proportional_gain_x100',
+  'roll_integral_gain_x100',
+  'roll_derivative_gain_x100',
+  'pitch_proportional_gain_x100',
+  'pitch_integral_gain_x100',
+  'pitch_derivative_gain_x100',
+  'yaw_proportional_gain_x100',
+  'yaw_integral_gain_x100',
+  'yaw_derivative_gain_x100',
+  'output_limit',
+  'bench_test_throttle',
+  'pid_yaw_i_gain',
+  'pid_yaw_d_gain',
+  'pid_tuning_mode',
+])
 const ADJUSTABLE_VARIABLE_STEP = 0.01
 
 export function VariablesPanel() {

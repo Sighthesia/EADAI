@@ -39,10 +39,14 @@
 - Host commands are encoded as `REQUEST` frames.
 - Payload-bearing commands on this path are only `SET_TUNING` and `SHELL_EXEC`.
 - `UiBmi088HostCommand::payload_bytes()` must return bytes only for `SET_TUNING` and `SHELL_EXEC`; other commands must ignore any UI payload.
+- Session startup boot traffic must auto-send only `REQ_SCHEMA`.
+- `REQ_IDENTITY` remains a supported manual discovery request, but it is not part of the mandatory startup handshake.
 
 ### Event contract
 
-- `IDENTITY=0x82` is parsed as a TLV event frame.
+- `IDENTITY=0x82`, `SCHEMA=0x80`, and `SAMPLE=0x81` should be accepted from `EVENT(0x03)` frames.
+- For backward compatibility with older firmware/docs, the host should also accept these typed telemetry frames from `RESPONSE(0x02)`.
+- `IDENTITY=0x82` is parsed as a TLV telemetry frame.
 - `SCHEMA=0x80` is parsed as a structured schema frame.
 - `SAMPLE=0x81` is parsed using the latest schema when available, otherwise the built-in default schema.
 - `SHELL_OUTPUT=0x83` is parsed as raw line payload bytes plus lossy UTF-8 text.
@@ -56,11 +60,16 @@
 
 ### Schema/sample contract
 
-- Sample schema is 30 ordered `i16` fields.
-- Sample payload length is 60 bytes.
+- The host must support more than one schema payload layout.
+- Modern schema layout: `schema_version | rate_hz | field_count | sample_len | descriptors...`.
+- Legacy device layout: schema payload may omit the 4-byte top-level header and instead carry descriptor records directly.
+- Observed mixed legacy layout: the first field may use a short descriptor (`scale_q | name_len | unit_len | name | unit`), while later fields may use a 5-byte descriptor header (`field_id | field_type | scale_q | name_len | unit_len | name | unit`).
+- Sample payload length remains `field_count * 2` for all supported layouts.
 - Field order is fixed by the active schema and must match decoder order.
-- `SCHEMA` frames must not contain trailing bytes.
-- Sample payload length must be exactly `field_count * 2`.
+- `SCHEMA` frames must not contain trailing bytes once decoded under the chosen schema variant.
+- Before streaming starts, a valid `SCHEMA` advances the host session to `AwaitingAck` and emits `ACK` then `START`.
+- After the session is already `Streaming` or `Stopped`, duplicate `SCHEMA` frames may refresh cached schema metadata but must not retrigger `ACK`/`START` automatically.
+- Pre-stream recovery may retry `REQ_SCHEMA` while the host is still in `AwaitingSchema`; startup boot emission and retry emission are separate paths.
 
 ### Cross-layer projection
 
@@ -78,7 +87,10 @@
 - Identity TLV truncated or missing required field -> malformed identity frame.
 - Schema trailing bytes -> malformed schema frame.
 - Schema field count != sample payload length / 2 -> schema mismatch.
+- Legacy schema descriptor underflow or invalid UTF-8 -> malformed schema frame.
 - Sample payload with odd byte count -> malformed sample frame.
+- Repeated `SCHEMA` while already streaming -> refresh cached schema only, no new outbound `ACK`/`START` pair.
+- Startup boot path called twice in one connected session -> no second automatic `REQ_SCHEMA` emission.
 - UI payload provided for non-payload commands -> ignored, not an error.
 - Runtime command issued when session is not connected/running -> not connected error.
 
@@ -86,11 +98,15 @@
 
 ## 5. Good/Base/Bad Cases
 
-- Good: UI sends `REQ_IDENTITY`, host emits an `IDENTITY` TLV event, then `REQ_SCHEMA`, then `ACK` and `START`.
+- Good: startup sends `REQ_SCHEMA`, host receives `SCHEMA`, then emits `ACK` and `START` once.
+- Good: UI may send `REQ_IDENTITY` after connect to discover device metadata without changing the startup handshake path.
 - Good: UI sends `SHELL_EXEC` with payload bytes; host emits `SHELL_OUTPUT` as a typed event.
 - Base: `REQ_TUNING` and `SET_TUNING` share the same request frame path as the other BMI088 host commands.
+- Bad: assume every device emits the same top-level `SCHEMA` header layout.
 - Bad: keep assuming a 9-field sample layout after the identity/schema handshake now advertises 30 fields and 60 bytes.
 - Bad: treat `SHELL_OUTPUT` as plain text-only logging and drop the raw payload.
+- Bad: send `REQ_IDENTITY` as part of the mandatory boot handshake and disturb the MCU's `SCHEMA -> ACK -> START` startup path.
+- Bad: reply to every later `SCHEMA` with a fresh `ACK`/`START` even after the session is already streaming.
 
 ---
 
@@ -99,6 +115,8 @@
 - Protocol encode/decode tests must assert the request codes for `REQ_IDENTITY`, `REQ_TUNING`, `SET_TUNING`, and `SHELL_EXEC`.
 - Identity tests must assert TLV decoding, required fields, and the `schema_field_count=30` / `sample_payload_len=60` contract.
 - Schema/sample tests must assert 30 fields, 60-byte sample length, schema-order decoding, and CRC rejection.
+- Schema/sample tests must also cover at least one legacy schema payload variant observed from the current device.
+- Session tests must assert startup boot emits only one automatic `REQ_SCHEMA`, schema retry remains available only while `AwaitingSchema`, and duplicate `SCHEMA` frames do not restart `ACK`/`START` after streaming.
 - Runtime/UI tests must assert `UiBmi088HostCommand` only forwards payload bytes for `SET_TUNING` and `SHELL_EXEC`.
 - Bus projection tests must assert `TelemetryIdentity`, `TelemetrySchema`, `TelemetrySample`, and `ShellOutput` are preserved as distinct event kinds.
 
@@ -118,7 +136,7 @@ assert_eq!(sample.fields.len(), 9);
 
 ```rust
 // Correct: only payload-bearing commands forward bytes, and the active BMI088 schema is 30 fields.
-host.send_bmi088_command(Bmi088HostCommand::ReqIdentity, None)?;
+host.send_bmi088_command(Bmi088HostCommand::ReqSchema, None)?;
 host.send_bmi088_command(Bmi088HostCommand::ShellExec, Some(b"help".to_vec()))?;
 assert_eq!(sample.fields.len(), 30);
 assert_eq!(identity.schema_field_count, 30);

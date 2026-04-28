@@ -709,6 +709,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           }
 
           if (event.kind === 'telemetrySchema') {
+            pendingConsoleEntries.push(asProtocolConsoleEntry(event, `SCHEMA ${event.schema.fields.length} fields @ ${event.schema.rateHz}Hz`))
             protocol = ingestProtocolSchema(protocol, event)
             protocolChanged = true
 
@@ -745,12 +746,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
           }
 
           if (event.kind === 'telemetryIdentity') {
+            pendingConsoleEntries.push(
+              asProtocolConsoleEntry(
+                event,
+                `IDENTITY ${event.identity.deviceName} ${event.identity.boardName} ${event.identity.firmwareVersion}`,
+              ),
+            )
             protocol = ingestProtocolIdentity(protocol, event)
             protocolChanged = true
             continue
           }
 
           if (event.kind === 'telemetrySample') {
+            pendingConsoleEntries.push(asProtocolConsoleEntry(event, `SAMPLE ${event.sample.fields.length} fields`))
             protocol = ingestProtocolSample(protocol, event)
             protocolChanged = true
 
@@ -814,29 +822,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
         if (consoleChanged) {
           nextState.consoleEntries = consoleEntries
         }
-          if (variablesChanged) {
-            nextState.variables = variables
-          scriptDefinitions = syncScriptDefinitions(scriptDefinitions, variables)
-          nextState.scriptDefinitions = scriptDefinitions
+        if (variablesChanged) {
+          nextState.variables = variables
+        }
 
-          if (state.imuMapMode === 'auto') {
-            const nextImuChannelMap = autoDetectImuChannelMap(variables, imuChannelMap)
-            if (!isSameImuChannelMap(nextImuChannelMap, imuChannelMap)) {
-              imuChannelMap = nextImuChannelMap
-              imuChannelMapChanged = true
-            }
+        const nextScriptDefinitions = syncScriptDefinitions(scriptDefinitions, variables)
+        if (nextScriptDefinitions !== scriptDefinitions) {
+          nextState.scriptDefinitions = nextScriptDefinitions
+          scriptDefinitions = nextScriptDefinitions
+        }
 
-            const nextImuAttitudeMap = autoDetectImuAttitudeMap(variables, imuAttitudeMap)
-            if (!isSameImuAttitudeMap(nextImuAttitudeMap, imuAttitudeMap)) {
-              imuAttitudeMap = nextImuAttitudeMap
-              imuAttitudeMapChanged = true
-            }
+        if (variablesChanged && state.imuMapMode === 'auto') {
+          const nextImuChannelMap = autoDetectImuChannelMap(variables, imuChannelMap)
+          if (!isSameImuChannelMap(nextImuChannelMap, imuChannelMap)) {
+            imuChannelMap = nextImuChannelMap
+            imuChannelMapChanged = true
+          }
 
-            const nextImuQuaternionMap = autoDetectImuQuaternionMap(variables, imuQuaternionMap)
-            if (!isSameImuQuaternionMap(nextImuQuaternionMap, imuQuaternionMap)) {
-              imuQuaternionMap = nextImuQuaternionMap
-              imuQuaternionMapChanged = true
-            }
+          const nextImuAttitudeMap = autoDetectImuAttitudeMap(variables, imuAttitudeMap)
+          if (!isSameImuAttitudeMap(nextImuAttitudeMap, imuAttitudeMap)) {
+            imuAttitudeMap = nextImuAttitudeMap
+            imuAttitudeMapChanged = true
+          }
+
+          const nextImuQuaternionMap = autoDetectImuQuaternionMap(variables, imuQuaternionMap)
+          if (!isSameImuQuaternionMap(nextImuQuaternionMap, imuQuaternionMap)) {
+            imuQuaternionMap = nextImuQuaternionMap
+            imuQuaternionMapChanged = true
           }
         }
         if (selectedChannelsChanged) {
@@ -995,6 +1007,18 @@ const asConsoleEntry = (event: Extract<SerialBusEvent, { kind: 'line' }>): Conso
   text: event.line.text,
   timestampMs: event.timestampMs,
   raw: event.line.raw,
+  parser: event.parser,
+})
+
+const asProtocolConsoleEntry = (
+  event: Extract<SerialBusEvent, { kind: 'telemetryIdentity' | 'telemetrySchema' | 'telemetrySample' }>,
+  text: string,
+): ConsoleEntry => ({
+  id: `${event.timestampMs}-rx-${text}`,
+  direction: 'rx',
+  text,
+  timestampMs: event.timestampMs,
+  raw: event.rawFrame,
   parser: event.parser,
 })
 

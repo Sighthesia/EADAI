@@ -178,6 +178,7 @@ pub struct Bmi088SessionState {
     phase: Bmi088SessionPhase,
     identity: Option<Bmi088IdentityFrame>,
     schema: Option<Bmi088SchemaFrame>,
+    boot_commands_sent: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -186,6 +187,7 @@ pub struct Bmi088StreamDecoder {
     max_buffer_bytes: usize,
     text_framer: LineFramer,
     schema: Option<Bmi088SchemaFrame>,
+    identity: Option<Bmi088IdentityFrame>,
 }
 
 impl Default for Bmi088SchemaFrame {
@@ -299,12 +301,26 @@ impl Bmi088SessionState {
             phase: Bmi088SessionPhase::AwaitingSchema,
             identity: None,
             schema: None,
+            boot_commands_sent: false,
         }
     }
 
     pub fn boot_commands(&mut self) -> Vec<Bmi088HostCommand> {
+        if self.boot_commands_sent {
+            return Vec::new();
+        }
+
+        self.boot_commands_sent = true;
         self.phase = Bmi088SessionPhase::AwaitingSchema;
-        vec![Bmi088HostCommand::ReqIdentity, Bmi088HostCommand::ReqSchema]
+        vec![Bmi088HostCommand::ReqSchema]
+    }
+
+    pub fn schema_retry_commands(&self) -> Vec<Bmi088HostCommand> {
+        if self.phase == Bmi088SessionPhase::AwaitingSchema {
+            vec![Bmi088HostCommand::ReqSchema]
+        } else {
+            Vec::new()
+        }
     }
 
     pub fn phase(&self) -> Bmi088SessionPhase {
@@ -320,25 +336,59 @@ impl Bmi088SessionState {
     }
 
     pub fn on_frame(&mut self, frame: &Bmi088Frame) -> Vec<Bmi088HostCommand> {
+        let previous_phase = self.phase;
         match frame {
             Bmi088Frame::Identity(identity) => {
                 self.identity = Some(identity.clone());
+                eprintln!(
+                    "[bmi088][session] rx IDENTITY seq={} phase={:?} device={} protocol={} schema_fields={} sample_len={}",
+                    identity.seq,
+                    previous_phase,
+                    identity.device_name,
+                    identity.protocol_version,
+                    identity.schema_field_count,
+                    identity.sample_payload_len,
+                );
                 Vec::new()
             }
             Bmi088Frame::ShellOutput(_) => Vec::new(),
             Bmi088Frame::Schema(schema) => {
                 self.schema = Some(schema.clone());
+                if matches!(self.phase, Bmi088SessionPhase::Streaming | Bmi088SessionPhase::Stopped) {
+                    eprintln!(
+                        "[bmi088][session] rx SCHEMA seq={} phase={:?} field_count={} sample_len={} ignored_rehandshake=true",
+                        schema.seq,
+                        previous_phase,
+                        schema.fields.len(),
+                        schema.sample_len,
+                    );
+                    return Vec::new();
+                }
                 self.phase = Bmi088SessionPhase::AwaitingAck;
+                eprintln!(
+                    "[bmi088][session] rx SCHEMA seq={} phase={:?}->{:?} field_count={} sample_len={} next=ACK,START",
+                    schema.seq,
+                    previous_phase,
+                    self.phase,
+                    schema.fields.len(),
+                    schema.sample_len,
+                );
                 vec![Bmi088HostCommand::Ack, Bmi088HostCommand::Start]
             }
             Bmi088Frame::Sample(_) => {
                 self.phase = Bmi088SessionPhase::Streaming;
+                eprintln!(
+                    "[bmi088][session] rx SAMPLE phase={:?}->{:?}",
+                    previous_phase,
+                    self.phase,
+                );
                 Vec::new()
             }
         }
     }
 
     pub fn on_host_command(&mut self, command: Bmi088HostCommand) {
+        let previous_phase = self.phase;
         self.phase = match command {
             Bmi088HostCommand::Ack => Bmi088SessionPhase::AwaitingStart,
             Bmi088HostCommand::Start => Bmi088SessionPhase::Streaming,
@@ -349,6 +399,12 @@ impl Bmi088SessionState {
             | Bmi088HostCommand::SetTuning
             | Bmi088HostCommand::ShellExec => self.phase,
         };
+        eprintln!(
+            "[bmi088][session] tx {} phase={:?}->{:?}",
+            host_command_label(&command),
+            previous_phase,
+            self.phase,
+        );
     }
 }
 
@@ -371,10 +427,18 @@ impl Bmi088StreamDecoder {
             max_buffer_bytes: max_buffer_bytes.max(1),
             text_framer: LineFramer::new(),
             schema: None,
+            identity: None,
         }
     }
 
     pub fn push(&mut self, chunk: &[u8]) -> Vec<TelemetryPacket> {
+        if !chunk.is_empty() {
+            eprintln!(
+                "[bmi088][stream] rx chunk bytes={} preview={}",
+                chunk.len(),
+                hex_preview(chunk, 16),
+            );
+        }
         self.buffer.extend_from_slice(chunk);
         let mut packets = Vec::new();
 
@@ -398,6 +462,12 @@ impl Bmi088StreamDecoder {
                 let payload_len = self.buffer[6] as usize;
                 let frame_len = BMI088_HEADER_LEN + payload_len + BMI088_CRC_LEN;
                 if frame_len > self.max_buffer_bytes {
+                    eprintln!(
+                        "[bmi088][stream] drop oversize frame payload_len={} frame_len={} max_buffer_bytes={}",
+                        payload_len,
+                        frame_len,
+                        self.max_buffer_bytes,
+                    );
                     self.buffer.drain(..1);
                     continue;
                 }
@@ -409,19 +479,47 @@ impl Bmi088StreamDecoder {
                 let frame = self.buffer[..frame_len].to_vec();
                 match decode_binary_frame_with_schema(&frame, self.schema.as_ref()) {
                     Ok(Bmi088Frame::Identity(identity)) => {
+                        eprintln!(
+                            "[bmi088][stream] decoded IDENTITY seq={} payload_len={} frame_len={}",
+                            identity.seq,
+                            payload_len,
+                            frame_len,
+                        );
                         self.buffer.drain(..frame_len);
+                        self.identity = Some(identity.clone());
                         packets.push(TelemetryPacket::Identity(identity));
                     }
                     Ok(Bmi088Frame::Schema(schema)) => {
+                        eprintln!(
+                            "[bmi088][stream] decoded SCHEMA seq={} payload_len={} fields={} sample_len={}",
+                            schema.seq,
+                            payload_len,
+                            schema.fields.len(),
+                            schema.sample_len,
+                        );
                         self.buffer.drain(..frame_len);
-                        self.schema = Some(schema.clone());
+                        if self.should_cache_schema(&schema) {
+                            self.schema = Some(schema.clone());
+                        }
                         packets.push(TelemetryPacket::Schema(schema));
                     }
                     Ok(Bmi088Frame::Sample(sample)) => {
+                        eprintln!(
+                            "[bmi088][stream] decoded SAMPLE seq={} payload_len={} fields={} schema_cached={}",
+                            sample.seq,
+                            payload_len,
+                            sample.fields.len(),
+                            self.schema.is_some(),
+                        );
                         self.buffer.drain(..frame_len);
                         packets.push(TelemetryPacket::Sample(sample));
                     }
                     Ok(Bmi088Frame::ShellOutput(output)) => {
+                        eprintln!(
+                            "[bmi088][stream] decoded SHELL_OUTPUT payload_len={} text_preview={}",
+                            payload_len,
+                            text_preview(&output.text, 80),
+                        );
                         self.buffer.drain(..frame_len);
                         packets.push(TelemetryPacket::ShellOutput(output));
                     }
@@ -430,10 +528,26 @@ impl Bmi088StreamDecoder {
                         | Bmi088DecodeError::InvalidVersion
                         | Bmi088DecodeError::InvalidSof,
                     ) => {
+                        if let Err(error) = decode_binary_frame_with_schema(&frame, self.schema.as_ref()) {
+                            eprintln!(
+                                "[bmi088][stream] frame decode error={} frame_len={} preview={}",
+                                decode_error_label(&error),
+                                frame_len,
+                                hex_preview(&frame, 16),
+                            );
+                        }
                         self.buffer.drain(..1);
                     }
                     Err(Bmi088DecodeError::SchemaMismatch(_))
                     | Err(Bmi088DecodeError::MalformedFrame(_)) => {
+                        if let Err(error) = decode_binary_frame_with_schema(&frame, self.schema.as_ref()) {
+                            eprintln!(
+                                "[bmi088][stream] frame decode error={} frame_len={} preview={}",
+                                decode_error_label(&error),
+                                frame_len,
+                                hex_preview(&frame, 16),
+                            );
+                        }
                         self.buffer.drain(..1);
                     }
                 }
@@ -460,6 +574,28 @@ impl Bmi088StreamDecoder {
         }
 
         packets
+    }
+}
+
+impl Bmi088StreamDecoder {
+    fn should_cache_schema(&self, schema: &Bmi088SchemaFrame) -> bool {
+        if let Some(identity) = &self.identity {
+            let matches_identity_shape = schema.sample_len == usize::from(identity.sample_payload_len)
+                && schema.fields.len() == usize::from(identity.schema_field_count);
+            if !matches_identity_shape {
+                eprintln!(
+                    "[bmi088][stream] schema cache skipped seq={} field_count={} sample_len={} identity_field_count={} identity_sample_len={}",
+                    schema.seq,
+                    schema.fields.len(),
+                    schema.sample_len,
+                    identity.schema_field_count,
+                    identity.sample_payload_len,
+                );
+            }
+            return matches_identity_shape;
+        }
+
+        true
     }
 }
 
@@ -642,10 +778,13 @@ pub fn decode_binary_frame_with_schema(
     let payload = &frame[BMI088_HEADER_LEN..expected_len - 2];
 
     match (frame_type, command) {
-        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_IDENTITY) => Ok(Bmi088Frame::Identity(
+        (
+            BMI088_FRAME_TYPE_EVENT | BMI088_FRAME_TYPE_RESPONSE,
+            BMI088_CMD_IDENTITY,
+        ) => Ok(Bmi088Frame::Identity(
             decode_identity_payload_with_seq(seq, payload)?,
         )),
-        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SCHEMA) => {
+        (BMI088_FRAME_TYPE_EVENT | BMI088_FRAME_TYPE_RESPONSE, BMI088_CMD_SCHEMA) => {
             Ok(Bmi088Frame::Schema(decode_schema_payload_with_seq(seq, payload)?))
         }
         (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SHELL_OUTPUT) => Ok(Bmi088Frame::ShellOutput(
@@ -654,9 +793,29 @@ pub fn decode_binary_frame_with_schema(
                 raw: payload.to_vec(),
             },
         )),
-        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SAMPLE) => Ok(Bmi088Frame::Sample(
-            decode_sample_payload_with_schema_and_seq(payload, schema.unwrap_or(&default_schema()), seq)?,
-        )),
+        (BMI088_FRAME_TYPE_EVENT | BMI088_FRAME_TYPE_RESPONSE, BMI088_CMD_SAMPLE) => {
+            let fallback_schema = default_schema();
+            let active_schema = schema.unwrap_or(&fallback_schema);
+            match decode_sample_payload_with_schema_and_seq(payload, active_schema, seq) {
+                Ok(sample) => Ok(Bmi088Frame::Sample(sample)),
+                Err(Bmi088DecodeError::SchemaMismatch(_)) if schema.is_some() => {
+                    eprintln!(
+                        "[bmi088][sample] active schema mismatch seq={} active_field_count={} active_sample_len={} fallback_field_count={} fallback_sample_len={}",
+                        seq,
+                        active_schema.fields.len(),
+                        active_schema.sample_len,
+                        fallback_schema.fields.len(),
+                        fallback_schema.sample_len,
+                    );
+                    Ok(Bmi088Frame::Sample(decode_sample_payload_with_schema_and_seq(
+                        payload,
+                        &fallback_schema,
+                        seq,
+                    )?))
+                }
+                Err(error) => Err(error),
+            }
+        }
         _ => Err(Bmi088DecodeError::MalformedFrame(
             "unsupported command".to_string(),
         )),
@@ -755,15 +914,41 @@ pub fn decode_schema_payload_with_seq(
     seq: u8,
     payload: &[u8],
 ) -> Result<Bmi088SchemaFrame, Bmi088DecodeError> {
-    if payload.len() < 4 {
+    eprintln!(
+        "[bmi088][schema] decode entry seq={} bytes={} first_byte=0x{:02X} preview={}",
+        seq,
+        payload.len(),
+        payload.first().copied().unwrap_or(0),
+        hex_preview(payload, 24),
+    );
+
+    if payload.is_empty() {
         return Err(Bmi088DecodeError::MalformedFrame(
             "schema payload too short".to_string(),
         ));
     }
 
     if payload[0] != BMI088_SCHEMA_VERSION {
+        eprintln!(
+            "[bmi088][schema] branch=legacy seq={} first_byte=0x{:02X}",
+            seq,
+            payload[0],
+        );
+        return decode_legacy_schema_payload_with_seq(seq, payload);
+    }
+
+    eprintln!(
+        "[bmi088][schema] branch=framed seq={} version={} rate_hz={} field_count={} sample_len={}",
+        seq,
+        payload[0],
+        payload.get(1).copied().unwrap_or(0),
+        payload.get(2).copied().unwrap_or(0),
+        payload.get(3).copied().unwrap_or(0),
+    );
+
+    if payload.len() < 4 {
         return Err(Bmi088DecodeError::MalformedFrame(
-            "unsupported schema version".to_string(),
+            "schema payload too short".to_string(),
         ));
     }
 
@@ -891,6 +1076,229 @@ pub fn decode_schema_payload_with_seq(
         sample_len,
         fields,
     })
+}
+
+fn decode_legacy_schema_payload_with_seq(
+    seq: u8,
+    payload: &[u8],
+) -> Result<Bmi088SchemaFrame, Bmi088DecodeError> {
+    match decode_legacy_schema_payload_with_short_descriptors(seq, payload) {
+        Ok(schema) => return Ok(schema),
+        Err(error) => {
+            eprintln!(
+                "[bmi088][schema] legacy variant=short-descriptor failed seq={} error={}",
+                seq,
+                decode_error_label(&error),
+            );
+        }
+    }
+
+    decode_legacy_schema_payload_with_mixed_descriptors(seq, payload)
+}
+
+fn decode_legacy_schema_payload_with_short_descriptors(
+    seq: u8,
+    payload: &[u8],
+) -> Result<Bmi088SchemaFrame, Bmi088DecodeError> {
+    let mut offset = 0;
+    let mut fields = Vec::new();
+
+    while offset < payload.len() {
+        if payload.len() < offset + 3 {
+            return Err(Bmi088DecodeError::MalformedFrame(
+                "legacy schema descriptor too short".to_string(),
+            ));
+        }
+
+        let scale_q = payload[offset] as i8;
+        let name_len = payload[offset + 1] as usize;
+        let unit_len = payload[offset + 2] as usize;
+        offset += 3;
+
+        let name_bytes = payload.get(offset..offset + name_len).ok_or_else(|| {
+            Bmi088DecodeError::MalformedFrame("missing legacy field name bytes".to_string())
+        })?;
+        let name = String::from_utf8(name_bytes.to_vec()).map_err(|_| {
+            Bmi088DecodeError::MalformedFrame("invalid legacy field name utf8".to_string())
+        })?;
+        offset += name_len;
+
+        let unit_bytes = payload.get(offset..offset + unit_len).ok_or_else(|| {
+            Bmi088DecodeError::MalformedFrame("missing legacy unit bytes".to_string())
+        })?;
+        let unit = String::from_utf8(unit_bytes.to_vec()).map_err(|_| {
+            Bmi088DecodeError::MalformedFrame("invalid legacy unit utf8".to_string())
+        })?;
+        offset += unit_len;
+
+        eprintln!(
+            "[bmi088][schema] legacy field index={} scale_q={} name={} unit={} next_offset={}",
+            fields.len(),
+            scale_q,
+            name,
+            unit,
+            offset,
+        );
+
+        fields.push(Bmi088FieldDescriptor {
+            field_id: fields.len() as u8,
+            field_type: BMI088_FIELD_TYPE_I16,
+            name,
+            unit,
+            scale_q,
+        });
+    }
+
+    if fields.is_empty() {
+        return Err(Bmi088DecodeError::MalformedFrame(
+            "legacy schema contains no fields".to_string(),
+        ));
+    }
+
+    eprintln!(
+        "[bmi088][schema] legacy summary seq={} field_count={} sample_len={}",
+        seq,
+        fields.len(),
+        fields.len() * 2,
+    );
+
+    Ok(Bmi088SchemaFrame {
+        seq,
+        schema_version: BMI088_SCHEMA_VERSION,
+        rate_hz: default_schema().rate_hz,
+        sample_len: fields.len() * 2,
+        fields,
+    })
+}
+
+fn decode_legacy_schema_payload_with_mixed_descriptors(
+    seq: u8,
+    payload: &[u8],
+) -> Result<Bmi088SchemaFrame, Bmi088DecodeError> {
+    let mut offset = 0;
+    let mut fields = Vec::new();
+
+    let (scale_q, name, unit, next_offset) = decode_legacy_short_descriptor(payload, offset)?;
+    eprintln!(
+        "[bmi088][schema] legacy-mixed first field index=0 scale_q={} name={} unit={} next_offset={}",
+        scale_q,
+        name,
+        unit,
+        next_offset,
+    );
+    offset = next_offset;
+    fields.push(Bmi088FieldDescriptor {
+        field_id: 0,
+        field_type: BMI088_FIELD_TYPE_I16,
+        name,
+        unit,
+        scale_q,
+    });
+
+    while offset < payload.len() {
+        if payload.len() < offset + 5 {
+            return Err(Bmi088DecodeError::MalformedFrame(
+                "legacy mixed descriptor too short".to_string(),
+            ));
+        }
+
+        let field_id = payload[offset];
+        let field_type = payload[offset + 1];
+        if field_type != BMI088_FIELD_TYPE_I16 {
+            return Err(Bmi088DecodeError::MalformedFrame(
+                "unsupported legacy mixed field type".to_string(),
+            ));
+        }
+        let scale_q = payload[offset + 2] as i8;
+        let name_len = payload[offset + 3] as usize;
+        let unit_len = payload[offset + 4] as usize;
+        offset += 5;
+
+        let name_bytes = payload.get(offset..offset + name_len).ok_or_else(|| {
+            Bmi088DecodeError::MalformedFrame(
+                "missing legacy mixed field name bytes".to_string(),
+            )
+        })?;
+        let name = String::from_utf8(name_bytes.to_vec()).map_err(|_| {
+            Bmi088DecodeError::MalformedFrame("invalid legacy mixed field name utf8".to_string())
+        })?;
+        offset += name_len;
+
+        let unit_bytes = payload.get(offset..offset + unit_len).ok_or_else(|| {
+            Bmi088DecodeError::MalformedFrame("missing legacy mixed unit bytes".to_string())
+        })?;
+        let unit = String::from_utf8(unit_bytes.to_vec()).map_err(|_| {
+            Bmi088DecodeError::MalformedFrame("invalid legacy mixed unit utf8".to_string())
+        })?;
+        offset += unit_len;
+
+        eprintln!(
+            "[bmi088][schema] legacy-mixed field index={} field_id={} scale_q={} name={} unit={} next_offset={}",
+            fields.len(),
+            field_id,
+            scale_q,
+            name,
+            unit,
+            offset,
+        );
+
+        fields.push(Bmi088FieldDescriptor {
+            field_id,
+            field_type,
+            name,
+            unit,
+            scale_q,
+        });
+    }
+
+    eprintln!(
+        "[bmi088][schema] legacy variant=mixed summary seq={} field_count={} sample_len={}",
+        seq,
+        fields.len(),
+        fields.len() * 2,
+    );
+
+    Ok(Bmi088SchemaFrame {
+        seq,
+        schema_version: BMI088_SCHEMA_VERSION,
+        rate_hz: default_schema().rate_hz,
+        sample_len: fields.len() * 2,
+        fields,
+    })
+}
+
+fn decode_legacy_short_descriptor(
+    payload: &[u8],
+    offset: usize,
+) -> Result<(i8, String, String, usize), Bmi088DecodeError> {
+    if payload.len() < offset + 3 {
+        return Err(Bmi088DecodeError::MalformedFrame(
+            "legacy schema descriptor too short".to_string(),
+        ));
+    }
+
+    let scale_q = payload[offset] as i8;
+    let name_len = payload[offset + 1] as usize;
+    let unit_len = payload[offset + 2] as usize;
+    let mut next_offset = offset + 3;
+
+    let name_bytes = payload.get(next_offset..next_offset + name_len).ok_or_else(|| {
+        Bmi088DecodeError::MalformedFrame("missing legacy field name bytes".to_string())
+    })?;
+    let name = String::from_utf8(name_bytes.to_vec()).map_err(|_| {
+        Bmi088DecodeError::MalformedFrame("invalid legacy field name utf8".to_string())
+    })?;
+    next_offset += name_len;
+
+    let unit_bytes = payload.get(next_offset..next_offset + unit_len).ok_or_else(|| {
+        Bmi088DecodeError::MalformedFrame("missing legacy unit bytes".to_string())
+    })?;
+    let unit = String::from_utf8(unit_bytes.to_vec()).map_err(|_| {
+        Bmi088DecodeError::MalformedFrame("invalid legacy unit utf8".to_string())
+    })?;
+    next_offset += unit_len;
+
+    Ok((scale_q, name, unit, next_offset))
 }
 
 pub fn decode_sample_payload(payload: &[u8]) -> Result<Bmi088SampleFrame, Bmi088DecodeError> {
@@ -1220,6 +1628,40 @@ pub enum Bmi088DecodeError {
     InvalidCrc,
     SchemaMismatch(String),
     MalformedFrame(String),
+}
+
+fn decode_error_label(error: &Bmi088DecodeError) -> String {
+    match error {
+        Bmi088DecodeError::InvalidSof => "InvalidSof".to_string(),
+        Bmi088DecodeError::InvalidVersion => "InvalidVersion".to_string(),
+        Bmi088DecodeError::InvalidCrc => "InvalidCrc".to_string(),
+        Bmi088DecodeError::MalformedFrame(reason) => format!("MalformedFrame({reason})"),
+        Bmi088DecodeError::SchemaMismatch(reason) => format!("SchemaMismatch({reason})"),
+    }
+}
+
+fn hex_preview(bytes: &[u8], max_len: usize) -> String {
+    let preview = bytes
+        .iter()
+        .take(max_len)
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if bytes.len() > max_len {
+        format!("{preview} ...")
+    } else {
+        preview
+    }
+}
+
+fn text_preview(text: &str, max_len: usize) -> String {
+    let preview = text.chars().take(max_len).collect::<String>();
+    if text.chars().count() > max_len {
+        format!("{preview}...")
+    } else {
+        preview
+    }
 }
 
 impl std::fmt::Display for Bmi088DecodeError {

@@ -245,14 +245,14 @@ fn decode_frame_with_schema(
     let (frame_type, command, seq, payload): (u8, u8, u8, &[u8]) =
         decode_frame_envelope(frame).map_err(map_decode_error)?;
 
-    match (frame_type, command) {
-        (FRAME_TYPE_EVENT, CMD_IDENTITY) => match decode_binary_frame_with_schema(frame, schema)
+        match (frame_type, command) {
+        (FRAME_TYPE_EVENT | FRAME_TYPE_RESPONSE, CMD_IDENTITY) => match decode_binary_frame_with_schema(frame, schema)
             .map_err(map_decode_error)?
         {
             Bmi088Frame::Identity(identity) => Ok(Frame::Identity(identity)),
             _ => Err(DecodeError::Malformed("unexpected non-identity frame")),
         },
-        (FRAME_TYPE_EVENT, CMD_SCHEMA) => match decode_binary_frame_with_schema(frame, schema)
+        (FRAME_TYPE_EVENT | FRAME_TYPE_RESPONSE, CMD_SCHEMA) => match decode_binary_frame_with_schema(frame, schema)
             .map_err(map_decode_error)?
         {
             Bmi088Frame::Schema(schema) => Ok(Frame::Schema(schema)),
@@ -265,7 +265,7 @@ fn decode_frame_with_schema(
             },
             status: FrameStatus::Complete,
         })),
-        (FRAME_TYPE_EVENT, CMD_SAMPLE) => {
+        (FRAME_TYPE_EVENT | FRAME_TYPE_RESPONSE, CMD_SAMPLE) => {
             let raw_values = decode_sample_raw_values(payload).map_err(map_decode_error)?;
             Ok(Frame::Sample(SampleFrame { seq, raw_values }))
         }

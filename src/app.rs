@@ -257,7 +257,11 @@ impl App {
                         if self.config.parser == crate::cli::ParserKind::Bmi088
                             && bmi088_session.phase() == bmi088::Bmi088SessionPhase::AwaitingSchema
                         {
-                            for command in bmi088_session.boot_commands() {
+                            for command in bmi088_session.schema_retry_commands() {
+                                eprintln!(
+                                    "[bmi088][app] awaiting schema -> retry {}",
+                                    host_command_label(&command),
+                                );
                                 send_bmi088_command(
                                     &self.bus,
                                     &source,
@@ -356,6 +360,12 @@ where
         Some(payload) => encode_host_command_with_payload(command.clone(), payload),
         None => encode_host_command(command.clone()),
     };
+    eprintln!(
+        "[bmi088][app] tx {} bytes={} preview={}",
+        host_command_label(&command),
+        encoded.len(),
+        hex_preview(&encoded, 16),
+    );
     serial::write_payload(port, &encoded)?;
     bmi088_session.on_host_command(command.clone());
     bus.publish(
@@ -395,6 +405,13 @@ fn publish_rx_with_analysis(
 }
 
 fn publish_schema(bus: &MessageBus, source: &MessageSource, schema: bmi088::Bmi088SchemaFrame) {
+    eprintln!(
+        "[bmi088][app] publish SCHEMA seq={} rate_hz={} field_count={} sample_len={}",
+        schema.seq,
+        schema.rate_hz,
+        schema.fields.len(),
+        schema.sample_len,
+    );
     let parser = ParserMeta::parsed(
         "bmi088_schema",
         bmi088_payload_fields(&[
@@ -421,6 +438,14 @@ fn publish_identity(
     source: &MessageSource,
     identity: bmi088::Bmi088IdentityFrame,
 ) {
+    eprintln!(
+        "[bmi088][app] publish IDENTITY seq={} device={} protocol={} schema_fields={} sample_len={}",
+        identity.seq,
+        identity.device_name,
+        identity.protocol_version,
+        identity.schema_field_count,
+        identity.sample_payload_len,
+    );
     let parser = ParserMeta::parsed(
         "bmi088_identity",
         bmi088_payload_fields(&[
@@ -447,6 +472,16 @@ fn publish_identity(
 }
 
 fn publish_sample(bus: &MessageBus, source: &MessageSource, sample: bmi088::Bmi088SampleFrame) {
+    eprintln!(
+        "[bmi088][app] publish SAMPLE seq={} field_count={} first_field={}",
+        sample.seq,
+        sample.fields.len(),
+        sample
+            .fields
+            .first()
+            .map(|field| field.name.as_str())
+            .unwrap_or("<none>"),
+    );
     let parser = ParserMeta::parsed(
         "bmi088_sample",
         bmi088_payload_fields(&[
@@ -500,6 +535,21 @@ fn outbound_payload(payload: &[u8]) -> LinePayload {
 
     let text = String::from_utf8_lossy(&raw).into_owned();
     LinePayload { text, raw }
+}
+
+fn hex_preview(bytes: &[u8], max_len: usize) -> String {
+    let preview = bytes
+        .iter()
+        .take(max_len)
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if bytes.len() > max_len {
+        format!("{preview} ...")
+    } else {
+        preview
+    }
 }
 
 fn sleep_with_stop(stop_signal: &StopSignal, total_delay: Duration) -> bool {
