@@ -73,7 +73,7 @@ const layoutJson: IJsonModel = {
       selected: 0,
       size: 420,
       children: [
-        { type: 'tab', name: 'Runtime', component: 'runtime' },
+        { type: 'tab', name: 'Terminal', component: 'runtime' },
         { type: 'tab', name: 'Scripts', component: 'scripts' },
       ],
     },

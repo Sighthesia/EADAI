@@ -32,6 +32,7 @@ import { createDevTimingLogger, logger } from '../lib/logger'
 import type {
   AppStatus,
   Bmi088HostCommand,
+  ConsoleDisplayMode,
   ConnectRequest,
   ConsoleEntry,
   ImuAttitudeMap,
@@ -77,6 +78,7 @@ import type {
 } from '../types'
 
 const MAX_CONSOLE_ENTRIES = 400
+const MAX_SENT_CONSOLE_ENTRIES = 400
 const MAX_SAMPLES_PER_CHANNEL = 960
 const CHANNEL_COLORS = ['#4FC3F7', '#C792EA', '#F78C6C', '#A5E075', '#E6C07B', '#82AAFF']
 const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
@@ -180,8 +182,9 @@ type AppStore = {
   config: ConnectRequest
   appendNewline: boolean
   commandInput: string
-  consoleDisplayMode: 'text' | 'hex' | 'binary'
+  consoleDisplayMode: ConsoleDisplayMode
   consoleEntries: ConsoleEntry[]
+  sentConsoleEntries: ConsoleEntry[]
   protocol: UiProtocolSnapshot
   runtimeDevice: UiRuntimeDeviceSnapshot
   variables: Record<string, VariableEntry>
@@ -203,7 +206,7 @@ type AppStore = {
   updateVariableDefinition: (definitionId: string, patch: Partial<Pick<VariableDefinition, 'bindingField' | 'alias' | 'presentationUnit' | 'visibility' | 'sourceLabel' | 'summary'>>) => void
   setCommandInput: (value: string) => void
   setAppendNewline: (value: boolean) => void
-  setConsoleDisplayMode: (value: 'text' | 'hex' | 'binary') => void
+  setConsoleDisplayMode: (value: ConsoleDisplayMode) => void
   setWaveformWindowMs: (value: number | ((current: number) => number)) => void
   patchConfig: (value: Partial<ConnectRequest>) => void
   bootstrap: () => Promise<void>
@@ -278,8 +281,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   appendNewline: true,
   commandInput: '',
-  consoleDisplayMode: 'text' as const,
+  consoleDisplayMode: 'ascii' as const,
   consoleEntries: [],
+  sentConsoleEntries: [],
   protocol: defaultProtocolSnapshot(),
   protocolScript: BMI088_PROTOCOL_SCRIPT,
   protocolHookExamples: createProtocolHookExamples(),
@@ -520,6 +524,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       variables: {},
       selectedChannels: [],
       consoleEntries: [],
+      sentConsoleEntries: [],
       protocol: defaultProtocolSnapshot(),
       runtimeCatalog: createRuntimeCatalog(defaultProtocolSnapshot(), createRuntimeDeviceSnapshot(session, config, [])),
       scriptDefinitions: createScriptDefinitions({}),
@@ -547,6 +552,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       variables: {},
       selectedChannels: [],
       consoleEntries: [],
+      sentConsoleEntries: [],
       protocol: defaultProtocolSnapshot(),
       runtimeCatalog: createRuntimeCatalog(defaultProtocolSnapshot(), createRuntimeDeviceSnapshot(session, get().config, get().ports)),
       scriptDefinitions: createScriptDefinitions({}),
@@ -569,12 +575,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     await sendSerial({ payload, appendNewline })
     set({
       commandInput: '',
+      sentConsoleEntries: appendConsoleHistory(get().sentConsoleEntries, createSentConsoleEntry(payload, appendNewline), MAX_SENT_CONSOLE_ENTRIES),
       status: { tone: 'success', message: `Sent ${payload}.` },
     })
   },
   sendBmi088Command: async (command, payload) => {
     await sendBmi088Command({ command, payload: payload ?? null })
+    const text = payload?.trim().length ? `${command} ${payload.trim()}` : command
     set({
+      sentConsoleEntries: appendConsoleHistory(get().sentConsoleEntries, createSentConsoleEntry(text, false), MAX_SENT_CONSOLE_ENTRIES),
       status: { tone: 'success', message: `Sent BMI088 ${command}.` },
     })
   },
@@ -969,6 +978,24 @@ const asConsoleEntry = (event: Extract<SerialBusEvent, { kind: 'line' }>): Conso
   raw: event.line.raw,
   parser: event.parser,
 })
+
+const textEncoder = new TextEncoder()
+
+const createSentConsoleEntry = (text: string, appendNewline: boolean): ConsoleEntry => {
+  const payload = appendNewline ? `${text}\n` : text
+
+  return {
+    id: `${Date.now()}-tx-${Math.random().toString(36).slice(2, 10)}`,
+    direction: 'tx',
+    text,
+    timestampMs: Date.now(),
+    raw: Array.from(textEncoder.encode(payload)),
+    parser: null,
+  }
+}
+
+const appendConsoleHistory = (entries: ConsoleEntry[], entry: ConsoleEntry, limit: number) =>
+  [...entries, entry].slice(-limit)
 
 const createVariableEntry = (
   channelId: string,

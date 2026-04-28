@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
-import type { ConsoleEntry } from '../types'
+import type { ConsoleDisplayMode, ConsoleEntry } from '../types'
 
 const CONSOLE_WINDOW_SIZE = 140
 
@@ -37,7 +37,7 @@ export function ConsolePanel() {
     stickToBottomRef.current = distanceFromBottom <= 24
   }
 
-  const displayModes = useMemo(() => ['text', 'hex', 'binary'] as const, [])
+  const displayModes = useMemo(() => ['ascii', 'hex', 'binary'] as ConsoleDisplayMode[], [])
 
   return (
     <section className="panel console-panel">
@@ -50,7 +50,7 @@ export function ConsolePanel() {
         <div className="console-display-switch" role="group" aria-label="Console display mode">
           {displayModes.map((mode) => (
             <button key={mode} type="button" className={`metric-display-button ${consoleDisplayMode === mode ? 'active' : ''}`} onClick={() => setConsoleDisplayMode(mode)}>
-              {mode.toUpperCase()}
+              {mode === 'ascii' ? 'ASCII' : mode.toUpperCase()}
             </button>
           ))}
         </div>
@@ -83,7 +83,7 @@ export function ConsolePanel() {
   )
 }
 
-const ConsoleEntryRow = memo(function ConsoleEntryRow({ entry, mode }: { entry: ConsoleEntry; mode: 'text' | 'hex' | 'binary' }) {
+const ConsoleEntryRow = memo(function ConsoleEntryRow({ entry, mode }: { entry: ConsoleEntry; mode: ConsoleDisplayMode }) {
   const timestamp = useMemo(() => formatTime(entry.timestampMs), [entry.timestampMs])
 
   return (
@@ -103,7 +103,7 @@ function formatTime(timestampMs: number) {
   return new Date(timestampMs).toLocaleTimeString()
 }
 
-const ConsoleEntryBody = memo(function ConsoleEntryBody({ entry, mode }: { entry: ConsoleEntry; mode: 'text' | 'hex' | 'binary' }) {
+const ConsoleEntryBody = memo(function ConsoleEntryBody({ entry, mode }: { entry: ConsoleEntry; mode: ConsoleDisplayMode }) {
   const display = useMemo(() => formatEntry(entry, mode), [entry, mode])
   const bmi088Frame = useMemo(() => decodeBmi088Frame(entry.raw), [entry.raw])
   const bmi088FrameIssue = useMemo(() => diagnoseBmi088Frame(entry), [entry])
@@ -192,11 +192,11 @@ function Bmi088PayloadView({ decoded }: { decoded: Bmi088DecodedPayload }) {
   )
 }
 
-function formatEntry(entry: ConsoleEntry, mode: 'text' | 'hex' | 'binary') {
+function formatEntry(entry: ConsoleEntry, mode: ConsoleDisplayMode) {
   const parserLabel = entry.parser?.parserName ? `${entry.parser.parserName} · ` : ''
   const summary = `${parserLabel}${entry.raw.length} bytes`
 
-  if (mode === 'text') {
+  if (mode === 'ascii') {
     return {
       summary,
       content: entry.text || '[empty text payload]',

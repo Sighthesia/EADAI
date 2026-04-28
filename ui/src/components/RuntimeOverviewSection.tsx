@@ -49,7 +49,7 @@ export function RuntimeOverviewSection({
           <small>{baudRate} baud</small>
         </article>
         <article className="runtime-card runtime-compact-card">
-          <span className="mcp-label">Runtime activity</span>
+            <span className="mcp-label">Terminal activity</span>
           <strong>{hookStatus.label}</strong>
           <small>{hookStatus.detail}</small>
           <small>Last packet: {lastPacketKind ?? '-'}</small>

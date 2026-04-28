@@ -3,6 +3,7 @@ export type UiLineDirection = 'rx' | 'tx'
 export type UiTransportKind = 'serial' | 'fake'
 export type UiTriggerSeverity = 'info' | 'warning' | 'critical'
 export type SourceKind = 'serial' | 'fake'
+export type ConsoleDisplayMode = 'ascii' | 'hex' | 'binary'
 
 export interface ConnectRequest {
   port: string

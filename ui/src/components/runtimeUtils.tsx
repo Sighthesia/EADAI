@@ -1,4 +1,4 @@
-import type { Bmi088HostCommand, ConsoleEntry, UiProtocolHandshakeEvent, UiProtocolHandshakePhase, UiTriggerPayload, VariableDefinition, VariableDefinitionVisibility, VariableEntry, VariableSourceKind } from '../types'
+import type { Bmi088HostCommand, ConsoleDisplayMode, ConsoleEntry, UiProtocolHandshakeEvent, UiProtocolHandshakePhase, UiRuntimeCommandCatalogItem, UiTriggerPayload, VariableDefinition, VariableDefinitionVisibility, VariableEntry, VariableSourceKind } from '../types'
 import type { useAppStore } from '../store/appStore'
 
 export type HookStatus = {
@@ -72,10 +72,49 @@ export function formatBytes(bytes: number[]) {
   return bytes.map((byte) => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ')
 }
 
-export function formatEntry(entry: ConsoleEntry, mode: 'text' | 'hex' | 'binary') {
-  if (mode === 'text') return { summary: entry.text || '[empty payload]', content: entry.text || '[empty payload]' }
+export function formatEntry(entry: ConsoleEntry, mode: ConsoleDisplayMode) {
+  if (mode === 'ascii') return { summary: entry.text || '[empty payload]', content: entry.text || '[empty payload]' }
   if (mode === 'hex') return { summary: `${entry.raw.length} bytes`, content: formatBytes(entry.raw) }
   return { summary: `${entry.raw.length} bytes`, content: entry.raw.map((byte) => byte.toString(2).padStart(8, '0')).join(' ') }
+}
+
+export function buildRuntimeCommandTemplate(item: UiRuntimeCommandCatalogItem) {
+  const template = item.parameters?.map((parameter) => {
+    if (parameter.defaultValue !== undefined && parameter.defaultValue !== null) {
+      return String(parameter.defaultValue)
+    }
+
+    if (parameter.placeholder) {
+      return parameter.placeholder
+    }
+
+    if (parameter.kind === 'boolean') {
+      return 'true'
+    }
+
+    return `<${parameter.name}>`
+  }).join(' ') ?? ''
+
+  return template.trim().length > 0 ? template.trim() : (item.payloadPreview ?? item.command)
+}
+
+export function buildRuntimeCommandTemplateSelection(item: UiRuntimeCommandCatalogItem) {
+  const template = buildRuntimeCommandTemplate(item)
+  const parameter = item.parameters?.[0]
+  if (!parameter) {
+    return { template, selection: [0, template.length] as const }
+  }
+
+  const placeholder = parameter.defaultValue !== undefined && parameter.defaultValue !== null
+    ? String(parameter.defaultValue)
+    : parameter.placeholder ?? (parameter.kind === 'boolean' ? 'true' : `<${parameter.name}>`)
+
+  const selectionStart = template.indexOf(placeholder)
+  if (selectionStart >= 0) {
+    return { template, selection: [selectionStart, selectionStart + placeholder.length] as const }
+  }
+
+  return { template, selection: [0, template.length] as const }
 }
 
 export function collectRecentTriggers(variables: Record<string, VariableEntry>) {

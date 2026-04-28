@@ -51,6 +51,25 @@ This guide covers the shared presentation pattern used by the workbench shell an
 </div>
 ```
 
+## Convention: Terminal Workspace Uses Vertical RX/TX Halves
+
+**What**: Terminal-style runtime surfaces should keep a compact top summary and then split the main workspace into an upper receive half and a lower send half.
+
+**Why**: RX content competes with TX controls if they share the same visual weight; splitting the workspace makes the send path feel like an action area and the receive path feel like an observation area.
+
+**Example**:
+```tsx
+<section className="runtime-terminal-shell">
+  <div className="runtime-terminal-summary-strip">...</div>
+  <div className="runtime-terminal-workspace">
+    <section className="runtime-terminal-half runtime-terminal-receive-half">...</section>
+    <section className="runtime-terminal-half runtime-terminal-send-half">...</section>
+  </div>
+</section>
+```
+
+**Related**: `ui/src/components/RuntimeConsoleSection.tsx`, `ui/src/styles.css`
+
 ## Convention: Keep Repeated Metadata Single-Sourced
 
 **What**: If protocol/device/telemetry state is already visible in one section, do not repeat it as another full card in the same panel.
@@ -58,3 +77,18 @@ This guide covers the shared presentation pattern used by the workbench shell an
 **Why**: Repetition creates visual noise and weakens the hierarchy between primary and secondary information.
 
 **Related**: `ui/src/components/RuntimePanel.tsx`, `ui/src/components/ScriptsPanel.tsx`, `ui/src/components/VariablesPanel.tsx`
+
+## Convention: Command Lists Template Parameters In Place
+
+**What**: Clicking a parameterless runtime command should execute immediately; clicking a parameterized command should prefill the composer with a useful template and focus the editable portion for quick finishing.
+
+**Why**: Commands without arguments should feel like one-click actions, while commands with arguments should reduce typing and keep the user in flow.
+
+**Example**:
+```tsx
+const { template, selection } = buildRuntimeCommandTemplateSelection(item)
+onCommandInputChange(template)
+input.setSelectionRange(selection[0], selection[1])
+```
+
+**Related**: `ui/src/components/RuntimeConsoleSection.tsx`, `ui/src/components/runtimeUtils.tsx`

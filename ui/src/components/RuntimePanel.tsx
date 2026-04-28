@@ -1,101 +1,36 @@
-import { useMemo } from 'react'
 import { useAppStore } from '../store/appStore'
-import { RuntimeCommandCenter } from './RuntimeCommandCenter'
-import { RuntimeCatalogSection } from './RuntimeCatalogSection'
 import { RuntimeConsoleSection } from './RuntimeConsoleSection'
-import { RuntimeHookSection } from './RuntimeHookSection'
-import { RuntimeOverviewSection } from './RuntimeOverviewSection'
-import { RuntimeProtocolSection } from './RuntimeProtocolSection'
-import { buildRuntimeActivityStatus, collectRecentTriggers, countVariableDefinitionsBySourceKind, filterVariableDefinitionsBySurface, groupVariableDefinitionsByDevice } from './runtimeUtils'
 
 export function RuntimePanel() {
   const protocol = useAppStore((state) => state.protocol)
   const consoleEntries = useAppStore((state) => state.consoleEntries)
+  const sentConsoleEntries = useAppStore((state) => state.sentConsoleEntries)
   const consoleDisplayMode = useAppStore((state) => state.consoleDisplayMode)
   const commandInput = useAppStore((state) => state.commandInput)
   const appendNewline = useAppStore((state) => state.appendNewline)
   const runtimeCatalog = useAppStore((state) => state.runtimeCatalog)
-  const runtimeDevice = useAppStore((state) => state.runtimeDevice)
-  const variables = useAppStore((state) => state.variables)
-  const variableDefinitions = useAppStore((state) => state.scriptDefinitions.variables)
   const setCommandInput = useAppStore((state) => state.setCommandInput)
   const setAppendNewline = useAppStore((state) => state.setAppendNewline)
   const setConsoleDisplayMode = useAppStore((state) => state.setConsoleDisplayMode)
   const send = useAppStore((state) => state.send)
   const sendBmi088Command = useAppStore((state) => state.sendBmi088Command)
 
-  const recentTraffic = useMemo(() => consoleEntries.slice(-5).reverse(), [consoleEntries])
-  const recentTimeline = useMemo(() => protocol.timeline.slice(-5).reverse(), [protocol.timeline])
-  const recentTriggers = useMemo(() => collectRecentTriggers(variables), [variables])
-  const runtimeDefinitions = useMemo(() => filterVariableDefinitionsBySurface(variableDefinitions, 'runtime'), [variableDefinitions])
-  const variableDefinitionsForVariablesPanel = useMemo(() => filterVariableDefinitionsBySurface(variableDefinitions, 'variables'), [variableDefinitions])
-  const definitionGroups = useMemo(() => groupVariableDefinitionsByDevice(runtimeDefinitions, runtimeDevice.id), [runtimeDevice.id, runtimeDefinitions])
-  const definitionSourceCounts = useMemo(() => countVariableDefinitionsBySourceKind(variableDefinitions), [variableDefinitions])
-  const hookStatus = useMemo(() => buildRuntimeActivityStatus(recentTriggers.length), [recentTriggers.length])
-
   return (
-    <section className="panel panel-scroll runtime-panel">
-      <div className="runtime-header">
-        <div>
-          <span className="mcp-label">Runtime surface</span>
-          <h2>Runtime state at a glance</h2>
-        </div>
-        <div className="runtime-header-meta">
-          <span className={`metric-chip ${protocol.active ? 'tone-success' : ''}`}>{protocol.active ? 'Active' : 'Idle'}</span>
-          <span className="metric-chip">{protocol.parserName}</span>
-        </div>
-      </div>
-
-      <RuntimeOverviewSection
-        runtimeDevice={runtimeDevice}
-        protocolActive={protocol.active}
-        parserName={protocol.parserName}
+    <section className="panel runtime-panel">
+      <RuntimeConsoleSection
+        runtimeCatalog={runtimeCatalog}
         protocolPhase={protocol.phase}
-        transportLabel={protocol.transportLabel}
-        baudRate={protocol.baudRate}
-        lastHandshakeAtMs={protocol.lastHandshakeAtMs ?? null}
-        lastPacketKind={protocol.lastPacketKind ?? null}
+        commandInput={commandInput}
+        consoleDisplayMode={consoleDisplayMode}
         consoleEntries={consoleEntries}
-        recentTraffic={recentTraffic}
-        hookStatus={hookStatus}
+        sentConsoleEntries={sentConsoleEntries}
+        appendNewline={appendNewline}
+        onCommandInputChange={setCommandInput}
+        onAppendNewlineChange={setAppendNewline}
+        onConsoleDisplayModeChange={setConsoleDisplayMode}
+        onSend={() => void send()}
+        onSendCommand={(command, payload) => void sendBmi088Command(command, payload)}
       />
-
-      <div className="runtime-primary-layout">
-        <RuntimeCommandCenter
-          protocolPhase={protocol.phase}
-          runtimeCatalog={runtimeCatalog}
-          onSendCommand={(command, payload) => void sendBmi088Command(command, payload)}
-        />
-        <RuntimeConsoleSection runtimeCommands={runtimeCatalog.commands} commandInput={commandInput} consoleDisplayMode={consoleDisplayMode} consoleEntries={consoleEntries} appendNewline={appendNewline} onCommandInputChange={setCommandInput} onAppendNewlineChange={setAppendNewline} onDisplayModeChange={setConsoleDisplayMode} onSend={() => void send()} onSendCommand={(command, payload) => void sendBmi088Command(command, payload)} />
-      </div>
-
-      <details className="runtime-diagnostic-shell">
-        <summary>
-          <strong>Diagnostics and references</strong>
-        </summary>
-        <div className="runtime-inspector-grid">
-        <RuntimeProtocolSection protocol={protocol} recentTimeline={recentTimeline} runtimeCommands={runtimeCatalog.commands} onSendCommand={(command, payload) => void sendBmi088Command(command, payload)} />
-          <RuntimeHookSection hookStatus={hookStatus} recentTriggers={recentTriggers} />
-          <RuntimeCatalogSection runtimeCatalog={runtimeCatalog} />
-          <section className="runtime-section runtime-definition-link-section">
-            <div className="runtime-section-header">
-              <h3>Runtime-to-definition mapping</h3>
-            </div>
-            <div className="runtime-summary-grid runtime-definition-link-grid">
-              <article className="runtime-card">
-                <span className="mcp-label">Linked definitions</span>
-                <strong>{definitionGroups.reduce((count, group) => count + group.definitions.length, 0)}</strong>
-                <small>{definitionGroups[0]?.label ?? 'Waiting for runtime observations'}</small>
-              </article>
-              <article className="runtime-card">
-                <span className="mcp-label">Presentation scope</span>
-                <strong>{variableDefinitionsForVariablesPanel.length}</strong>
-                <small>{definitionSourceCounts['protocol-text']} text · {definitionSourceCounts['telemetry-sample']} samples</small>
-              </article>
-            </div>
-          </section>
-        </div>
-      </details>
     </section>
   )
 }
