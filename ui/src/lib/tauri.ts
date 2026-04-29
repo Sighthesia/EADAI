@@ -6,6 +6,7 @@ import type {
   LogicAnalyzerCaptureRequest,
   LogicAnalyzerStatus,
   McpServerStatus,
+  McpToolUsageSnapshot,
   SendRequest,
   SerialBusEvent,
   SerialDeviceInfo,
@@ -20,6 +21,8 @@ export const listSerialPorts = () => invoke<SerialDeviceInfo[]>('list_serial_por
 export const getSessionSnapshot = () => invoke<SessionSnapshot>('get_session_snapshot')
 
 export const getMcpServerStatus = () => invoke<McpServerStatus>('get_mcp_server_status')
+
+export const getMcpToolUsageSnapshot = () => invoke<McpToolUsageSnapshot[]>('get_mcp_tool_usage_snapshot')
 
 export const getLogicAnalyzerStatus = () => invoke<LogicAnalyzerStatus>('get_logic_analyzer_status')
 

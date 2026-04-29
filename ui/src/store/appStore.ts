@@ -19,6 +19,7 @@ import {
   disconnectSerial,
   getLogicAnalyzerStatus,
   getMcpServerStatus,
+  getMcpToolUsageSnapshot,
   getSessionSnapshot,
   listSerialPorts,
   refreshLogicAnalyzerDevices,
@@ -48,6 +49,7 @@ import type {
   LogicAnalyzerConfig,
   LogicAnalyzerStatus,
   McpServerStatus,
+  McpToolUsageSnapshot,
   SerialBusEvent,
   SerialDeviceInfo,
   SessionSnapshot,
@@ -179,6 +181,7 @@ type AppStore = {
   ports: SerialDeviceInfo[]
   session: SessionSnapshot
   mcp: McpServerStatus
+  mcpToolUsage: McpToolUsageSnapshot[]
   config: ConnectRequest
   appendNewline: boolean
   commandInput: string
@@ -211,6 +214,7 @@ type AppStore = {
   patchConfig: (value: Partial<ConnectRequest>) => void
   bootstrap: () => Promise<void>
   refreshMcpStatus: () => Promise<void>
+  refreshMcpToolUsage: () => Promise<void>
   refreshPorts: () => Promise<void>
   refreshPortsSilently: () => Promise<void>
   connect: () => Promise<void>
@@ -271,6 +275,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     endpointUrl: null,
     lastError: null,
   },
+  mcpToolUsage: [],
   config: {
     port: '',
     baudRate: 115200,
@@ -378,10 +383,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
     }),
   bootstrap: async () => {
-  const [ports, session, mcp, logicAnalyzer] = await Promise.all([
+    const [ports, session, mcp, mcpToolUsage, logicAnalyzer] = await Promise.all([
       listSerialPorts(),
       getSessionSnapshot(),
       readMcpStatusWithRetry(),
+      getMcpToolUsageSnapshot(),
       refreshLogicAnalyzerDevicesSafely(),
     ])
     logger.debug('bootstrap', { portsLength: ports.length })
@@ -389,6 +395,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ports,
       session,
       mcp,
+      mcpToolUsage,
       logicAnalyzer,
       logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, logicAnalyzer),
       runtimeDevice: createRuntimeDeviceSnapshot(session, state.config, ports),
@@ -418,6 +425,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   refreshMcpStatus: async () => {
     const mcp = await readMcpStatusWithRetry()
     set({ mcp })
+  },
+  refreshMcpToolUsage: async () => {
+    const mcpToolUsage = await getMcpToolUsageSnapshot()
+    set({ mcpToolUsage })
   },
   refreshLogicAnalyzerStatus: async () => {
     const logicAnalyzer = await getLogicAnalyzerStatus()

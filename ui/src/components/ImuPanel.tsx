@@ -150,8 +150,6 @@ export function ImuPanel() {
         {!hasStageContent ? (
           <div className="imu-empty-state imu-stage-surface">
             <div>{emptyStateMessage(imuOrientationSource)}</div>
-            <small>Stage keeps a readable fallback grid until full motion data arrives.</small>
-            {trajectory ? <small>{trajectory.sampleCount} trajectory samples ready</small> : null}
           </div>
         ) : null}
 
@@ -173,7 +171,6 @@ export function ImuPanel() {
             {menuOpen ? (
               <div className="imu-floating-heading">
                 <strong>Controls</strong>
-                <small>{sourceDescription(imuOrientationSource)}</small>
               </div>
             ) : null}
             <button type="button" className="ghost-button imu-floating-toggle" onClick={() => setMenuOpen((value) => !value)}>
@@ -186,7 +183,6 @@ export function ImuPanel() {
               <section className="imu-floating-section">
                 <div className="imu-floating-section-header">
                   <strong>Status</strong>
-                  <small>{formatTimestamp(imuQuality.timestampMs)}</small>
                 </div>
                 <div className="imu-floating-chip-row">
                   <span className={`status-pill tone-${imuQuality.level}`}>{imuQuality.label}</span>
@@ -217,7 +213,6 @@ export function ImuPanel() {
               <section className="imu-floating-section">
                 <div className="imu-floating-section-header">
                   <strong>Channel Mapping</strong>
-                  <small>{mappingSectionLabel(imuOrientationSource)}</small>
                 </div>
                 {imuOrientationSource === 'directAngles' ? (
                   <AttitudeSourceGrid channelOptions={channelOptions} map={imuAttitudeMap} onChange={setImuAttitudeChannel} />
@@ -256,7 +251,6 @@ export function ImuPanel() {
               <section className="imu-floating-section">
                 <div className="imu-floating-section-header">
                   <strong>Calibration</strong>
-                  <small>{imuCalibration.lastCalibratedAtMs ? formatTimestamp(imuCalibration.lastCalibratedAtMs) : 'Not stored'}</small>
                 </div>
                 <div className="imu-calibration-chips">
                   <span className={`imu-chip ${imuCalibration.accelBiasApplied ? 'active' : ''}`}>Accel bias {imuCalibration.accelBiasApplied ? 'set' : 'unset'}</span>
@@ -271,7 +265,6 @@ export function ImuPanel() {
                     Reset
                   </button>
                 </div>
-                <p className="imu-floating-copy">Acceleration unit: {accel.unit ?? 'raw'}</p>
               </section>
             </div>
           ) : null}

@@ -188,7 +188,6 @@ export default function App() {
       <header className="titlebar">
         <div>
           <strong>EADAI Workbench</strong>
-          <small>Unified workbench with dockable telemetry and logic analyzer panels</small>
         </div>
       </header>
       <section className="workbench-shell">

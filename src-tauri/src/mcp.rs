@@ -1,7 +1,7 @@
 use crate::model::McpServerStatus;
 use axum::{Router, routing::get};
 use eadai::ai_adapter::AiContextAdapter;
-use eadai::mcp_server::TelemetryMcpServer;
+use eadai::mcp_server::{McpToolUsageTracker, TelemetryMcpServer};
 use rmcp::transport::{
     StreamableHttpServerConfig,
     streamable_http_server::{session::local::LocalSessionManager, tower::StreamableHttpService},
@@ -17,15 +17,23 @@ const MCP_PATH: &str = "/mcp";
 
 pub struct EmbeddedMcpServer {
     status: Arc<Mutex<McpServerStatus>>,
+    tool_usage: McpToolUsageTracker,
     _worker: JoinHandle<()>,
 }
 
 impl EmbeddedMcpServer {
     pub fn new(adapter: AiContextAdapter) -> Self {
         let status = Arc::new(Mutex::new(McpServerStatus::starting()));
-        let worker = spawn_server(adapter, Arc::clone(&status));
+        let tool_usage = McpToolUsageTracker::new([
+            "get_channel_analysis",
+            "get_recent_events",
+            "get_channel_statistics",
+            "query_historical_analysis",
+        ]);
+        let worker = spawn_server(adapter, Arc::clone(&status), tool_usage.clone());
         Self {
             status,
+            tool_usage,
             _worker: worker,
         }
     }
@@ -33,9 +41,24 @@ impl EmbeddedMcpServer {
     pub fn status(&self) -> McpServerStatus {
         lock_status(&self.status).clone()
     }
+
+    pub fn tool_usage_snapshot(&self) -> Vec<crate::model::McpToolUsageSnapshot> {
+        self.tool_usage
+            .snapshot()
+            .into_iter()
+            .map(|entry| crate::model::McpToolUsageSnapshot {
+                name: entry.name,
+                last_called_at_ms: entry.last_called_at_ms,
+            })
+            .collect()
+    }
 }
 
-fn spawn_server(adapter: AiContextAdapter, status: Arc<Mutex<McpServerStatus>>) -> JoinHandle<()> {
+fn spawn_server(
+    adapter: AiContextAdapter,
+    status: Arc<Mutex<McpServerStatus>>,
+    tool_usage: McpToolUsageTracker,
+) -> JoinHandle<()> {
     thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -68,9 +91,15 @@ fn spawn_server(adapter: AiContextAdapter, status: Arc<Mutex<McpServerStatus>>) 
             };
 
             let adapter_factory = adapter.clone();
+            let tool_usage_factory = tool_usage.clone();
             let mcp_service: StreamableHttpService<TelemetryMcpServer, LocalSessionManager> =
                 StreamableHttpService::new(
-                    move || Ok(TelemetryMcpServer::new(adapter_factory.clone())),
+                    move || {
+                        Ok(TelemetryMcpServer::with_tool_usage(
+                            adapter_factory.clone(),
+                            tool_usage_factory.clone(),
+                        ))
+                    },
                     LocalSessionManager::default().into(),
                     StreamableHttpServerConfig::default(),
                 );

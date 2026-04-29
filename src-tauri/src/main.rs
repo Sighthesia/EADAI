@@ -21,6 +21,7 @@ pub fn main() {
             commands::list_serial_ports,
             commands::get_session_snapshot,
             commands::get_mcp_server_status,
+            commands::get_mcp_tool_usage_snapshot,
             commands::get_logic_analyzer_status,
             commands::refresh_logic_analyzer_devices,
             commands::start_logic_analyzer_capture,

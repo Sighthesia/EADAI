@@ -1,6 +1,6 @@
 use crate::model::{
     Bmi088CommandRequest, ConnectRequest, LogicAnalyzerCaptureRequest, LogicAnalyzerStatus,
-    McpServerStatus, SendRequest, SessionSnapshot,
+    McpServerStatus, McpToolUsageSnapshot, SendRequest, SessionSnapshot,
 };
 use crate::state::DesktopState;
 use eadai::serial::SerialDeviceInfo;
@@ -19,6 +19,11 @@ pub fn get_session_snapshot(state: State<'_, DesktopState>) -> SessionSnapshot {
 #[tauri::command]
 pub fn get_mcp_server_status(state: State<'_, DesktopState>) -> McpServerStatus {
     state.mcp_status()
+}
+
+#[tauri::command]
+pub fn get_mcp_tool_usage_snapshot(state: State<'_, DesktopState>) -> Vec<McpToolUsageSnapshot> {
+    state.mcp_tool_usage_snapshot()
 }
 
 #[tauri::command]

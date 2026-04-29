@@ -1,6 +1,7 @@
 use eadai::ai_adapter::AiContextAdapter;
 use eadai::analysis::{AnalysisFrame, TriggerEvent, TriggerSeverity};
 use eadai::mcp_server::TelemetryMcpServer;
+use eadai::mcp_server::McpToolUsageTracker;
 use eadai::message::{BusMessage, MessageSource, ParserMeta, ParserStatus};
 use rmcp::{
     ServerHandler,
@@ -245,6 +246,44 @@ async fn rejects_unknown_resources_and_invalid_tool_payloads() {
         .await
         .expect_err("invalid enum should fail");
     assert!(invalid_enum.to_string().contains("unknown variant"));
+
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn records_tool_usage_in_current_session() {
+    let tracker = McpToolUsageTracker::new([
+        "get_channel_analysis",
+        "get_recent_events",
+        "get_channel_statistics",
+        "query_historical_analysis",
+    ]);
+    let server = TelemetryMcpServer::with_tool_usage(AiContextAdapter::default(), tracker.clone());
+    let harness = spawn_server(server);
+
+    let before = tracker.snapshot();
+    assert!(before.iter().all(|entry| entry.last_called_at_ms.is_none()));
+
+    let call = harness
+        .running
+        .service()
+        .call_tool(
+            CallToolRequestParam {
+                name: "get_recent_events".into(),
+                arguments: None,
+            },
+            harness.context(99),
+        )
+        .await;
+
+    assert!(call.is_ok());
+
+    let after = tracker.snapshot();
+    let recent_events = after
+        .iter()
+        .find(|entry| entry.name == "get_recent_events")
+        .expect("recent events usage entry");
+    assert!(recent_events.last_called_at_ms.is_some());
 
     harness.shutdown().await;
 }

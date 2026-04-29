@@ -137,7 +137,6 @@ export function WaveformPanel() {
           {menuOpen ? (
             <div className="waveform-floating-heading">
               <strong>Waveform Controls</strong>
-              <small>{selectedVariables.length > 0 ? 'Pan with mouse wheel; tune the overlay controls here.' : 'Select variables to start plotting.'}</small>
             </div>
           ) : null}
           <button type="button" className="ghost-button waveform-floating-toggle" onClick={() => setMenuOpen((value) => !value)}>
@@ -150,7 +149,6 @@ export function WaveformPanel() {
             <section className="waveform-floating-section">
               <div className="waveform-floating-section-header">
                 <strong>Window</strong>
-                <small>{formatTimeWindow(timeWindowMs)}</small>
               </div>
               <div className="waveform-controls">
                 <button
@@ -187,9 +185,7 @@ export function WaveformPanel() {
             <section className="waveform-floating-section">
               <div className="waveform-floating-section-header">
                 <strong>Overlays</strong>
-                <small>{selectedVariables.length > 0 ? `${numericCount} numeric · ${textCount} text` : 'No active channels'}</small>
               </div>
-              <p className="waveform-floating-note">Right-click any variable card to enable or disable max/min, slope, and text overlays.</p>
             </section>
           </div>
         ) : null}

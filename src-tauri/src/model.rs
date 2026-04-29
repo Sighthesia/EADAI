@@ -103,6 +103,13 @@ pub struct McpServerStatus {
     pub last_error: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolUsageSnapshot {
+    pub name: String,
+    pub last_called_at_ms: Option<u64>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogicAnalyzerCaptureRequest {

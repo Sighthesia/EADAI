@@ -231,7 +231,6 @@ export function VariablesPanel() {
             <div className="variables-device-group-header">
               <div>
                 <strong>{group.label}</strong>
-                <small>{group.detail}</small>
               </div>
               <span className="metric-chip">{group.rows.length} channels</span>
             </div>

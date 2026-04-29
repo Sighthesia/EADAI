@@ -117,7 +117,6 @@ export function FrequencySpectrumPage() {
           {menuOpen ? (
             <div className="waveform-floating-heading">
               <strong>Spectrum Controls</strong>
-              <small>{activeSpectrum ? 'Spectrum follows the shared waveform window.' : 'Select a numeric waveform to build a spectrum.'}</small>
             </div>
           ) : null}
           <button type="button" className="ghost-button waveform-floating-toggle" onClick={() => setMenuOpen((value) => !value)}>
@@ -130,7 +129,6 @@ export function FrequencySpectrumPage() {
             <section className="waveform-floating-section">
               <div className="waveform-floating-section-header">
                 <strong>Channels</strong>
-                <small>{availableChannels.length > 0 ? `${availableChannels.length} spectrum-ready` : 'No numeric channel selected'}</small>
               </div>
               <div className="waveform-controls">
                 {availableChannels.map((channel) => (
@@ -150,13 +148,7 @@ export function FrequencySpectrumPage() {
             <section className="waveform-floating-section">
               <div className="waveform-floating-section-header">
                 <strong>Peak Readout</strong>
-                <small>{activeSpectrum?.result.sampleRateHz ? `${formatFrequency(activeSpectrum.result.sampleRateHz)} sample rate` : 'Waiting for samples'}</small>
               </div>
-              <p className="waveform-floating-note">
-                {activeSpectrum
-                  ? `Peak at ${formatFrequency(activeSpectrum.result.peakFrequencyHz)} with ${formatAmplitude(activeSpectrum.result.peakAmplitude)}.`
-                  : 'Select a waveform channel with numeric samples to reveal frequency components.'}
-              </p>
             </section>
           </div>
         ) : null}

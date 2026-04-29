@@ -5,6 +5,8 @@ use crate::ai_contract::{
 use rmcp::{ErrorData, RoleServer, ServerHandler, model::*, service::RequestContext};
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const SESSION_RESOURCE_URI: &str = "session://current";
 const TELEMETRY_RESOURCE_URI: &str = "telemetry://summary";
@@ -15,12 +17,21 @@ const TRIGGERS_RESOURCE_URI: &str = "triggers://recent";
 #[derive(Clone, Debug)]
 pub struct TelemetryMcpServer {
     adapter: AiContextAdapter,
+    tool_usage: McpToolUsageTracker,
 }
 
 impl TelemetryMcpServer {
     /// Creates a read-only MCP server around the provided adapter.
     pub fn new(adapter: AiContextAdapter) -> Self {
-        Self { adapter }
+        Self {
+            adapter,
+            tool_usage: McpToolUsageTracker::new(Self::tool_names()),
+        }
+    }
+
+    /// Creates a read-only MCP server around the provided adapter and tracker.
+    pub fn with_tool_usage(adapter: AiContextAdapter, tool_usage: McpToolUsageTracker) -> Self {
+        Self { adapter, tool_usage }
     }
 
     /// Returns the static resource catalog exposed to MCP clients.
@@ -111,6 +122,20 @@ impl TelemetryMcpServer {
                 })),
             )
             .annotate(ToolAnnotations::new().read_only(true)),
+        ]
+    }
+
+    /// Returns the current in-session tool usage snapshot.
+    pub fn tool_usage_snapshot(&self) -> Vec<McpToolUsageSnapshot> {
+        self.tool_usage.snapshot()
+    }
+
+    fn tool_names() -> [&'static str; 4] {
+        [
+            "get_channel_analysis",
+            "get_recent_events",
+            "get_channel_statistics",
+            "query_historical_analysis",
         ]
     }
 }
@@ -212,11 +237,13 @@ impl ServerHandler for TelemetryMcpServer {
                         Some(json!({ "channel_id": query.channel_id })),
                     ));
                 };
+                self.tool_usage.record("get_channel_analysis");
                 tool_json_response(&resource)
             }
             "get_recent_events" => {
                 let query: RecentEventsQuery = parse_arguments(request.arguments)?;
                 let resource = self.adapter.recent_events(&query);
+                self.tool_usage.record("get_recent_events");
                 tool_json_response(&resource)
             }
             "get_channel_statistics" => {
@@ -227,6 +254,7 @@ impl ServerHandler for TelemetryMcpServer {
                         Some(json!({ "channel_id": query.channel_id })),
                     ));
                 };
+                self.tool_usage.record("get_channel_statistics");
                 tool_json_response(&resource)
             }
             "query_historical_analysis" => {
@@ -237,6 +265,7 @@ impl ServerHandler for TelemetryMcpServer {
                         Some(json!({ "channel_id": query.channel_id })),
                     ));
                 };
+                self.tool_usage.record("query_historical_analysis");
                 tool_json_response(&resource)
             }
             _ => Err(ErrorData::invalid_params(
@@ -284,5 +313,62 @@ fn json_object(value: Value) -> JsonObject {
     match value {
         Value::Object(object) => object,
         _ => panic!("expected JSON object"),
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolUsageSnapshot {
+    pub name: String,
+    pub last_called_at_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct McpToolUsageTracker {
+    inner: Arc<Mutex<Vec<McpToolUsageSnapshot>>>,
+}
+
+impl McpToolUsageTracker {
+    pub fn new<I, S>(tool_names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let inner = tool_names
+            .into_iter()
+            .map(|name| McpToolUsageSnapshot {
+                name: name.into(),
+                last_called_at_ms: None,
+            })
+            .collect();
+
+        Self {
+            inner: Arc::new(Mutex::new(inner)),
+        }
+    }
+
+    pub fn record(&self, tool_name: &str) {
+        let mut usage = lock_tool_usage(&self.inner);
+        if let Some(entry) = usage.iter_mut().find(|entry| entry.name == tool_name) {
+            entry.last_called_at_ms = Some(timestamp_ms(SystemTime::now()));
+        }
+    }
+
+    pub fn snapshot(&self) -> Vec<McpToolUsageSnapshot> {
+        lock_tool_usage(&self.inner).clone()
+    }
+}
+
+fn timestamp_ms(timestamp: SystemTime) -> u64 {
+    timestamp
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn lock_tool_usage<'a>(usage: &'a Arc<Mutex<Vec<McpToolUsageSnapshot>>>) -> MutexGuard<'a, Vec<McpToolUsageSnapshot>> {
+    match usage.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }

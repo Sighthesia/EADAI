@@ -80,6 +80,11 @@ export interface McpServerStatus {
   lastError?: string | null
 }
 
+export interface McpToolUsageSnapshot {
+  name: string
+  lastCalledAtMs?: number | null
+}
+
 export interface LogicAnalyzerCaptureRequest {
   deviceRef: string
   sampleCount: number

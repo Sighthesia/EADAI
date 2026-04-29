@@ -2,8 +2,8 @@ use crate::logic_analyzer::LogicAnalyzerService;
 use crate::mcp::EmbeddedMcpServer;
 use crate::model::{
     apply_connection_snapshot, Bmi088CommandRequest, ConnectRequest, LogicAnalyzerCaptureRequest,
-    LogicAnalyzerStatus, McpServerStatus, SendRequest, SessionSnapshot, SourceKind, UiBusEvent,
-    UiConnectionState, UiTransportKind,
+    LogicAnalyzerStatus, McpServerStatus, McpToolUsageSnapshot, SendRequest, SessionSnapshot,
+    SourceKind, UiBusEvent, UiConnectionState, UiTransportKind,
 };
 use eadai::bus::BusSubscription;
 use eadai::cli::{ParserKind, RunConfig};
@@ -77,6 +77,10 @@ impl DesktopState {
 
     pub fn mcp_status(&self) -> McpServerStatus {
         self.mcp_server.status()
+    }
+
+    pub fn mcp_tool_usage_snapshot(&self) -> Vec<McpToolUsageSnapshot> {
+        self.mcp_server.tool_usage_snapshot()
     }
 
     pub fn logic_analyzer_status(&self) -> LogicAnalyzerStatus {

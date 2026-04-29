@@ -126,7 +126,6 @@ export function RuntimeConsoleSection({
           <div className="protocol-schema-header">
             <div>
               <strong>Receive area</strong>
-                <small>{receivedEntries.length > 0 ? `latest ${receivedEntries.length} serial lines` : 'Waiting for RX traffic'}</small>
             </div>
             <div className="runtime-terminal-header-actions">
               <span className="metric-chip">{protocolPhase}</span>
@@ -179,7 +178,6 @@ export function RuntimeConsoleSection({
           <div className="protocol-schema-header">
             <div>
               <strong>Send area</strong>
-              <small>{selectedCommandItem ? `${selectedCommandItem.command} selected` : 'Choose a command or send raw text'}</small>
             </div>
             <span className={`metric-chip ${appendNewline ? 'selected' : ''}`}>{appendNewline ? 'newline on' : 'newline off'}</span>
           </div>
