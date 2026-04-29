@@ -1,185 +1,16 @@
+/// BMI088 frame decoding: identity TLV, schema payload (modern + legacy), sample payload,
+/// binary frame dispatch, and the stream decoder.
+
+use super::constants::*;
+use super::encoder::{compact_field_name, compact_unit_name, crc16_ccitt, default_schema};
+use super::models::{
+    Bmi088DecodeError, Bmi088FieldDescriptor, Bmi088Frame, Bmi088IdentityFrame, Bmi088SchemaFrame,
+    Bmi088SampleFrame, TelemetryPacket,
+};
 use crate::message::LinePayload;
-use crate::serial::{FramedLine, LineFramer};
-use serde::Serialize;
+use crate::serial::LineFramer;
 
-pub const BMI088_SOF: [u8; 2] = [0xA5, 0x5A];
-pub const BMI088_VERSION: u8 = 0x01;
-pub const BMI088_FRAME_TYPE_REQUEST: u8 = 0x01;
-pub const BMI088_FRAME_TYPE_RESPONSE: u8 = 0x02;
-pub const BMI088_FRAME_TYPE_EVENT: u8 = 0x03;
-
-pub const BMI088_CMD_ACK: u8 = 0x10;
-pub const BMI088_CMD_START: u8 = 0x11;
-pub const BMI088_CMD_STOP: u8 = 0x12;
-pub const BMI088_CMD_REQ_SCHEMA: u8 = 0x13;
-pub const BMI088_CMD_REQ_IDENTITY: u8 = 0x14;
-pub const BMI088_CMD_REQ_TUNING: u8 = 0x26;
-pub const BMI088_CMD_SET_TUNING: u8 = 0x27;
-pub const BMI088_CMD_SHELL_EXEC: u8 = 0x28;
-pub const BMI088_CMD_SCHEMA: u8 = 0x80;
-pub const BMI088_CMD_SAMPLE: u8 = 0x81;
-pub const BMI088_CMD_IDENTITY: u8 = 0x82;
-pub const BMI088_CMD_SHELL_OUTPUT: u8 = 0x83;
-pub const BMI088_SCHEMA_VERSION: u8 = 0x01;
-pub const BMI088_FIELD_TYPE_I16: u8 = 0x01;
-
-pub const BMI088_SAMPLE_FIELD_NAMES: [&str; 30] = [
-    "acc_x",
-    "acc_y",
-    "acc_z",
-    "gyro_x",
-    "gyro_y",
-    "gyro_z",
-    "roll",
-    "pitch",
-    "yaw",
-    // FIXME: The pasted contract lists 30 fields but only names 28 of them.
-    "reserved_0",
-    "reserved_1",
-    "motor_left_rear_wheel",
-    "motor_left_front_wheel",
-    "motor_right_front_wheel",
-    "motor_right_rear_wheel",
-    "roll_correction_output",
-    "pitch_correction_output",
-    "yaw_correction_output",
-    "throttle_correction_output",
-    "roll_proportional_gain_x100",
-    "roll_integral_gain_x100",
-    "roll_derivative_gain_x100",
-    "pitch_proportional_gain_x100",
-    "pitch_integral_gain_x100",
-    "pitch_derivative_gain_x100",
-    "yaw_proportional_gain_x100",
-    "yaw_integral_gain_x100",
-    "yaw_derivative_gain_x100",
-    "output_limit",
-    "bench_test_throttle",
-];
-pub const BMI088_SAMPLE_UNITS: [&str; 30] = [
-    "raw", "raw", "raw", "raw", "raw", "raw", "deg", "deg", "deg",
-    "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw",
-    "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw",
-    "raw",
-];
-pub const BMI088_SAMPLE_SCALE_Q: [i8; 30] = [
-    0, 0, 0, 0, 0, 0, -2, -2, -2,
-    0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    -2, -2, -2,
-    -2, -2, -2,
-    -2, -2, -2,
-    0, 0,
-];
-
-pub const BMI088_HEADER_LEN: usize = 7;
-pub const BMI088_CRC_LEN: usize = 2;
-pub const BMI088_MIN_FRAME_LEN: usize = BMI088_HEADER_LEN + BMI088_CRC_LEN;
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Bmi088FieldDescriptor {
-    pub field_id: u8,
-    pub field_type: u8,
-    pub name: String,
-    pub unit: String,
-    pub scale_q: i8,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Bmi088SchemaFrame {
-    pub seq: u8,
-    pub schema_version: u8,
-    pub rate_hz: u32,
-    pub sample_len: usize,
-    pub fields: Vec<Bmi088FieldDescriptor>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Bmi088IdentityFrame {
-    pub seq: u8,
-    pub identity_format_version: u8,
-    pub device_name: String,
-    pub board_name: String,
-    pub firmware_version: String,
-    pub protocol_name: String,
-    pub protocol_version: String,
-    pub transport_name: String,
-    pub sample_rate_hz: u16,
-    pub schema_field_count: u8,
-    pub sample_payload_len: u8,
-    pub protocol_version_byte: u8,
-    pub feature_flags: u16,
-    pub baud_rate: u32,
-    pub protocol_minor_version: u8,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Bmi088SampleField {
-    pub name: String,
-    pub raw: i16,
-    pub value: f64,
-    pub unit: Option<String>,
-    pub scale_q: i8,
-    pub index: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Bmi088SampleFrame {
-    pub seq: u8,
-    pub fields: Vec<Bmi088SampleField>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Bmi088HostCommand {
-    Ack,
-    Start,
-    Stop,
-    ReqSchema,
-    ReqIdentity,
-    ReqTuning,
-    SetTuning,
-    ShellExec,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Bmi088Frame {
-    Identity(Bmi088IdentityFrame),
-    Schema(Bmi088SchemaFrame),
-    Sample(Bmi088SampleFrame),
-    ShellOutput(LinePayload),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum TelemetryPacket {
-    Text(FramedLine),
-    ShellOutput(LinePayload),
-    Identity(Bmi088IdentityFrame),
-    Schema(Bmi088SchemaFrame),
-    Sample(Bmi088SampleFrame),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Bmi088SessionPhase {
-    AwaitingSchema,
-    AwaitingAck,
-    AwaitingStart,
-    Streaming,
-    Stopped,
-}
-
-#[derive(Clone, Debug)]
-pub struct Bmi088SessionState {
-    phase: Bmi088SessionPhase,
-    identity: Option<Bmi088IdentityFrame>,
-    schema: Option<Bmi088SchemaFrame>,
-    boot_commands_sent: bool,
-}
+// ── Stream decoder ───────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
 pub struct Bmi088StreamDecoder {
@@ -188,230 +19,6 @@ pub struct Bmi088StreamDecoder {
     text_framer: LineFramer,
     schema: Option<Bmi088SchemaFrame>,
     identity: Option<Bmi088IdentityFrame>,
-}
-
-impl Default for Bmi088SchemaFrame {
-    fn default() -> Self {
-        Self::bmi088_telemetry()
-    }
-}
-
-impl Bmi088SchemaFrame {
-    pub fn bmi088_telemetry() -> Self {
-        let fields = BMI088_SAMPLE_FIELD_NAMES
-            .iter()
-            .zip(BMI088_SAMPLE_UNITS.iter())
-            .zip(BMI088_SAMPLE_SCALE_Q.iter())
-            .enumerate()
-            .map(|(index, ((name, unit), scale_q))| Bmi088FieldDescriptor {
-                field_id: index as u8,
-                field_type: BMI088_FIELD_TYPE_I16,
-                name: (*name).to_string(),
-                unit: (*unit).to_string(),
-                scale_q: *scale_q,
-            })
-            .collect();
-
-        Self {
-            seq: 0,
-            schema_version: BMI088_SCHEMA_VERSION,
-            rate_hz: 100,
-            sample_len: BMI088_SAMPLE_FIELD_NAMES.len() * 2,
-            fields,
-        }
-    }
-
-    pub fn encode_payload(&self) -> Vec<u8> {
-        if self.fields.iter().all(|field| field.name != "" && compact_field_code(&field.name).is_some()) {
-            let mut payload = Vec::with_capacity(4 + self.fields.len() * 5);
-            payload.push(self.schema_version);
-            payload.push(self.rate_hz.min(u8::MAX as u32) as u8);
-            payload.push(self.fields.len() as u8);
-            payload.push(self.sample_len.min(u8::MAX as usize) as u8);
-
-            for field in &self.fields {
-                payload.push(field.field_id);
-                payload.push(field.field_type);
-                payload.push(field.scale_q as u8);
-                payload.push(compact_field_code(&field.name).unwrap_or(0xFF));
-                payload.push(compact_unit_code(&field.unit).unwrap_or(0xFF));
-            }
-
-            return payload;
-        }
-
-        let mut payload = Vec::new();
-        payload.push(self.schema_version);
-        payload.push(self.rate_hz.min(u8::MAX as u32) as u8);
-        payload.push(self.fields.len() as u8);
-        payload.push(self.sample_len.min(u8::MAX as usize) as u8);
-
-        for field in &self.fields {
-            payload.push(field.field_id);
-            payload.push(field.field_type);
-            payload.push(field.scale_q as u8);
-            payload.push(field.name.len() as u8);
-            payload.push(field.unit.len() as u8);
-            payload.extend_from_slice(field.name.as_bytes());
-            payload.extend_from_slice(field.unit.as_bytes());
-        }
-
-        payload
-    }
-}
-
-impl Bmi088SampleFrame {
-    pub fn from_raw_values(
-        schema: &Bmi088SchemaFrame,
-        raw_values: &[i16],
-    ) -> Result<Self, Bmi088DecodeError> {
-        if raw_values.len() != schema.fields.len() {
-            return Err(Bmi088DecodeError::SchemaMismatch(
-                "sample field count does not match schema".to_string(),
-            ));
-        }
-
-        let fields = raw_values
-            .iter()
-            .enumerate()
-            .map(|(index, raw)| {
-                let descriptor = &schema.fields[index];
-                Bmi088SampleField {
-                    name: descriptor.name.clone(),
-                    raw: *raw,
-                    value: scale_raw(*raw, descriptor.scale_q),
-                    unit: Some(descriptor.unit.clone()),
-                    scale_q: descriptor.scale_q,
-                    index,
-                }
-            })
-            .collect();
-
-        Ok(Self { seq: 0, fields })
-    }
-
-    pub fn fields(&self) -> &[Bmi088SampleField] {
-        &self.fields
-    }
-}
-
-impl Bmi088SessionState {
-    pub fn new() -> Self {
-        Self {
-            phase: Bmi088SessionPhase::AwaitingSchema,
-            identity: None,
-            schema: None,
-            boot_commands_sent: false,
-        }
-    }
-
-    pub fn boot_commands(&mut self) -> Vec<Bmi088HostCommand> {
-        if self.boot_commands_sent {
-            return Vec::new();
-        }
-
-        self.boot_commands_sent = true;
-        self.phase = Bmi088SessionPhase::AwaitingSchema;
-        vec![Bmi088HostCommand::ReqSchema]
-    }
-
-    pub fn schema_retry_commands(&self) -> Vec<Bmi088HostCommand> {
-        if self.phase == Bmi088SessionPhase::AwaitingSchema {
-            vec![Bmi088HostCommand::ReqSchema]
-        } else {
-            Vec::new()
-        }
-    }
-
-    pub fn phase(&self) -> Bmi088SessionPhase {
-        self.phase
-    }
-
-    pub fn schema(&self) -> Option<&Bmi088SchemaFrame> {
-        self.schema.as_ref()
-    }
-
-    pub fn identity(&self) -> Option<&Bmi088IdentityFrame> {
-        self.identity.as_ref()
-    }
-
-    pub fn on_frame(&mut self, frame: &Bmi088Frame) -> Vec<Bmi088HostCommand> {
-        let previous_phase = self.phase;
-        match frame {
-            Bmi088Frame::Identity(identity) => {
-                self.identity = Some(identity.clone());
-                eprintln!(
-                    "[bmi088][session] rx IDENTITY seq={} phase={:?} device={} protocol={} schema_fields={} sample_len={}",
-                    identity.seq,
-                    previous_phase,
-                    identity.device_name,
-                    identity.protocol_version,
-                    identity.schema_field_count,
-                    identity.sample_payload_len,
-                );
-                Vec::new()
-            }
-            Bmi088Frame::ShellOutput(_) => Vec::new(),
-            Bmi088Frame::Schema(schema) => {
-                self.schema = Some(schema.clone());
-                if matches!(self.phase, Bmi088SessionPhase::Streaming | Bmi088SessionPhase::Stopped) {
-                    eprintln!(
-                        "[bmi088][session] rx SCHEMA seq={} phase={:?} field_count={} sample_len={} ignored_rehandshake=true",
-                        schema.seq,
-                        previous_phase,
-                        schema.fields.len(),
-                        schema.sample_len,
-                    );
-                    return Vec::new();
-                }
-                self.phase = Bmi088SessionPhase::AwaitingAck;
-                eprintln!(
-                    "[bmi088][session] rx SCHEMA seq={} phase={:?}->{:?} field_count={} sample_len={} next=ACK,START",
-                    schema.seq,
-                    previous_phase,
-                    self.phase,
-                    schema.fields.len(),
-                    schema.sample_len,
-                );
-                vec![Bmi088HostCommand::Ack, Bmi088HostCommand::Start]
-            }
-            Bmi088Frame::Sample(_) => {
-                self.phase = Bmi088SessionPhase::Streaming;
-                eprintln!(
-                    "[bmi088][session] rx SAMPLE phase={:?}->{:?}",
-                    previous_phase,
-                    self.phase,
-                );
-                Vec::new()
-            }
-        }
-    }
-
-    pub fn on_host_command(&mut self, command: Bmi088HostCommand) {
-        let previous_phase = self.phase;
-        self.phase = match command {
-            Bmi088HostCommand::Ack => Bmi088SessionPhase::AwaitingStart,
-            Bmi088HostCommand::Start => Bmi088SessionPhase::Streaming,
-            Bmi088HostCommand::Stop => Bmi088SessionPhase::Stopped,
-            Bmi088HostCommand::ReqSchema => Bmi088SessionPhase::AwaitingSchema,
-            Bmi088HostCommand::ReqIdentity
-            | Bmi088HostCommand::ReqTuning
-            | Bmi088HostCommand::SetTuning
-            | Bmi088HostCommand::ShellExec => self.phase,
-        };
-        eprintln!(
-            "[bmi088][session] tx {} phase={:?}->{:?}",
-            host_command_label(&command),
-            previous_phase,
-            self.phase,
-        );
-    }
-}
-
-impl Default for Bmi088SessionState {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl Default for Bmi088StreamDecoder {
@@ -575,9 +182,7 @@ impl Bmi088StreamDecoder {
 
         packets
     }
-}
 
-impl Bmi088StreamDecoder {
     fn should_cache_schema(&self, schema: &Bmi088SchemaFrame) -> bool {
         if let Some(identity) = &self.identity {
             let matches_identity_shape = schema.sample_len == usize::from(identity.sample_payload_len)
@@ -599,143 +204,7 @@ impl Bmi088StreamDecoder {
     }
 }
 
-pub fn encode_host_command(command: Bmi088HostCommand) -> Vec<u8> {
-    encode_host_command_with_payload(command, &[])
-}
-
-pub fn encode_host_command_with_seq(command: Bmi088HostCommand, seq: u8) -> Vec<u8> {
-    encode_host_command_with_seq_and_payload(command, seq, &[])
-}
-
-pub fn encode_host_command_with_payload(command: Bmi088HostCommand, payload: &[u8]) -> Vec<u8> {
-    encode_host_command_with_seq_and_payload(command, 0, payload)
-}
-
-pub fn encode_host_command_with_seq_and_payload(
-    command: Bmi088HostCommand,
-    seq: u8,
-    payload: &[u8],
-) -> Vec<u8> {
-    let command_code = match command {
-        Bmi088HostCommand::Ack => BMI088_CMD_ACK,
-        Bmi088HostCommand::Start => BMI088_CMD_START,
-        Bmi088HostCommand::Stop => BMI088_CMD_STOP,
-        Bmi088HostCommand::ReqSchema => BMI088_CMD_REQ_SCHEMA,
-        Bmi088HostCommand::ReqIdentity => BMI088_CMD_REQ_IDENTITY,
-        Bmi088HostCommand::ReqTuning => BMI088_CMD_REQ_TUNING,
-        Bmi088HostCommand::SetTuning => BMI088_CMD_SET_TUNING,
-        Bmi088HostCommand::ShellExec => BMI088_CMD_SHELL_EXEC,
-    };
-
-    encode_frame(BMI088_FRAME_TYPE_REQUEST, command_code, seq, payload)
-}
-
-pub fn host_command_label(command: &Bmi088HostCommand) -> &'static str {
-    match command {
-        Bmi088HostCommand::Ack => "ACK",
-        Bmi088HostCommand::Start => "START",
-        Bmi088HostCommand::Stop => "STOP",
-        Bmi088HostCommand::ReqSchema => "REQ_SCHEMA",
-        Bmi088HostCommand::ReqIdentity => "REQ_IDENTITY",
-        Bmi088HostCommand::ReqTuning => "REQ_TUNING",
-        Bmi088HostCommand::SetTuning => "SET_TUNING",
-        Bmi088HostCommand::ShellExec => "SHELL_EXEC",
-    }
-}
-
-pub fn host_command_from_text(text: &str) -> Option<Bmi088HostCommand> {
-    match text.trim().to_ascii_lowercase().as_str() {
-        "ack" => Some(Bmi088HostCommand::Ack),
-        "start" => Some(Bmi088HostCommand::Start),
-        "stop" => Some(Bmi088HostCommand::Stop),
-        "req_schema" => Some(Bmi088HostCommand::ReqSchema),
-        "req_identity" => Some(Bmi088HostCommand::ReqIdentity),
-        "req_tuning" => Some(Bmi088HostCommand::ReqTuning),
-        "set_tuning" => Some(Bmi088HostCommand::SetTuning),
-        "shell_exec" => Some(Bmi088HostCommand::ShellExec),
-        _ => None,
-    }
-}
-
-pub fn encode_identity_frame(identity: &Bmi088IdentityFrame) -> Vec<u8> {
-    encode_identity_frame_with_seq(identity, identity.seq)
-}
-
-pub fn encode_identity_frame_with_seq(identity: &Bmi088IdentityFrame, seq: u8) -> Vec<u8> {
-    encode_frame(
-        BMI088_FRAME_TYPE_EVENT,
-        BMI088_CMD_IDENTITY,
-        seq,
-        &identity.encode_payload(),
-    )
-}
-
-pub fn encode_schema_frame(schema: &Bmi088SchemaFrame) -> Vec<u8> {
-    encode_schema_frame_with_seq(schema, schema.seq)
-}
-
-pub fn encode_schema_frame_with_seq(schema: &Bmi088SchemaFrame, seq: u8) -> Vec<u8> {
-    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SCHEMA, seq, &schema.encode_payload())
-}
-
-pub fn encode_sample_frame(sample: &Bmi088SampleFrame) -> Vec<u8> {
-    encode_sample_frame_with_seq(sample, sample.seq)
-}
-
-pub fn encode_sample_frame_with_seq(sample: &Bmi088SampleFrame, seq: u8) -> Vec<u8> {
-    let mut payload = Vec::with_capacity(sample.fields.len() * 2);
-    for field in &sample.fields {
-        payload.extend_from_slice(&field.raw.to_le_bytes());
-    }
-    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SAMPLE, seq, &payload)
-}
-
-pub fn encode_shell_output_frame(output: &LinePayload, seq: u8) -> Vec<u8> {
-    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SHELL_OUTPUT, seq, &output.raw)
-}
-
-pub fn default_schema() -> Bmi088SchemaFrame {
-    Bmi088SchemaFrame::bmi088_telemetry()
-}
-
-pub fn default_sample(sample_index: u64) -> Bmi088SampleFrame {
-    let phase = sample_index as f64 * 0.18;
-    let raw_values = [
-        ((phase.sin() * 820.0) as i16),
-        (((phase * 1.17).cos() * 760.0) as i16),
-        (((phase * 0.83).sin() * 1024.0) as i16),
-        (((phase * 1.43).sin() * 240.0) as i16),
-        (((phase * 1.11).cos() * 220.0) as i16),
-        (((phase * 0.71).sin() * 180.0) as i16),
-        (((phase * 0.54).sin() * 36.0) as i16),
-        ((((phase * 0.49) + 0.4).sin() * 24.0) as i16),
-        (normalize_signed_angle_deg((phase * 22.0).sin() * 65.0) * 4.0) as i16,
-        (((phase * 0.35).sin() * 180.0) as i16),
-        (((phase * 0.41).cos() * 160.0) as i16),
-        (((phase * 0.47).sin() * 150.0) as i16),
-        (((phase * 0.53).cos() * 140.0) as i16),
-        (((phase * 0.59).sin() * 120.0) as i16),
-        (((phase * 0.65).cos() * 110.0) as i16),
-        (((phase * 0.71).sin() * 100.0) as i16),
-        (((phase * 0.77).cos() * 90.0) as i16),
-        (((phase * 0.83).sin() * 80.0) as i16),
-        (((phase * 0.89).cos() * 70.0) as i16),
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    ];
-
-    Bmi088SampleFrame::from_raw_values(&default_schema(), &raw_values)
-        .expect("default bmi088 sample")
-}
+// ── Binary frame decode ──────────────────────────────────────────────────────
 
 pub fn decode_binary_frame(frame: &[u8]) -> Result<Bmi088Frame, Bmi088DecodeError> {
     decode_binary_frame_with_schema(frame, None)
@@ -822,6 +291,8 @@ pub fn decode_binary_frame_with_schema(
     }
 }
 
+// ── Identity TLV decode ──────────────────────────────────────────────────────
+
 pub fn decode_identity_payload(
     payload: &[u8],
 ) -> Result<Bmi088IdentityFrame, Bmi088DecodeError> {
@@ -905,6 +376,8 @@ pub fn decode_identity_payload_with_seq(
         protocol_minor_version: require_tlv_field(protocol_minor_version, "protocol minor version")?,
     })
 }
+
+// ── Schema payload decode ────────────────────────────────────────────────────
 
 pub fn decode_schema_payload(payload: &[u8]) -> Result<Bmi088SchemaFrame, Bmi088DecodeError> {
     decode_schema_payload_with_seq(0, payload)
@@ -1301,6 +774,8 @@ fn decode_legacy_short_descriptor(
     Ok((scale_q, name, unit, next_offset))
 }
 
+// ── Sample payload decode ────────────────────────────────────────────────────
+
 pub fn decode_sample_payload(payload: &[u8]) -> Result<Bmi088SampleFrame, Bmi088DecodeError> {
     let schema = default_schema();
     decode_sample_payload_with_schema_and_seq(payload, &schema, 0)
@@ -1353,6 +828,8 @@ pub fn decode_sample_raw_values(payload: &[u8]) -> Result<Vec<i16>, Bmi088Decode
         .collect())
 }
 
+// ── Frame envelope helpers ───────────────────────────────────────────────────
+
 pub fn frame_len_from_payload_len(payload_len: u8) -> usize {
     BMI088_HEADER_LEN + payload_len as usize + BMI088_CRC_LEN
 }
@@ -1402,73 +879,7 @@ pub fn find_sof(buffer: &[u8]) -> Option<usize> {
     buffer.windows(2).position(|window| window == BMI088_SOF)
 }
 
-pub fn crc16_ccitt(bytes: &[u8]) -> u16 {
-    let mut crc = 0xFFFF_u16;
-
-    for byte in bytes {
-        crc ^= (*byte as u16) << 8;
-        for _ in 0..8 {
-            if crc & 0x8000 != 0 {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-
-    crc
-}
-
-pub fn scale_raw(raw: i16, scale_q: i8) -> f64 {
-    (raw as f64) * 10f64.powi(scale_q as i32)
-}
-
-fn encode_frame(frame_type: u8, command: u8, seq: u8, payload: &[u8]) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(BMI088_HEADER_LEN + payload.len() + BMI088_CRC_LEN);
-    let payload_len = u8::try_from(payload.len()).expect("BMI088 payload length exceeds u8");
-    frame.extend_from_slice(&BMI088_SOF);
-    frame.push(BMI088_VERSION);
-    frame.push(frame_type);
-    frame.push(command);
-    frame.push(seq);
-    frame.push(payload_len);
-    frame.extend_from_slice(payload);
-    let crc = crc16_ccitt(&frame);
-    frame.extend_from_slice(&crc.to_le_bytes());
-    frame
-}
-
-fn normalize_signed_angle_deg(value: f64) -> f64 {
-    let mut normalized = value % 360.0;
-    if normalized > 180.0 {
-        normalized -= 360.0;
-    }
-    if normalized < -180.0 {
-        normalized += 360.0;
-    }
-    normalized
-}
-
-impl Bmi088IdentityFrame {
-    pub fn encode_payload(&self) -> Vec<u8> {
-        let mut payload = Vec::new();
-        encode_tlv_u8(&mut payload, 0x00, self.identity_format_version);
-        encode_tlv_string(&mut payload, 0x01, &self.device_name);
-        encode_tlv_string(&mut payload, 0x02, &self.board_name);
-        encode_tlv_string(&mut payload, 0x03, &self.firmware_version);
-        encode_tlv_string(&mut payload, 0x04, &self.protocol_name);
-        encode_tlv_string(&mut payload, 0x05, &self.protocol_version);
-        encode_tlv_string(&mut payload, 0x06, &self.transport_name);
-        encode_tlv_u16(&mut payload, 0x07, self.sample_rate_hz);
-        encode_tlv_u8(&mut payload, 0x08, self.schema_field_count);
-        encode_tlv_u8(&mut payload, 0x09, self.sample_payload_len);
-        encode_tlv_u8(&mut payload, 0x0A, self.protocol_version_byte);
-        encode_tlv_u16(&mut payload, 0x0B, self.feature_flags);
-        encode_tlv_u32(&mut payload, 0x0C, self.baud_rate);
-        encode_tlv_u8(&mut payload, 0x0D, self.protocol_minor_version);
-        payload
-    }
-}
+// ── Internal helpers ─────────────────────────────────────────────────────────
 
 fn require_tlv_field<T>(value: Option<T>, field_name: &str) -> Result<T, Bmi088DecodeError> {
     value.ok_or_else(|| {
@@ -1509,127 +920,6 @@ fn decode_tlv_u32(value: &[u8], field_name: &str) -> Result<u32, Bmi088DecodeErr
     Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
 }
 
-fn encode_tlv_string(payload: &mut Vec<u8>, tag: u8, value: &str) {
-    encode_tlv_bytes(payload, tag, value.as_bytes());
-}
-
-fn encode_tlv_u8(payload: &mut Vec<u8>, tag: u8, value: u8) {
-    encode_tlv_bytes(payload, tag, &[value]);
-}
-
-fn encode_tlv_u16(payload: &mut Vec<u8>, tag: u8, value: u16) {
-    encode_tlv_bytes(payload, tag, &value.to_le_bytes());
-}
-
-fn encode_tlv_u32(payload: &mut Vec<u8>, tag: u8, value: u32) {
-    encode_tlv_bytes(payload, tag, &value.to_le_bytes());
-}
-
-fn encode_tlv_bytes(payload: &mut Vec<u8>, tag: u8, value: &[u8]) {
-    payload.push(tag);
-    payload.push(u8::try_from(value.len()).expect("BMI088 identity TLV length exceeds u8"));
-    payload.extend_from_slice(value);
-}
-
-fn compact_field_code(name: &str) -> Option<u8> {
-    match name {
-        "acc_x" => Some(0x00),
-        "acc_y" => Some(0x01),
-        "acc_z" => Some(0x02),
-        "gyro_x" => Some(0x03),
-        "gyro_y" => Some(0x04),
-        "gyro_z" => Some(0x05),
-        "roll" => Some(0x06),
-        "pitch" => Some(0x07),
-        "yaw" => Some(0x08),
-        "reserved_0" => Some(0x09),
-        "reserved_1" => Some(0x0A),
-        "motor_left_rear_wheel" => Some(0x0B),
-        "motor_left_front_wheel" => Some(0x0C),
-        "motor_right_front_wheel" => Some(0x0D),
-        "motor_right_rear_wheel" => Some(0x0E),
-        "roll_correction_output" => Some(0x0F),
-        "pitch_correction_output" => Some(0x10),
-        "yaw_correction_output" => Some(0x11),
-        "throttle_correction_output" => Some(0x12),
-        "roll_proportional_gain_x100" => Some(0x13),
-        "roll_integral_gain_x100" => Some(0x14),
-        "roll_derivative_gain_x100" => Some(0x15),
-        "pitch_proportional_gain_x100" => Some(0x16),
-        "pitch_integral_gain_x100" => Some(0x17),
-        "pitch_derivative_gain_x100" => Some(0x18),
-        "yaw_proportional_gain_x100" => Some(0x19),
-        "yaw_integral_gain_x100" => Some(0x1A),
-        "yaw_derivative_gain_x100" => Some(0x1B),
-        "output_limit" => Some(0x1C),
-        "bench_test_throttle" => Some(0x1D),
-        _ => None,
-    }
-}
-
-fn compact_field_name(code: u8) -> Option<String> {
-    Some(match code {
-        0x00 => "acc_x",
-        0x01 => "acc_y",
-        0x02 => "acc_z",
-        0x03 => "gyro_x",
-        0x04 => "gyro_y",
-        0x05 => "gyro_z",
-        0x06 => "roll",
-        0x07 => "pitch",
-        0x08 => "yaw",
-        0x09 => "reserved_0",
-        0x0A => "reserved_1",
-        0x0B => "motor_left_rear_wheel",
-        0x0C => "motor_left_front_wheel",
-        0x0D => "motor_right_front_wheel",
-        0x0E => "motor_right_rear_wheel",
-        0x0F => "roll_correction_output",
-        0x10 => "pitch_correction_output",
-        0x11 => "yaw_correction_output",
-        0x12 => "throttle_correction_output",
-        0x13 => "roll_proportional_gain_x100",
-        0x14 => "roll_integral_gain_x100",
-        0x15 => "roll_derivative_gain_x100",
-        0x16 => "pitch_proportional_gain_x100",
-        0x17 => "pitch_integral_gain_x100",
-        0x18 => "pitch_derivative_gain_x100",
-        0x19 => "yaw_proportional_gain_x100",
-        0x1A => "yaw_integral_gain_x100",
-        0x1B => "yaw_derivative_gain_x100",
-        0x1C => "output_limit",
-        0x1D => "bench_test_throttle",
-        _ => return None,
-    }
-    .to_string())
-}
-
-fn compact_unit_code(unit: &str) -> Option<u8> {
-    match unit {
-        "raw" => Some(0x00),
-        "deg" => Some(0x01),
-        _ => None,
-    }
-}
-
-fn compact_unit_name(code: u8) -> Option<String> {
-    Some(match code {
-        0x00 => "raw",
-        0x01 => "deg",
-        _ => return None,
-    }
-    .to_string())
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Bmi088DecodeError {
-    InvalidSof,
-    InvalidVersion,
-    InvalidCrc,
-    SchemaMismatch(String),
-    MalformedFrame(String),
-}
-
 fn decode_error_label(error: &Bmi088DecodeError) -> String {
     match error {
         Bmi088DecodeError::InvalidSof => "InvalidSof".to_string(),
@@ -1663,17 +953,3 @@ fn text_preview(text: &str, max_len: usize) -> String {
         preview
     }
 }
-
-impl std::fmt::Display for Bmi088DecodeError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidSof => write!(formatter, "invalid BMI088 SOF"),
-            Self::InvalidVersion => write!(formatter, "invalid BMI088 version"),
-            Self::InvalidCrc => write!(formatter, "invalid BMI088 CRC"),
-            Self::SchemaMismatch(message) => write!(formatter, "schema mismatch: {message}"),
-            Self::MalformedFrame(message) => write!(formatter, "malformed BMI088 frame: {message}"),
-        }
-    }
-}
-
-impl std::error::Error for Bmi088DecodeError {}

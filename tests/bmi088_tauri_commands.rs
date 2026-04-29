@@ -1,4 +1,4 @@
-#[path = "../src-tauri/src/model.rs"]
+#[path = "../src-tauri/src/model/mod.rs"]
 mod model;
 
 use model::UiBmi088HostCommand;

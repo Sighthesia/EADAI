@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/bmi088-host-protocol.md","reason":"Keep BMI088 wire contract stable while refactoring protocol modules."}
+{"file":".trellis/spec/backend/mcp-ai-contract.md","reason":"Preserve shared runtime-host and adapter behavior while moving backend code."}
+{"file":".trellis/spec/frontend/index.md","reason":"Follow current UI structure and shell ownership while splitting frontend files."}
+{"file":".trellis/spec/frontend/logic-analyzer-workspace.md","reason":"Avoid breaking existing Tauri/UI bridge boundaries during frontend refactor."}

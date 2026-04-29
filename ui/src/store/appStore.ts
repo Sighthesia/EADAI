@@ -17,12 +17,9 @@ import {
 import {
   connectSerial,
   disconnectSerial,
-  getLogicAnalyzerStatus,
-  getMcpServerStatus,
   getMcpToolUsageSnapshot,
   getSessionSnapshot,
   listSerialPorts,
-  refreshLogicAnalyzerDevices,
   sendBmi088Command,
   sendSerial,
   startLogicAnalyzerCapture,
@@ -53,129 +50,88 @@ import type {
   SerialBusEvent,
   SerialDeviceInfo,
   SessionSnapshot,
-  UiAnalysisPayload,
-  UiLineDirection,
-  UiParserMeta,
-  UiProtocolHandshakeEvent,
   UiProtocolSnapshot,
   UiRuntimeCatalogSnapshot,
   UiRuntimeDeviceSnapshot,
-  UiRuntimeCommandCatalogItem,
-  UiRuntimeTelemetryCatalogField,
-  UiRuntimeTelemetryCatalogSnapshot,
   UiScriptsDefinitionModel,
   UiScriptHookExample,
-  UiTelemetryIdentityPayload,
-  UiTelemetrySchemaPayload,
-  UiTelemetrySamplePayload,
-  UiTriggerPayload,
-  HookDefinition,
-  ScriptDefinition,
-  VariableExtractorKind,
-  VariableDefinitionVisibility,
-  VariableSourceKind,
-  VariableDefinition,
-  SamplePoint,
   VariableEntry,
+  VariableDefinition,
 } from '../types'
 
-const MAX_CONSOLE_ENTRIES = 400
-const MAX_SENT_CONSOLE_ENTRIES = 400
-const MAX_SAMPLES_PER_CHANNEL = 960
-const CHANNEL_COLORS = ['#4FC3F7', '#C792EA', '#F78C6C', '#A5E075', '#E6C07B', '#82AAFF']
-const DEFAULT_FAKE_PROFILE = 'telemetry-lab'
-const BMI088_PROTOCOL_NAME = 'bmi088_uart4'
+// -- Module imports --
+import {
+  BMI088_PROTOCOL_SCRIPT,
+  DEFAULT_FAKE_PROFILE,
+  DEFAULT_LOGIC_SAMPLE_COUNT,
+  MAX_CONSOLE_ENTRIES,
+  MAX_SENT_CONSOLE_ENTRIES,
+  MAX_SAMPLES_PER_CHANNEL,
+} from './constants'
+import {
+  asConsoleEntry,
+  asProtocolConsoleEntry,
+  appendConsoleHistory,
+  appendConsoleHistoryBatch,
+  createSentConsoleEntry,
+} from './consoleHelpers'
+import {
+  applyAnalysis,
+  autoSelectChannels,
+  colorForChannel,
+  createVariableEntry,
+  fakePortLabel,
+  parseSampleTimestampMs,
+  severityTone,
+  triggerMessage,
+  updateVariableFromProtocolText,
+  updateVariableFromTelemetrySample,
+} from './eventIngestHelpers'
+import {
+  defaultLogicAnalyzerStatus,
+  parseLogicSamplerate,
+  readLogicAnalyzerStatusSafely,
+  refreshLogicAnalyzerDevicesSafely,
+  syncLogicAnalyzerConfig,
+} from './logicAnalyzerHelpers'
+import {
+  computeImuQuality,
+  isSameImuAttitudeMap,
+  isSameImuChannelMap,
+  isSameImuQualitySnapshot,
+  isSameImuQuaternionMap,
+} from './imuHelpers'
+import {
+  connectionMessage,
+  connectionTone,
+  defaultProtocolSnapshot,
+  ingestProtocolConnection,
+  ingestProtocolIdentity,
+  ingestProtocolLine,
+  ingestProtocolSample,
+  ingestProtocolSchema,
+  ingestProtocolShellOutput,
+} from './protocolHelpers'
+import {
+  createRuntimeCatalog,
+  createRuntimeDeviceSnapshot,
+  runtimeDeviceRef,
+} from './runtimeHelpers'
+import {
+  buildPortsRefreshState,
+  readMcpStatusWithRetry,
+  shouldPollMcpStatus,
+} from './sessionHelpers'
+import {
+  createProtocolHookExamples,
+  createScriptDefinitions,
+  syncScriptDefinitions,
+} from './variableHelpers'
+
+// Re-export shouldPollMcpStatus so existing callers keep working.
+export { shouldPollMcpStatus } from './sessionHelpers'
+
 const profileIngestEvents = createDevTimingLogger('appStore.ingestEvents', { slowThresholdMs: 8, summaryEvery: 120, summaryIntervalMs: 5_000 })
-
-const BMI088_PROTOCOL_SCRIPT = `// BMI088 UART4 definition seed
-onSchema((fields, rateHz, sampleLen) => {
-  // Use logger.debug to avoid leaving console.log in production code
-  // eslint-disable-next-line no-undef
-  if (import.meta.env && import.meta.env.DEV) console.debug('schema', { rateHz, sampleLen, fields })
-})
-
-onSample((record) => {
-  // eslint-disable-next-line no-undef
-  if (import.meta.env && import.meta.env.DEV) console.debug('sample', record)
-})`
-const PROTOCOL_TIMELINE_LIMIT = 64
-const DEFINITION_SEED_TIMESTAMP_MS = Date.now()
-const RUNTIME_COMMAND_CATALOG: UiRuntimeCommandCatalogItem[] = [
-  {
-    command: 'REQ_IDENTITY',
-    label: 'Request identity',
-    description: 'Ask the device to publish identity metadata before loading schema.',
-    recommendedPhase: 'awaitingIdentity',
-    payloadPreview: 'REQ_IDENTITY',
-  },
-  {
-    command: 'REQ_SCHEMA',
-    label: 'Request schema',
-    description: 'Ask the device to publish the current telemetry layout before sampling.',
-    recommendedPhase: 'awaitingSchema',
-    payloadPreview: 'REQ_SCHEMA',
-  },
-  {
-    command: 'ACK',
-    label: 'Acknowledge schema',
-    description: 'Confirm the received schema and advance the handshake.',
-    recommendedPhase: 'awaitingAck',
-    payloadPreview: 'ACK',
-  },
-  {
-    command: 'START',
-    label: 'Start streaming',
-    description: 'Transition from handshake into continuous telemetry streaming.',
-    recommendedPhase: 'awaitingStart',
-    payloadPreview: 'START',
-  },
-  {
-    command: 'STOP',
-    label: 'Stop streaming',
-    description: 'Pause streaming and return the runtime to an idle state.',
-    recommendedPhase: 'streaming',
-    payloadPreview: 'STOP',
-  },
-  {
-    command: 'REQ_TUNING',
-    label: 'Request tuning',
-    description: 'Fetch current tuning state before editing values.',
-    recommendedPhase: null,
-    payloadPreview: 'REQ_TUNING',
-  },
-  {
-    command: 'SET_TUNING',
-    label: 'Apply tuning',
-    description: 'Send a tuning payload to update device parameters.',
-    recommendedPhase: null,
-    parameters: [
-      {
-        name: 'payload',
-        label: 'Tuning payload',
-        kind: 'text',
-        placeholder: 'key=value',
-        description: 'ASCII tuning payload without trailing newline.',
-      },
-    ],
-    payloadPreview: 'SET_TUNING · payload=value',
-  },
-  {
-    command: 'SHELL_EXEC',
-    label: 'Run shell command',
-    description: 'Bridge one firmware shell command over the framed UART path.',
-    recommendedPhase: null,
-    parameters: [
-      {
-        name: 'payload',
-        label: 'Shell command',
-        kind: 'text',
-        placeholder: 'echo hello',
-        description: 'ASCII command line without trailing newline.',
-      },
-    ],
-    payloadPreview: 'SHELL_EXEC · payload=echo hello',
-  },
-]
 
 type AppStore = {
   ports: SerialDeviceInfo[]
@@ -246,24 +202,6 @@ type AppStore = {
 const defaultStatus = (): AppStatus => ({
   tone: 'neutral',
   message: 'Ready. Fake stream will autostart for UI debugging.',
-})
-
-const MCP_STATUS_POLL_INTERVAL_MS = 1000
-const DEFAULT_LOGIC_SAMPLE_COUNT = 2048
-
-const defaultLogicAnalyzerStatus = (): LogicAnalyzerStatus => ({
-  available: false,
-  executable: null,
-  sessionState: 'idle',
-  devices: [],
-  selectedDeviceRef: null,
-  activeCapture: null,
-  lastCapture: null,
-  lastScanAtMs: null,
-  scanOutput: null,
-  lastError: null,
-  capturePlan: null,
-  linuxFirstNote: 'Linux-first sigrok path; install sigrok-cli or set EADAI_SIGROK_CLI.',
 })
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -431,14 +369,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ mcpToolUsage })
   },
   refreshLogicAnalyzerStatus: async () => {
-    const logicAnalyzer = await getLogicAnalyzerStatus()
+    const logicAnalyzer = await readLogicAnalyzerStatusSafely()
     set((state) => ({
       logicAnalyzer,
       logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, logicAnalyzer),
     }))
   },
   refreshLogicAnalyzerDevices: async () => {
-    const logicAnalyzer = await refreshLogicAnalyzerDevices()
+    const logicAnalyzer = await refreshLogicAnalyzerDevicesSafely()
     set((state) => ({
       logicAnalyzer,
       logicAnalyzerConfig: syncLogicAnalyzerConfig(state.logicAnalyzerConfig, logicAnalyzer),
@@ -1011,931 +949,3 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   colorForChannel: (channel) => colorForChannel(channel),
 }))
-
-const asConsoleEntry = (event: Extract<SerialBusEvent, { kind: 'line' }>): ConsoleEntry => ({
-  id: `${event.timestampMs}-${event.line.direction}-${event.line.text}`,
-  direction: event.line.direction,
-  text: event.line.text,
-  timestampMs: event.timestampMs,
-  raw: event.line.raw,
-  parser: event.parser,
-})
-
-const asProtocolConsoleEntry = (
-  event: Extract<SerialBusEvent, { kind: 'telemetryIdentity' | 'telemetrySchema' | 'telemetrySample' }>,
-  text: string,
-): ConsoleEntry => ({
-  id: `${event.timestampMs}-rx-${text}`,
-  direction: 'rx',
-  text,
-  timestampMs: event.timestampMs,
-  raw: event.rawFrame,
-  parser: event.parser,
-})
-
-const textEncoder = new TextEncoder()
-
-const createSentConsoleEntry = (text: string, appendNewline: boolean): ConsoleEntry => {
-  const payload = appendNewline ? `${text}\n` : text
-
-  return {
-    id: `${Date.now()}-tx-${Math.random().toString(36).slice(2, 10)}`,
-    direction: 'tx',
-    text,
-    timestampMs: Date.now(),
-    raw: Array.from(textEncoder.encode(payload)),
-    parser: null,
-  }
-}
-
-const appendConsoleHistory = (entries: ConsoleEntry[], entry: ConsoleEntry, limit: number) =>
-  [...entries, entry].slice(-limit)
-
-const appendConsoleHistoryBatch = (entries: ConsoleEntry[], nextEntries: ConsoleEntry[], limit: number) => {
-  if (nextEntries.length === 0) {
-    return entries
-  }
-
-  const combined = entries.concat(nextEntries)
-  return combined.length > limit ? combined.slice(combined.length - limit) : combined
-}
-
-const createVariableEntry = (
-  channelId: string,
-  updatedAtMs: number,
-  deviceRef: string | null,
-  sourceKind: VariableSourceKind = 'protocol-text',
-): VariableEntry => ({
-  name: channelId,
-  deviceRef,
-  sourceKind,
-  currentValue: '—',
-  trend: 'flat',
-  unit: null,
-  parserName: null,
-  sampleCount: 0,
-  updatedAtMs,
-  points: [],
-  analysis: null,
-  latestTrigger: null,
-  triggerCount: 0,
-})
-
-function createProtocolHookExamples(): UiScriptHookExample[] {
-  return [
-    {
-      name: 'Schema definition entrypoint',
-      snippet: `onSchema((fields, rateHz, sampleLen) => {
-  // Use logger.debug in your hook to avoid leaking console logs in production
-  logger.debug('BMI088 schema', { rateHz, sampleLen, fields })
-})`,
-    },
-    {
-      name: 'Sample extraction entrypoint',
-      snippet: `onSample((record) => {
-  const { roll, pitch, yaw } = record
-  logger.debug('BMI088 sample', { roll, pitch, yaw })
-})`,
-    },
-  ]
-}
-
-function createProtocolHookDefinitions(): HookDefinition[] {
-  return createProtocolHookExamples().map((example, index) => ({
-    id: index === 0 ? 'schema-hook' : 'sample-hook',
-    name: example.name,
-    event: index === 0 ? 'schema' : 'sample',
-    summary: index === 0
-      ? 'Capture the published telemetry schema and keep it available to the Scripts surface.'
-      : 'Draft runtime extraction rules from incoming telemetry samples.',
-    source: example.snippet,
-    enabled: true,
-    status: 'seeded',
-    updatedAtMs: DEFINITION_SEED_TIMESTAMP_MS,
-  }))
-}
-
-function extractorKindForVariable(variable: VariableEntry): VariableExtractorKind {
-  return variable.sourceKind === 'telemetry-sample' ? 'sample-field' : 'parser-field'
-}
-
-function sourceLabelForVariable(variable: VariableEntry) {
-  if (variable.sourceKind === 'telemetry-sample') {
-    return variable.parserName ?? 'telemetry sample'
-  }
-
-  return variable.parserName ? `${variable.parserName} text` : 'protocol text'
-}
-
-function bindingFieldForVariable(variable: VariableEntry) {
-  if (variable.sourceKind === 'telemetry-sample') {
-    return 'sample.value'
-  }
-
-  return variable.parserName ? 'parser.fields.value' : 'line.parser.fields.value'
-}
-
-function aliasForVariable(variable: VariableEntry) {
-  return variable.name.includes('.') ? variable.name.split('.').slice(-1)[0] ?? null : null
-}
-
-function presentationUnitForVariable(variable: VariableEntry) {
-  return variable.unit ?? null
-}
-
-function visibilityForVariable(variable: VariableEntry): VariableDefinitionVisibility {
-  if (variable.sourceKind === 'telemetry-sample') {
-    return 'both'
-  }
-
-  if (variable.latestTrigger) {
-    return 'runtime'
-  }
-
-  return variable.sampleCount > 0 ? 'variables' : 'hidden'
-}
-
-function updateVariableFromProtocolText(
-  previous: VariableEntry,
-  channelId: string,
-  event: Extract<SerialBusEvent, { kind: 'line' }>,
-  rawValue: string,
-  numericValue: number,
-  nextPoints: SamplePoint[],
-): VariableEntry {
-  return {
-    ...previous,
-    name: channelId,
-    sourceKind: 'protocol-text',
-    currentValue: rawValue,
-    previousValue: previous.numericValue,
-    numericValue: Number.isFinite(numericValue) ? numericValue : previous.numericValue,
-    trend: resolveTrendFromValues(previous.numericValue, Number.isFinite(numericValue) ? numericValue : previous.numericValue),
-    unit: event.parser.fields.unit ?? previous.unit ?? null,
-    parserName: event.parser.parserName,
-    sampleCount: previous.sampleCount + 1,
-    updatedAtMs: event.timestampMs,
-    points: nextPoints,
-  }
-}
-
-function updateVariableFromTelemetrySample(
-  previous: VariableEntry,
-  channelId: string,
-  event: Extract<SerialBusEvent, { kind: 'telemetrySample' }>,
-  nextNumericValue: number,
-  displayValue: string,
-  unit: string | null,
-): VariableEntry {
-  return {
-    ...previous,
-    name: channelId,
-    sourceKind: 'telemetry-sample',
-    currentValue: displayValue,
-    previousValue: previous.numericValue,
-    numericValue: nextNumericValue,
-    trend: resolveTrendFromValues(previous.numericValue, nextNumericValue),
-    unit,
-    parserName: 'bmi088_sample',
-    sampleCount: previous.sampleCount + 1,
-    updatedAtMs: event.timestampMs,
-    points: [...previous.points, { timestampMs: event.timestampMs, value: nextNumericValue }].slice(-MAX_SAMPLES_PER_CHANNEL),
-  }
-}
-
-function createVariableDefinitions(variables: Record<string, VariableEntry>): VariableDefinition[] {
-  return Object.values(variables)
-    .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
-    .map((variable) => ({
-      id: `variable:${variable.name}`,
-      name: variable.name,
-      deviceRef: variable.deviceRef ?? null,
-      sourceKind: variable.sourceKind,
-      sourceLabel: sourceLabelForVariable(variable),
-      summary:
-        variable.sourceKind === 'telemetry-sample'
-          ? variable.deviceRef
-            ? `Observed on ${variable.deviceRef} as a reusable telemetry sample target.`
-            : 'Observed telemetry sample promoted into a reusable extraction seed.'
-          : variable.parserName
-            ? `Observed in ${variable.parserName} parser output and promoted into a reusable text extraction seed.`
-            : 'Observed protocol text promoted into a reusable extraction seed.',
-      extractor: variable.parserName ? `${variable.parserName}.${variable.name}` : variable.name,
-      extractorKind: extractorKindForVariable(variable),
-      bindingField: bindingFieldForVariable(variable),
-      alias: aliasForVariable(variable),
-      presentationUnit: presentationUnitForVariable(variable),
-      visibility: visibilityForVariable(variable),
-      parserName: variable.parserName ?? null,
-      lastObservedValue: variable.currentValue,
-      lastObservedAtMs: variable.updatedAtMs,
-      status: variable.latestTrigger ? 'observed' : variable.sampleCount > 0 ? 'draft' : 'seeded',
-      updatedAtMs: variable.updatedAtMs,
-    }))
-}
-
-function createScriptDefinitions(variables: Record<string, VariableEntry>): UiScriptsDefinitionModel {
-  return {
-    scripts: [
-      {
-        id: 'bmi088-protocol-script',
-        name: 'BMI088 protocol definition',
-        summary: 'Seeded protocol script for handshake and telemetry definition ownership.',
-        language: 'typescript',
-        source: BMI088_PROTOCOL_SCRIPT,
-        status: 'seeded',
-        updatedAtMs: DEFINITION_SEED_TIMESTAMP_MS,
-      },
-    ],
-    hooks: createProtocolHookDefinitions(),
-    variables: createVariableDefinitions(variables),
-  }
-}
-
-function syncScriptDefinitions(current: UiScriptsDefinitionModel, variables: Record<string, VariableEntry>): UiScriptsDefinitionModel {
-  const nextVariables = createVariableDefinitions(variables)
-  const currentById = new Map(current.variables.map((definition) => [definition.id, definition]))
-  let changed = nextVariables.length !== current.variables.length
-
-  const mergedVariables = nextVariables.map((definition) => {
-    const existing = currentById.get(definition.id)
-    if (!existing) {
-      changed = true
-      return definition
-    }
-
-    const mergedDefinition = {
-      ...definition,
-      bindingField: existing.bindingField,
-      alias: existing.alias ?? null,
-      presentationUnit: existing.presentationUnit ?? null,
-      visibility: existing.visibility,
-      status: existing.status === 'observed' ? 'observed' : existing.status === 'draft' ? 'draft' : definition.status,
-      lastObservedValue: existing.lastObservedValue ?? definition.lastObservedValue ?? null,
-      lastObservedAtMs: existing.lastObservedAtMs ?? definition.lastObservedAtMs ?? null,
-      updatedAtMs: existing.updatedAtMs,
-    }
-
-    if (!changed && !isSameVariableDefinition(existing, mergedDefinition)) {
-      changed = true
-    }
-
-    return mergedDefinition
-  })
-
-  if (!changed) {
-    return current
-  }
-
-  return {
-    ...current,
-    variables: mergedVariables,
-  }
-}
-
-function isSameVariableDefinition(left: VariableDefinition, right: VariableDefinition) {
-  return left.id === right.id &&
-    left.name === right.name &&
-    left.deviceRef === right.deviceRef &&
-    left.sourceKind === right.sourceKind &&
-    left.sourceLabel === right.sourceLabel &&
-    left.summary === right.summary &&
-    left.extractor === right.extractor &&
-    left.extractorKind === right.extractorKind &&
-    left.bindingField === right.bindingField &&
-    left.alias === right.alias &&
-    left.presentationUnit === right.presentationUnit &&
-    left.visibility === right.visibility &&
-    left.parserName === right.parserName &&
-    left.lastObservedValue === right.lastObservedValue &&
-    left.lastObservedAtMs === right.lastObservedAtMs &&
-    left.status === right.status &&
-    left.updatedAtMs === right.updatedAtMs
-}
-
-function createRuntimeCatalog(protocol: UiProtocolSnapshot, runtimeDevice: UiRuntimeDeviceSnapshot): UiRuntimeCatalogSnapshot {
-  return {
-    device: runtimeDevice,
-    commands: RUNTIME_COMMAND_CATALOG.map((item) => ({ ...item })),
-    telemetry: createRuntimeTelemetryCatalog(protocol),
-  }
-}
-
-function createRuntimeDeviceSnapshot(
-  session: SessionSnapshot,
-  config: ConnectRequest,
-  ports: SerialDeviceInfo[],
-): UiRuntimeDeviceSnapshot {
-  const sourceKind = session.transport === 'serial' || session.transport === 'fake' ? session.transport : config.sourceKind
-  const portLabel = sourceKind === 'fake' ? `fake://${config.fakeProfile ?? DEFAULT_FAKE_PROFILE}` : session.port ?? config.port ?? null
-  const serialDevice = sourceKind === 'serial' && portLabel ? ports.find((port) => port.portName === portLabel) ?? null : null
-  const label = sourceKind === 'fake' ? fakeProfileLabel(config.fakeProfile ?? DEFAULT_FAKE_PROFILE) : serialDevice?.displayName ?? portLabel ?? 'Serial device'
-  const detail = sourceKind === 'fake' ? 'Built-in development telemetry source' : formatSerialDeviceDetail(serialDevice, portLabel)
-
-  return {
-    id: portLabel ?? sourceKind,
-    label,
-    detail,
-    status: session.isRunning ? session.connectionState ?? 'connected' : 'Idle',
-    transportLabel: sourceKind === 'fake' ? 'Fake stream' : 'Serial device',
-    portLabel,
-    baudRate: session.baudRate ?? config.baudRate,
-    sourceKind,
-    connected: session.isRunning,
-    serialDevice,
-  }
-}
-
-function runtimeDeviceRef(session: SessionSnapshot, config: ConnectRequest) {
-  if (session.transport === 'fake') {
-    return `fake://${config.fakeProfile ?? DEFAULT_FAKE_PROFILE}`
-  }
-
-  return session.port ?? config.port ?? null
-}
-
-function fakeProfileLabel(profile: string) {
-  switch (profile) {
-    case 'noisy-monitor':
-      return 'Noisy Monitor'
-    case 'imu-lab':
-      return 'IMU Lab'
-    default:
-      return 'Telemetry Lab'
-  }
-}
-
-function formatSerialDeviceDetail(device: SerialDeviceInfo | null, fallbackPort: string | null) {
-  if (!device) {
-    return fallbackPort ? `Serial port ${fallbackPort}` : 'Awaiting serial device details'
-  }
-
-  const parts = [device.product, device.manufacturer, formatUsbIdentifier(device)].filter(Boolean)
-  return parts.length > 0 ? parts.join(' · ') : device.displayName
-}
-
-function formatUsbIdentifier(device: SerialDeviceInfo) {
-  if (device.vid == null || device.pid == null) {
-    return null
-  }
-
-  return `USB ${formatUsbHex(device.vid)}:${formatUsbHex(device.pid)}`
-}
-
-function formatUsbHex(value: number) {
-  return value.toString(16).padStart(4, '0').toUpperCase()
-}
-
-function createRuntimeTelemetryCatalog(protocol: UiProtocolSnapshot): UiRuntimeTelemetryCatalogSnapshot {
-  return {
-    parserName: protocol.parserName,
-    rateHz: protocol.schema?.rateHz ?? null,
-    sampleLen: protocol.schema?.sampleLen ?? null,
-    fields: protocol.schema?.fields.map((field, index) => createRuntimeTelemetryCatalogField(field.name, field.unit, field.scaleQ, index)) ?? [],
-    lastSchemaAtMs: protocol.lastSchemaAtMs ?? null,
-    lastSampleAtMs: protocol.lastSampleAtMs ?? null,
-  }
-}
-
-function createRuntimeTelemetryCatalogField(
-  name: string,
-  unit: string,
-  scaleQ: number,
-  index: number,
-): UiRuntimeTelemetryCatalogField {
-  return {
-    name,
-    unit,
-    scaleQ,
-    index,
-  }
-}
-
-function defaultProtocolSnapshot(): UiProtocolSnapshot {
-  return {
-    active: false,
-    parserName: BMI088_PROTOCOL_NAME,
-    transportLabel: 'BMI088 UART4',
-    baudRate: 115200,
-    phase: 'stopped',
-    identity: null,
-    schema: null,
-    lastPacketKind: null,
-    lastPacketRawFrame: null,
-    lastSchemaAtMs: null,
-    lastSampleAtMs: null,
-    lastHandshakeAtMs: null,
-    timeline: [],
-  }
-}
-
-const ingestProtocolConnection = (
-  protocol: UiProtocolSnapshot,
-  event: Extract<SerialBusEvent, { kind: 'connection' }>,
-): UiProtocolSnapshot => {
-  const nextPhase =
-    event.connection.state === 'connected'
-      ? 'awaitingIdentity'
-      : event.connection.state === 'stopped'
-        ? 'stopped'
-        : protocol.phase
-
-  const timeline = appendProtocolTimeline(protocol.timeline, {
-    timestampMs: event.timestampMs,
-    direction: 'rx',
-    command: event.connection.state === 'stopped' ? 'STOP' : 'REQ_IDENTITY',
-    note: connectionMessage(event),
-    parserStatus: 'unparsed',
-  })
-
-  return {
-    ...protocol,
-    active: event.connection.state !== 'stopped',
-    transportLabel: event.source.transport === 'fake' ? 'Fake BMI088 stream' : 'BMI088 UART4',
-    baudRate: event.source.baudRate,
-    phase: nextPhase,
-    timeline,
-    lastHandshakeAtMs: event.timestampMs,
-  }
-}
-
-const ingestProtocolLine = (
-  protocol: UiProtocolSnapshot,
-  event: Extract<SerialBusEvent, { kind: 'line' }>,
-): UiProtocolSnapshot => {
-  const parserName = event.parser.parserName ?? protocol.parserName
-  const command = protocolCommandFromLine(event.line.text)
-  const isHandshake = parserName === 'bmi088_command' || command !== null
-
-  if (!isHandshake) {
-    return protocol
-  }
-
-  const nextPhase =
-    command === 'ACK'
-      ? 'awaitingStart'
-      : command === 'START'
-        ? 'streaming'
-        : command === 'STOP'
-          ? 'stopped'
-          : command === 'REQ_IDENTITY'
-            ? 'awaitingIdentity'
-            : command === 'REQ_SCHEMA'
-              ? 'awaitingSchema'
-              : protocol.phase
-
-  return {
-    ...protocol,
-    active: true,
-    parserName,
-    phase: nextPhase,
-    lastPacketKind: 'command' as const,
-    lastPacketRawFrame: event.line.raw,
-    lastHandshakeAtMs: event.timestampMs,
-    timeline: appendProtocolTimeline(protocol.timeline, {
-      timestampMs: event.timestampMs,
-      direction: event.line.direction,
-      command: command ?? 'REQ_SCHEMA',
-      note: protocolCommandNote(command ?? event.line.text),
-      parserStatus: event.parser.status,
-    }),
-  }
-}
-
-const ingestProtocolIdentity = (
-  protocol: UiProtocolSnapshot,
-  event: Extract<SerialBusEvent, { kind: 'telemetryIdentity' }>,
-): UiProtocolSnapshot => ({
-  ...protocol,
-  active: true,
-  parserName: event.parser.parserName ?? protocol.parserName,
-  phase: protocol.schema ? protocol.phase : 'awaitingSchema',
-  identity: event.identity,
-  lastPacketKind: 'command' as const,
-  lastPacketRawFrame: event.rawFrame,
-  lastHandshakeAtMs: event.timestampMs,
-  timeline: appendProtocolTimeline(protocol.timeline, {
-    timestampMs: event.timestampMs,
-    direction: 'rx',
-    command: 'IDENTITY',
-    note: `${event.identity.deviceName} · ${event.identity.boardName} · ${event.identity.firmwareVersion}`,
-    parserStatus: event.parser.status,
-  }),
-})
-
-const ingestProtocolSchema = (
-  protocol: UiProtocolSnapshot,
-  event: Extract<SerialBusEvent, { kind: 'telemetrySchema' }>,
-): UiProtocolSnapshot => ({
-  ...protocol,
-  active: true,
-  parserName: event.parser.parserName ?? protocol.parserName,
-  phase: 'awaitingAck' as const,
-  schema: {
-    rateHz: event.schema.rateHz,
-    sampleLen: event.schema.sampleLen,
-    fields: event.schema.fields,
-  },
-  lastPacketKind: 'schema' as const,
-  lastPacketRawFrame: event.rawFrame,
-  lastSchemaAtMs: event.timestampMs,
-  lastHandshakeAtMs: event.timestampMs,
-  timeline: appendProtocolTimeline(protocol.timeline, {
-    timestampMs: event.timestampMs,
-    direction: 'rx',
-    command: 'SCHEMA',
-    note: `Schema ${event.schema.fields.length} fields @ ${event.schema.rateHz} Hz`,
-    parserStatus: event.parser.status,
-  }),
-})
-
-const ingestProtocolSample = (
-  protocol: UiProtocolSnapshot,
-  event: Extract<SerialBusEvent, { kind: 'telemetrySample' }>,
-): UiProtocolSnapshot => ({
-  ...protocol,
-  active: true,
-  parserName: event.parser.parserName ?? protocol.parserName,
-  phase: 'streaming' as const,
-  lastPacketKind: 'sample' as const,
-  lastPacketRawFrame: event.rawFrame,
-  lastSampleAtMs: event.timestampMs,
-  lastHandshakeAtMs: event.timestampMs,
-  timeline: appendProtocolTimeline(protocol.timeline, {
-    timestampMs: event.timestampMs,
-    direction: 'rx',
-    command: 'SAMPLE',
-    note: `Sample ${event.sample.fields.length} fields`,
-    parserStatus: event.parser.status,
-  }),
-})
-
-const ingestProtocolShellOutput = (
-  protocol: UiProtocolSnapshot,
-  event: Extract<SerialBusEvent, { kind: 'shellOutput' }>,
-): UiProtocolSnapshot => ({
-  ...protocol,
-  active: true,
-  parserName: event.parser.parserName ?? protocol.parserName,
-  lastPacketKind: 'command' as const,
-  lastPacketRawFrame: event.line.raw,
-  lastHandshakeAtMs: event.timestampMs,
-  timeline: appendProtocolTimeline(protocol.timeline, {
-    timestampMs: event.timestampMs,
-    direction: 'rx',
-    command: 'SHELL_OUTPUT',
-    note: event.line.text,
-    parserStatus: event.parser.status,
-  }),
-})
-
-const appendProtocolTimeline = (timeline: UiProtocolHandshakeEvent[], next: UiProtocolHandshakeEvent) =>
-  [...timeline, next].slice(-PROTOCOL_TIMELINE_LIMIT)
-
-const protocolCommandFromLine = (text: string): UiProtocolHandshakeEvent['command'] | null => {
-  const normalized = text.trim().toUpperCase()
-  if (
-    normalized === 'ACK' ||
-    normalized === 'START' ||
-    normalized === 'STOP' ||
-    normalized === 'REQ_SCHEMA' ||
-    normalized === 'REQ_TUNING' ||
-    normalized === 'SET_TUNING' ||
-    normalized === 'SHELL_EXEC' ||
-    normalized === 'SHELL_OUTPUT'
-  ) {
-    return normalized
-  }
-  if (normalized === 'REQ_IDENTITY') {
-    return normalized
-  }
-  return null
-}
-
-const protocolCommandNote = (command: string) => {
-  switch (command) {
-    case 'ACK':
-      return 'Host acknowledgement'
-    case 'START':
-      return 'Start streaming'
-    case 'STOP':
-      return 'Stop streaming'
-    case 'REQ_SCHEMA':
-      return 'Request schema'
-    case 'REQ_IDENTITY':
-      return 'Request identity'
-    default:
-      return command
-  }
-}
-
-const connectionMessage = (event: Extract<SerialBusEvent, { kind: 'connection' }>) => {
-  const sourceLabel = event.source.transport === 'fake' ? 'fake stream' : 'serial'
-  const label = `${event.source.port} @ ${event.source.baudRate} (${sourceLabel})`
-
-  switch (event.connection.state) {
-    case 'connected':
-      return `Connected to ${label}.`
-    case 'connecting':
-      return `Connecting to ${label} (attempt ${event.connection.attempt}).`
-    case 'waitingRetry':
-      return event.connection.reason
-        ? `Retrying ${label}: ${event.connection.reason}`
-        : `Retrying ${label}.`
-    case 'stopped':
-      return `Stopped ${label}.`
-    default:
-      return `Session is ${event.connection.state}.`
-  }
-}
-
-const applyAnalysis = (
-  variable: VariableEntry,
-  analysis: UiAnalysisPayload,
-  updatedAtMs: number,
-): VariableEntry => ({
-  ...variable,
-  analysis,
-  trend: trendFromDelta(analysis.trend),
-  updatedAtMs,
-})
-
-const autoSelectChannels = (selectedChannels: string[], channelId: string) => {
-  if (selectedChannels.includes(channelId)) {
-    return selectedChannels
-  }
-  if (selectedChannels.length > 0) {
-    return selectedChannels
-  }
-  return [channelId]
-}
-
-const trendFromDelta = (delta: number | null | undefined) => {
-  if (delta === undefined || delta === null) {
-    return 'flat' as const
-  }
-  if (delta > 0) {
-    return 'up' as const
-  }
-  if (delta < 0) {
-    return 'down' as const
-  }
-  return 'flat' as const
-}
-
-const resolveTrendFromValues = (previousValue: number | undefined, nextValue: number | undefined) => {
-  if (previousValue === undefined || previousValue === null || nextValue === undefined || nextValue === null) {
-    return 'flat' as const
-  }
-
-  return trendFromDelta(nextValue - previousValue)
-}
-
-const connectionTone = (state: SessionSnapshot['connectionState']): AppStatus['tone'] => {
-  switch (state) {
-    case 'connected':
-      return 'success'
-    case 'waitingRetry':
-      return 'warning'
-    case 'stopped':
-      return 'neutral'
-    default:
-      return 'neutral'
-  }
-}
-
-const readMcpStatusWithRetry = async () => {
-  let lastStatus = await getMcpServerStatus()
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (lastStatus.isRunning || lastStatus.lastError) {
-      return lastStatus
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, 120))
-    lastStatus = await getMcpServerStatus()
-  }
-
-  return lastStatus
-}
-
-const readLogicAnalyzerStatusSafely = async () => {
-  try {
-    return await getLogicAnalyzerStatus()
-  } catch {
-    return defaultLogicAnalyzerStatus()
-  }
-}
-
-const refreshLogicAnalyzerDevicesSafely = async () => {
-  try {
-    return await refreshLogicAnalyzerDevices()
-  } catch {
-    return readLogicAnalyzerStatusSafely()
-  }
-}
-
-const buildPortsRefreshState = (
-  state: AppStore,
-  ports: SerialDeviceInfo[],
-  silent: boolean,
-): Partial<AppStore> => {
-  const nextState: Partial<AppStore> = {
-    ports,
-    config: {
-      ...state.config,
-      port:
-        state.config.sourceKind === 'fake'
-          ? state.config.port
-          : ports.some((port) => port.portName === state.config.port)
-            ? state.config.port
-            : ports[0]?.portName ?? '',
-    },
-  }
-
-  if (!silent) {
-    nextState.status = {
-      tone: 'neutral',
-      message: ports.length > 0 ? `Found ${ports.length} serial devices.` : 'No serial devices found.',
-    }
-    return nextState
-  }
-
-  if (sameSerialDeviceList(state.ports, ports)) {
-    return nextState
-  }
-
-  nextState.status = {
-    tone: 'neutral',
-    message: ports.length > 0 ? `Detected serial device change. ${ports.length} available.` : 'Detected serial device removal.',
-  }
-  return nextState
-}
-
-const sameSerialDeviceList = (left: SerialDeviceInfo[], right: SerialDeviceInfo[]) =>
-  left.length === right.length &&
-  left.every((device, index) => {
-    const next = right[index]
-    return (
-      device.portName === next?.portName &&
-      device.displayName === next.displayName &&
-      device.portType === next.portType &&
-      device.manufacturer === next.manufacturer &&
-      device.product === next.product &&
-      device.serialNumber === next.serialNumber &&
-      device.vid === next.vid &&
-      device.pid === next.pid
-    )
-  })
-
-const syncLogicAnalyzerConfig = (
-  config: LogicAnalyzerConfig,
-  logicAnalyzer: LogicAnalyzerStatus,
-): LogicAnalyzerConfig => {
-  const availableDeviceRefs = new Set(logicAnalyzer.devices.map((device) => device.reference))
-  const nextDeviceRef =
-    config.deviceRef && availableDeviceRefs.has(config.deviceRef)
-      ? config.deviceRef
-      : logicAnalyzer.selectedDeviceRef ?? logicAnalyzer.devices[0]?.reference ?? ''
-
-  const availableChannelLabels = new Set(logicAnalyzer.lastCapture?.channels.map((channel) => channel.label) ?? [])
-  const nextChannels = config.selectedChannelLabels.filter((channel) => availableChannelLabels.has(channel))
-
-  return {
-    ...config,
-    deviceRef: nextDeviceRef,
-    selectedChannelLabels:
-      nextChannels.length > 0
-        ? nextChannels
-        : logicAnalyzer.lastCapture?.channels.map((channel) => channel.label) ?? config.selectedChannelLabels,
-  }
-}
-
-const parseLogicSamplerate = (value: string) => {
-  const parsed = Number(value.trim())
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
-}
-
-export const shouldPollMcpStatus = (mcp: McpServerStatus) => !mcp.isRunning && !mcp.lastError
-
-const severityTone = (severity: UiTriggerPayload['severity']): AppStatus['tone'] => {
-  switch (severity) {
-    case 'critical':
-      return 'danger'
-    case 'warning':
-      return 'warning'
-    case 'info':
-      return 'neutral'
-  }
-}
-
-const triggerMessage = (trigger: UiTriggerPayload) =>
-  `Trigger ${trigger.ruleId} on ${trigger.channelId}: ${trigger.reason}`
-
-const fakePortLabel = (profile: string) => `fake://${profile}`
-
-const parseSampleTimestampMs = (timestamp: string | undefined, fallback: number) => {
-  if (!timestamp) {
-    return fallback
-  }
-
-  const parsed = Number(timestamp)
-  return Number.isFinite(parsed) ? parsed : fallback
-}
-
-const colorForChannel = (channel: string) => {
-  let hash = 0
-  for (const char of channel) {
-    hash = (hash << 5) - hash + char.charCodeAt(0)
-    hash |= 0
-  }
-  return CHANNEL_COLORS[Math.abs(hash) % CHANNEL_COLORS.length]
-}
-
-const isSameImuChannelMap = (left: ImuChannelMap, right: ImuChannelMap) =>
-  Object.keys(left).every((key) => left[key as ImuChannelRole] === right[key as ImuChannelRole])
-
-const isSameImuAttitudeMap = (left: ImuAttitudeMap, right: ImuAttitudeMap) =>
-  Object.keys(left).every((key) => left[key as ImuAttitudeRole] === right[key as ImuAttitudeRole])
-
-const isSameImuQuaternionMap = (left: ImuQuaternionMap, right: ImuQuaternionMap) =>
-  Object.keys(left).every((key) => left[key as ImuQuaternionRole] === right[key as ImuQuaternionRole])
-
-const isSameImuQualitySnapshot = (left: ImuQualitySnapshot, right: ImuQualitySnapshot) =>
-  left.level === right.level && left.label === right.label && left.details === right.details && left.timestampMs === right.timestampMs
-
-const computeImuQuality = (
-  variables: Record<string, VariableEntry>,
-  state: Pick<AppStore, 'imuChannelMap' | 'imuQuaternionMap' | 'imuAttitudeMap' | 'imuOrientationSource'>,
-) => {
-  const imuRawCount = ['accelX', 'accelY', 'accelZ', 'gyroX', 'gyroY', 'gyroZ'].filter((role) => {
-    const key = role as keyof typeof state.imuChannelMap
-    return Boolean(state.imuChannelMap[key])
-  }).length
-  const quaternionCount = ['quatW', 'quatX', 'quatY', 'quatZ'].filter((role) => {
-    const key = role as keyof typeof state.imuQuaternionMap
-    return Boolean(state.imuQuaternionMap[key])
-  }).length
-
-  if (state.imuOrientationSource === 'rawFusion') {
-    if (quaternionCount === 4) {
-      return {
-        level: 'good' as const,
-        label: 'Rust fused quaternion active',
-        details: 'Quaternion output is available and preferred over local approximation.',
-        timestampMs: latestUpdateForChannels(variables, Object.values(state.imuQuaternionMap)),
-      }
-    }
-    if (imuRawCount >= 4) {
-      return {
-        level: 'warning' as const,
-        label: 'Local fallback active',
-        details: 'Using accel/gyro approximation because fused quaternion is not mapped.',
-        timestampMs: latestUpdateForChannels(variables, Object.values(state.imuChannelMap)),
-      }
-    }
-    return {
-      level: 'critical' as const,
-      label: 'IMU mapping incomplete',
-      details: 'Not enough accel/gyro channels are mapped to compute orientation.',
-      timestampMs: null,
-    }
-  }
-
-  if (state.imuOrientationSource === 'directQuaternion') {
-    return {
-      level: quaternionCount === 4 ? ('good' as const) : ('warning' as const),
-      label: quaternionCount === 4 ? 'Quaternion mapped' : 'Quaternion incomplete',
-      details:
-        quaternionCount === 4
-          ? 'Direct quaternion mode is fully mapped.'
-          : 'Map W/X/Y/Z to use direct quaternion mode.',
-      timestampMs: latestUpdateForChannels(variables, Object.values(state.imuQuaternionMap)),
-    }
-  }
-
-  const attitudeCount = ['roll', 'pitch', 'yaw'].filter((role) => {
-    const key = role as keyof typeof state.imuAttitudeMap
-    return Boolean(state.imuAttitudeMap[key])
-  }).length
-  return {
-    level: attitudeCount === 3 ? ('good' as const) : ('warning' as const),
-    label: attitudeCount === 3 ? 'Angles mapped' : 'Angles incomplete',
-    details:
-      attitudeCount === 3
-        ? 'Direct angle mode is fully mapped.'
-        : 'Map Roll/Pitch/Yaw to use direct angle mode.',
-    timestampMs: latestUpdateForChannels(variables, Object.values(state.imuAttitudeMap)),
-  }
-}
-
-const latestUpdateForChannels = (variables: Record<string, VariableEntry>, channels: Array<string | null>) =>
-  channels
-    .filter((channel): channel is string => Boolean(channel))
-    .map((channel) => variables[channel]?.updatedAtMs ?? null)
-    .reduce<number | null>((latest, timestamp) => {
-      if (timestamp === null) {
-        return latest
-      }
-      return latest === null ? timestamp : Math.max(latest, timestamp)
-    }, null)

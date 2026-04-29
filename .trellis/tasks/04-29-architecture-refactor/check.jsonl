@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/bmi088-host-protocol.md","reason":"Verify protocol behavior stayed aligned after backend refactor."}
+{"file":".trellis/spec/backend/mcp-ai-contract.md","reason":"Verify desktop and MCP shared-session contract stayed intact."}
+{"file":".trellis/spec/frontend/index.md","reason":"Verify refactor preserved intended frontend ownership boundaries."}
+{"file":".trellis/spec/frontend/logic-analyzer-workspace.md","reason":"Verify no accidental regression to logic-analyzer/UI bridge responsibilities."}

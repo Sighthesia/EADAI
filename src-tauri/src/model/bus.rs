@@ -1,0 +1,145 @@
+use eadai::bmi088::{
+    Bmi088IdentityFrame, Bmi088SampleFrame, Bmi088SchemaFrame,
+    encode_identity_frame, encode_sample_frame, encode_schema_frame,
+};
+use eadai::message::{BusMessage, MessageKind};
+use serde::Serialize;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use super::line::{UiLinePayload, UiParserMeta};
+use super::protocol::{UiAnalysisPayload, UiTriggerPayload};
+use super::session::UiSource;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum UiBusEvent {
+    Connection {
+        timestamp_ms: u64,
+        source: UiSource,
+        connection: super::session::UiConnectionPayload,
+    },
+    Line {
+        timestamp_ms: u64,
+        source: UiSource,
+        line: UiLinePayload,
+        parser: UiParserMeta,
+    },
+    ShellOutput {
+        timestamp_ms: u64,
+        source: UiSource,
+        line: UiLinePayload,
+        parser: UiParserMeta,
+    },
+    TelemetrySchema {
+        timestamp_ms: u64,
+        source: UiSource,
+        schema: Bmi088SchemaFrame,
+        raw_frame: Vec<u8>,
+        parser: UiParserMeta,
+    },
+    TelemetryIdentity {
+        timestamp_ms: u64,
+        source: UiSource,
+        identity: Bmi088IdentityFrame,
+        raw_frame: Vec<u8>,
+        parser: UiParserMeta,
+    },
+    TelemetrySample {
+        timestamp_ms: u64,
+        source: UiSource,
+        sample: Bmi088SampleFrame,
+        raw_frame: Vec<u8>,
+        parser: UiParserMeta,
+    },
+    Analysis {
+        timestamp_ms: u64,
+        source: UiSource,
+        analysis: UiAnalysisPayload,
+    },
+    Trigger {
+        timestamp_ms: u64,
+        source: UiSource,
+        trigger: UiTriggerPayload,
+    },
+}
+
+impl From<BusMessage> for UiBusEvent {
+    fn from(value: BusMessage) -> Self {
+        let BusMessage {
+            timestamp,
+            source,
+            kind,
+            parser,
+        } = value;
+        let timestamp_ms = timestamp_ms(timestamp);
+        let source = UiSource::from(source);
+
+        match kind {
+            MessageKind::Connection(connection) => Self::Connection {
+                timestamp_ms,
+                source,
+                connection: connection.into(),
+            },
+            MessageKind::Line(line) => Self::Line {
+                timestamp_ms,
+                source,
+                line: UiLinePayload {
+                    direction: line.direction.into(),
+                    raw_length: line.payload.raw.len(),
+                    text: line.payload.text,
+                    raw: line.payload.raw,
+                },
+                parser: parser.into(),
+            },
+            MessageKind::ShellOutput(line) => Self::ShellOutput {
+                timestamp_ms,
+                source,
+                line: UiLinePayload {
+                    direction: line.direction.into(),
+                    raw_length: line.payload.raw.len(),
+                    text: line.payload.text,
+                    raw: line.payload.raw,
+                },
+                parser: parser.into(),
+            },
+            MessageKind::TelemetrySchema(schema) => Self::TelemetrySchema {
+                timestamp_ms,
+                source,
+                raw_frame: encode_schema_frame(&schema),
+                schema,
+                parser: parser.into(),
+            },
+            MessageKind::TelemetryIdentity(identity) => Self::TelemetryIdentity {
+                timestamp_ms,
+                source,
+                raw_frame: encode_identity_frame(&identity),
+                identity,
+                parser: parser.into(),
+            },
+            MessageKind::TelemetrySample(sample) => Self::TelemetrySample {
+                timestamp_ms,
+                source,
+                raw_frame: encode_sample_frame(&sample),
+                sample,
+                parser: parser.into(),
+            },
+            MessageKind::Analysis(frame) => Self::Analysis {
+                timestamp_ms,
+                source,
+                analysis: frame.into(),
+            },
+            MessageKind::Trigger(trigger) => Self::Trigger {
+                timestamp_ms,
+                source,
+                trigger: trigger.into(),
+            },
+        }
+    }
+}
+
+fn timestamp_ms(timestamp: SystemTime) -> u64 {
+    timestamp
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
