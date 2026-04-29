@@ -1,5 +1,9 @@
 # Embedded Analyzer Design for AI
 
+![showcase](docs/showcase.png)
+
+A Rust-based embedded analyzer for AI applications featuring serial communication, real-time data processing, and a Tauri-powered desktop workbench.
+
 ## Desktop Workbench
 
 - Frontend workspace lives in `ui/`
@@ -31,6 +35,8 @@
 - Reader loop: `cargo run -- run --port <device> --baud 115200`
 
 ### MCP server
+
+Model Context Protocol (MCP) enables AI assistants to interact with the analyzer's runtime data and telemetry.
 
 - Desktop app mode: the Tauri shell now starts one shared read-only MCP server on `http://127.0.0.1:8765/mcp`.
 - Shared mode means the desktop UI and MCP clients read the same runtime session, including fake profiles.
