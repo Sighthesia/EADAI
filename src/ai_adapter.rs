@@ -610,7 +610,10 @@ impl AiContextState {
                             Some("mavlink".to_string()),
                         )
                     });
-                summary.current_value = Some(format!("sys={} comp={}", packet.system_id, packet.component_id));
+                summary.current_value = Some(format!(
+                    "sys={} comp={}",
+                    packet.system_id, packet.component_id
+                ));
                 summary.updated_at_ms = timestamp_ms;
                 self.push_event(AiRecentEvent {
                     timestamp_ms,
@@ -636,11 +639,7 @@ impl AiContextState {
                     .telemetry
                     .entry(channel_key.clone())
                     .or_insert_with(|| {
-                        empty_summary(
-                            &channel_key,
-                            timestamp_ms,
-                            Some("crtp".to_string()),
-                        )
+                        empty_summary(&channel_key, timestamp_ms, Some("crtp".to_string()))
                     });
                 summary.current_value = Some(format!("ch={}", packet.channel));
                 summary.updated_at_ms = timestamp_ms;
@@ -651,11 +650,7 @@ impl AiContextState {
                     connection: None,
                     line: Some(AiLineEventRecord {
                         direction: crate::message::LineDirection::Rx,
-                        text: format!(
-                            "crtp port={} ch={}",
-                            packet.port.label(),
-                            packet.channel
-                        ),
+                        text: format!("crtp port={} ch={}", packet.port.label(), packet.channel),
                         raw_length: packet.payload.len(),
                         parser: crate::message::ParserMeta::parsed("crtp", packet.fields()),
                     }),
@@ -666,6 +661,135 @@ impl AiContextState {
             MessageKind::Capability(_) => {
                 // Capability events are consumed by the UI layer directly;
                 // the AI adapter does not need to track them separately.
+            }
+            MessageKind::SelfDescribingIdentity(identity) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "self_describing identity {} v{}",
+                            identity.device_name, identity.firmware_version
+                        ),
+                        raw_length: 0,
+                        parser: crate::message::ParserMeta::parsed(
+                            "self_describing",
+                            [
+                                ("device_name".to_string(), identity.device_name),
+                                ("firmware_version".to_string(), identity.firmware_version),
+                            ]
+                            .into(),
+                        ),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
+            MessageKind::SelfDescribingVariableCatalog(catalog) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "self_describing variable_catalog page {}/{} vars={}",
+                            catalog.page + 1,
+                            catalog.total_pages,
+                            catalog.variables.len()
+                        ),
+                        raw_length: 0,
+                        parser: crate::message::ParserMeta::parsed("self_describing", [].into()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
+            MessageKind::SelfDescribingCommandCatalog(catalog) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "self_describing command_catalog page {}/{} cmds={}",
+                            catalog.page + 1,
+                            catalog.total_pages,
+                            catalog.commands.len()
+                        ),
+                        raw_length: 0,
+                        parser: crate::message::ParserMeta::parsed("self_describing", [].into()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
+            MessageKind::SelfDescribingSample(sample) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "self_describing sample seq={} bitmap_len={} values_len={}",
+                            sample.seq,
+                            sample.changed_bitmap.len(),
+                            sample.values.len()
+                        ),
+                        raw_length: sample.values.len(),
+                        parser: crate::message::ParserMeta::parsed("self_describing", [].into()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
+            MessageKind::SelfDescribingSetVariable(set_var) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Tx,
+                        text: format!(
+                            "self_describing set_variable seq={} var_idx={} value_len={}",
+                            set_var.seq,
+                            set_var.variable_index,
+                            set_var.value.len()
+                        ),
+                        raw_length: set_var.value.len(),
+                        parser: crate::message::ParserMeta::parsed("self_describing", [].into()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
+            MessageKind::SelfDescribingAckResult(result) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "self_describing ack_result seq={} code={} msg={}",
+                            result.seq, result.code, result.message
+                        ),
+                        raw_length: 0,
+                        parser: crate::message::ParserMeta::parsed("self_describing", [].into()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
             }
         }
     }

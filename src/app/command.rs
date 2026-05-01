@@ -1,5 +1,6 @@
 use crate::bmi088::Bmi088HostCommand;
 use crate::error::AppError;
+use crate::protocols::self_describing::frame::SetVariable;
 use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,8 +8,16 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 pub(super) enum RuntimeCommand {
-    Send { payload: Vec<u8> },
-    SendBmi088 { command: Bmi088HostCommand, payload: Option<Vec<u8>> },
+    Send {
+        payload: Vec<u8>,
+    },
+    SendBmi088 {
+        command: Bmi088HostCommand,
+        payload: Option<Vec<u8>>,
+    },
+    SendSelfDescribingSetVariable {
+        set_variable: SetVariable,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -39,6 +48,20 @@ impl RuntimeCommandHandle {
     ) -> Result<(), AppError> {
         self.sender
             .send(RuntimeCommand::SendBmi088 { command, payload })
+            .map_err(|_| {
+                AppError::Io(std::io::Error::new(
+                    ErrorKind::BrokenPipe,
+                    "runtime command channel is closed",
+                ))
+            })
+    }
+
+    pub fn send_self_describing_set_variable(
+        &self,
+        set_variable: SetVariable,
+    ) -> Result<(), AppError> {
+        self.sender
+            .send(RuntimeCommand::SendSelfDescribingSetVariable { set_variable })
             .map_err(|_| {
                 AppError::Io(std::io::Error::new(
                     ErrorKind::BrokenPipe,

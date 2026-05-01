@@ -1,8 +1,12 @@
 use eadai::bmi088::{
-    Bmi088IdentityFrame, Bmi088SampleFrame, Bmi088SchemaFrame,
-    encode_identity_frame, encode_sample_frame, encode_schema_frame,
+    Bmi088IdentityFrame, Bmi088SampleFrame, Bmi088SchemaFrame, encode_identity_frame,
+    encode_sample_frame, encode_schema_frame,
 };
 use eadai::message::{BusMessage, MessageKind};
+use eadai::protocols::self_describing::frame::{
+    AckResult, CommandCatalogPage, Identity as SelfDescribingIdentity, SetVariable,
+    TelemetrySample as SelfDescribingSample, VariableCatalogPage,
+};
 use eadai::protocols::{CapabilityEvent, CrtpPacket, MavlinkPacket};
 use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,7 +16,11 @@ use super::protocol::{UiAnalysisPayload, UiTriggerPayload};
 use super::session::UiSource;
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum UiBusEvent {
     Connection {
         timestamp_ms: u64,
@@ -76,6 +84,36 @@ pub enum UiBusEvent {
         timestamp_ms: u64,
         source: UiSource,
         trigger: UiTriggerPayload,
+    },
+    SelfDescribingIdentity {
+        timestamp_ms: u64,
+        source: UiSource,
+        identity: SelfDescribingIdentity,
+    },
+    SelfDescribingVariableCatalog {
+        timestamp_ms: u64,
+        source: UiSource,
+        catalog: VariableCatalogPage,
+    },
+    SelfDescribingCommandCatalog {
+        timestamp_ms: u64,
+        source: UiSource,
+        catalog: CommandCatalogPage,
+    },
+    SelfDescribingSample {
+        timestamp_ms: u64,
+        source: UiSource,
+        sample: SelfDescribingSample,
+    },
+    SelfDescribingSetVariable {
+        timestamp_ms: u64,
+        source: UiSource,
+        set_variable: SetVariable,
+    },
+    SelfDescribingAckResult {
+        timestamp_ms: u64,
+        source: UiSource,
+        result: AckResult,
     },
 }
 
@@ -209,6 +247,40 @@ impl From<BusMessage> for UiBusEvent {
                 timestamp_ms,
                 source,
                 trigger: trigger.into(),
+            },
+            MessageKind::SelfDescribingIdentity(identity) => Self::SelfDescribingIdentity {
+                timestamp_ms,
+                source,
+                identity,
+            },
+            MessageKind::SelfDescribingVariableCatalog(catalog) => {
+                Self::SelfDescribingVariableCatalog {
+                    timestamp_ms,
+                    source,
+                    catalog,
+                }
+            }
+            MessageKind::SelfDescribingCommandCatalog(catalog) => {
+                Self::SelfDescribingCommandCatalog {
+                    timestamp_ms,
+                    source,
+                    catalog,
+                }
+            }
+            MessageKind::SelfDescribingSample(sample) => Self::SelfDescribingSample {
+                timestamp_ms,
+                source,
+                sample,
+            },
+            MessageKind::SelfDescribingSetVariable(set_var) => Self::SelfDescribingSetVariable {
+                timestamp_ms,
+                source,
+                set_variable: set_var,
+            },
+            MessageKind::SelfDescribingAckResult(result) => Self::SelfDescribingAckResult {
+                timestamp_ms,
+                source,
+                result,
             },
         }
     }

@@ -12,12 +12,15 @@ use crate::error::AppError;
 use crate::message::{BusMessage, ConnectionState, MessageSource};
 use crate::parser;
 use crate::protocols::{
-    CrtpDecoder, MavlinkDecoder, SerialTransport, ByteTransport,
-    capability::{mavlink_to_capabilities, crtp_to_capabilities},
+    ByteTransport, CrtpDecoder, MavlinkDecoder, SerialTransport,
+    capability::{crtp_to_capabilities, mavlink_to_capabilities},
+    self_describing::{SelfDescribingSession, decode_crtp_packet, is_self_describing_packet},
 };
 use std::sync::mpsc;
 
-use bmi088_publish::{publish_identity, publish_rx_with_analysis, publish_sample, publish_schema, send_bmi088_command};
+use bmi088_publish::{
+    publish_identity, publish_rx_with_analysis, publish_sample, publish_schema, send_bmi088_command,
+};
 use command::RuntimeCommand;
 use helpers::{outbound_payload, sleep_with_stop};
 
@@ -93,11 +96,10 @@ impl App {
                     let mut analysis = AnalysisEngine::new();
                     let mut bmi088_decoder =
                         bmi088::Bmi088StreamDecoder::new(self.config.max_frame_bytes);
-                    let mut mavlink_decoder =
-                        MavlinkDecoder::new(self.config.max_frame_bytes);
-                    let mut crtp_decoder =
-                        CrtpDecoder::new(self.config.max_frame_bytes);
+                    let mut mavlink_decoder = MavlinkDecoder::new(self.config.max_frame_bytes);
+                    let mut crtp_decoder = CrtpDecoder::new(self.config.max_frame_bytes);
                     let mut bmi088_session = Bmi088SessionState::new();
+                    let mut self_describing_session = SelfDescribingSession::new();
                     let parser = self.config.parser;
 
                     if parser == ParserKind::Bmi088 {
@@ -144,6 +146,7 @@ impl App {
                                 &mut mavlink_decoder,
                                 &mut crtp_decoder,
                                 &mut bmi088_session,
+                                &mut self_describing_session,
                                 &mut transport,
                             )?;
                         }
@@ -181,20 +184,15 @@ impl App {
     }
 
     /// Opens a transport connection based on the configured transport selection.
-    fn open_transport(
-        &self,
-    ) -> Result<Box<dyn ByteTransport>, AppError> {
+    fn open_transport(&self) -> Result<Box<dyn ByteTransport>, AppError> {
         match &self.config.transport {
             TransportSelection::Serial => {
                 let port = crate::serial::open_port(&self.config)?;
                 Ok(Box::new(SerialTransport::from_port(port, &self.config)))
             }
             TransportSelection::Crazyradio { uri } => {
-                use crate::protocols::{CrazyradioTransport, CrazyradioDatarate};
-                let transport = CrazyradioTransport::connect(
-                    uri,
-                    CrazyradioDatarate::Dr2M,
-                )?;
+                use crate::protocols::{CrazyradioDatarate, CrazyradioTransport};
+                let transport = CrazyradioTransport::connect(uri, CrazyradioDatarate::Dr2M)?;
                 Ok(Box::new(transport))
             }
         }
@@ -242,7 +240,14 @@ impl App {
                         && let Some(command) =
                             host_command_from_text(&String::from_utf8_lossy(&payload))
                     {
-                        send_bmi088_command(&self.bus, source, transport, bmi088_session, command, None)?;
+                        send_bmi088_command(
+                            &self.bus,
+                            source,
+                            transport,
+                            bmi088_session,
+                            command,
+                            None,
+                        )?;
                     } else {
                         transport.write_all(&payload)?;
                         transport.flush()?;
@@ -251,9 +256,25 @@ impl App {
                     }
                 }
                 Ok(RuntimeCommand::SendBmi088 { command, payload }) => {
-                    send_bmi088_command(&self.bus, source, transport, bmi088_session, command, payload)?;
+                    send_bmi088_command(
+                        &self.bus,
+                        source,
+                        transport,
+                        bmi088_session,
+                        command,
+                        payload,
+                    )?;
                 }
-                Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
+                Ok(RuntimeCommand::SendSelfDescribingSetVariable { set_variable }) => {
+                    self.send_self_describing_frame(
+                        source,
+                        transport,
+                        &crate::protocols::self_describing::Frame::SetVariable(set_variable),
+                    )?;
+                }
+                Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => {
+                    return Ok(());
+                }
             }
         }
     }
@@ -270,14 +291,13 @@ impl App {
         mavlink_decoder: &mut MavlinkDecoder,
         crtp_decoder: &mut CrtpDecoder,
         bmi088_session: &mut Bmi088SessionState,
+        self_describing_session: &mut SelfDescribingSession,
         transport: &mut dyn ByteTransport,
     ) -> Result<(), AppError> {
         match parser {
             ParserKind::Bmi088 => {
                 for packet in bmi088_decoder.push(chunk) {
-                    self.handle_bmi088_packet(
-                        packet, source, analysis, bmi088_session, transport,
-                    )?;
+                    self.handle_bmi088_packet(packet, source, analysis, bmi088_session, transport)?;
                 }
             }
             ParserKind::Mavlink => {
@@ -290,7 +310,8 @@ impl App {
                         packet.payload.len(),
                     );
                     // Emit raw protocol event
-                    self.bus.publish(BusMessage::mavlink_packet(source, packet.clone()));
+                    self.bus
+                        .publish(BusMessage::mavlink_packet(source, packet.clone()));
                     // Emit unified capability events
                     for cap_event in mavlink_to_capabilities(&packet) {
                         self.bus.publish(BusMessage::capability(source, cap_event));
@@ -306,10 +327,32 @@ impl App {
                         packet.payload.len(),
                     );
                     // Emit raw protocol event
-                    self.bus.publish(BusMessage::crtp_packet(source, packet.clone()));
-                    // Emit unified capability events
-                    for cap_event in crtp_to_capabilities(&packet) {
-                        self.bus.publish(BusMessage::capability(source, cap_event));
+                    self.bus
+                        .publish(BusMessage::crtp_packet(source, packet.clone()));
+
+                    // Check if this is a self-describing protocol packet
+                    if is_self_describing_packet(&packet) {
+                        if let Ok(Some(frame)) = decode_crtp_packet(&packet) {
+                            let responses = self_describing_session.on_frame(&frame);
+                            self.publish_self_describing_frame(source, &frame);
+
+                            // Send any response frames
+                            for response in responses {
+                                self.publish_self_describing_frame(source, &response);
+                                if let Err(e) =
+                                    self.send_self_describing_frame(source, transport, &response)
+                                {
+                                    eprintln!(
+                                        "[crtp][app] failed to send self-describing response: {e}"
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        // Emit unified capability events for non-self-describing packets
+                        for cap_event in crtp_to_capabilities(&packet) {
+                            self.bus.publish(BusMessage::capability(source, cap_event));
+                        }
                     }
                 }
             }
@@ -318,9 +361,7 @@ impl App {
 
                 for packet in bmi088_decoder.push(chunk) {
                     handled = true;
-                    self.handle_bmi088_packet(
-                        packet, source, analysis, bmi088_session, transport,
-                    )?;
+                    self.handle_bmi088_packet(packet, source, analysis, bmi088_session, transport)?;
                 }
 
                 if !handled {
@@ -330,7 +371,8 @@ impl App {
                             "[mavlink][auto] decoded msg_id=0x{:04X} sys={} comp={}",
                             packet.message_id, packet.system_id, packet.component_id,
                         );
-                        self.bus.publish(BusMessage::mavlink_packet(source, packet.clone()));
+                        self.bus
+                            .publish(BusMessage::mavlink_packet(source, packet.clone()));
                         for cap_event in mavlink_to_capabilities(&packet) {
                             self.bus.publish(BusMessage::capability(source, cap_event));
                         }
@@ -339,13 +381,38 @@ impl App {
 
                 if !handled {
                     for packet in crtp_decoder.push(chunk) {
+                        handled = true;
                         eprintln!(
                             "[crtp][auto] decoded port={} channel={}",
-                            packet.port.label(), packet.channel,
+                            packet.port.label(),
+                            packet.channel,
                         );
-                        self.bus.publish(BusMessage::crtp_packet(source, packet.clone()));
-                        for cap_event in crtp_to_capabilities(&packet) {
-                            self.bus.publish(BusMessage::capability(source, cap_event));
+                        self.bus
+                            .publish(BusMessage::crtp_packet(source, packet.clone()));
+
+                        // Check if this is a self-describing protocol packet
+                        if is_self_describing_packet(&packet) {
+                            if let Ok(Some(frame)) = decode_crtp_packet(&packet) {
+                                let responses = self_describing_session.on_frame(&frame);
+                                self.publish_self_describing_frame(source, &frame);
+
+                                // Send any response frames
+                                for response in responses {
+                                    self.publish_self_describing_frame(source, &response);
+                                    if let Err(e) = self
+                                        .send_self_describing_frame(source, transport, &response)
+                                    {
+                                        eprintln!(
+                                            "[crtp][auto] failed to send self-describing response: {e}"
+                                        );
+                                    }
+                                }
+                            }
+                        } else {
+                            // Emit unified capability events for non-self-describing packets
+                            for cap_event in crtp_to_capabilities(&packet) {
+                                self.bus.publish(BusMessage::capability(source, cap_event));
+                            }
                         }
                     }
                 }
@@ -377,13 +444,7 @@ impl App {
                     status: crate::serial::FrameStatus::Complete,
                 };
                 let parser_meta = parser::parse_framed_line(parser, &framed);
-                publish_rx_with_analysis(
-                    &self.bus,
-                    source,
-                    analysis,
-                    framed.payload,
-                    parser_meta,
-                );
+                publish_rx_with_analysis(&self.bus, source, analysis, framed.payload, parser_meta);
             }
         }
 
@@ -401,13 +462,7 @@ impl App {
         match packet {
             TelemetryPacket::Text(line) => {
                 let parser_meta = parser::parse_framed_line(ParserKind::Auto, &line);
-                publish_rx_with_analysis(
-                    &self.bus,
-                    source,
-                    analysis,
-                    line.payload,
-                    parser_meta,
-                );
+                publish_rx_with_analysis(&self.bus, source, analysis, line.payload, parser_meta);
             }
             TelemetryPacket::ShellOutput(output) => {
                 self.bus.publish(BusMessage::shell_output(source, output));
@@ -436,4 +491,108 @@ impl App {
         }
         Ok(())
     }
+
+    fn publish_self_describing_frame(
+        &self,
+        source: &MessageSource,
+        frame: &crate::protocols::self_describing::Frame,
+    ) {
+        use crate::protocols::self_describing::Frame;
+        match frame {
+            Frame::Identity(identity) => {
+                self.bus.publish(BusMessage::self_describing_identity(
+                    source,
+                    identity.clone(),
+                ));
+            }
+            Frame::VariableCatalogPage(catalog) => {
+                self.bus
+                    .publish(BusMessage::self_describing_variable_catalog(
+                        source,
+                        catalog.clone(),
+                    ));
+            }
+            Frame::CommandCatalogPage(catalog) => {
+                self.bus
+                    .publish(BusMessage::self_describing_command_catalog(
+                        source,
+                        catalog.clone(),
+                    ));
+            }
+            Frame::TelemetrySample(sample) => {
+                self.bus
+                    .publish(BusMessage::self_describing_sample(source, sample.clone()));
+            }
+            Frame::SetVariable(set_var) => {
+                self.bus.publish(BusMessage::self_describing_set_variable(
+                    source,
+                    set_var.clone(),
+                ));
+            }
+            Frame::AckResult(result) => {
+                self.bus.publish(BusMessage::self_describing_ack_result(
+                    source,
+                    result.clone(),
+                ));
+            }
+            Frame::HostAck(ack) => {
+                // HostAck is a host-to-device message, log it but don't publish as a bus event
+                eprintln!(
+                    "[self-describing][app] tx HOST_ACK stage={:?} status={}",
+                    ack.stage, ack.status
+                );
+            }
+        }
+    }
+
+    /// Encode a self-describing frame as a CRTP packet and send it over the transport.
+    fn send_self_describing_frame(
+        &self,
+        source: &MessageSource,
+        transport: &mut dyn ByteTransport,
+        frame: &crate::protocols::self_describing::Frame,
+    ) -> Result<(), AppError> {
+        use crate::protocols::self_describing::encode_crtp_packet;
+
+        let crtp_packet = encode_crtp_packet(frame);
+        eprintln!(
+            "[self-describing][app] sending CRTP frame port={} channel={} payload_len={}",
+            crtp_packet.port.label(),
+            crtp_packet.channel,
+            crtp_packet.payload.len()
+        );
+
+        // Build the raw CRTP frame: [header][length][payload][crc8]
+        let header = ((crate::protocols::self_describing::SELF_DESCRIBING_CRTP_PORT & 0x07) << 5)
+            | (crate::protocols::self_describing::SELF_DESCRIBING_CRTP_CHANNEL & 0x03);
+        let mut raw_frame = vec![header, crtp_packet.payload.len() as u8];
+        raw_frame.extend_from_slice(&crtp_packet.payload);
+        let crc = crc8_update(0, &raw_frame);
+        raw_frame.push(crc);
+
+        transport.write_all(&raw_frame)?;
+        transport.flush()?;
+
+        // Publish the outgoing frame as a bus event
+        self.bus
+            .publish(BusMessage::tx_line(source, outbound_payload(&raw_frame)));
+
+        Ok(())
+    }
+}
+
+/// CRC-8/SAE-J1850 used by CRTP.
+fn crc8_update(crc: u8, data: &[u8]) -> u8 {
+    let mut crc = crc;
+    for &byte in data {
+        crc ^= byte;
+        for _ in 0..8 {
+            if crc & 0x80 != 0 {
+                crc = (crc << 1) ^ 0x1D;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    crc
 }

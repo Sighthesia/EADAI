@@ -1,5 +1,9 @@
 use crate::analysis::{AnalysisFrame, TriggerEvent};
 use crate::bmi088::{Bmi088IdentityFrame, Bmi088SampleFrame, Bmi088SchemaFrame};
+use crate::protocols::self_describing::frame::{
+    AckResult, CommandCatalogPage, Identity as SelfDescribingIdentity, SetVariable,
+    TelemetrySample as SelfDescribingSample, VariableCatalogPage,
+};
 use crate::protocols::{CapabilityEvent, CrtpPacket, MavlinkPacket};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -124,6 +128,18 @@ pub enum MessageKind {
     Capability(CapabilityEvent),
     Analysis(AnalysisFrame),
     Trigger(TriggerEvent),
+    /// Self-describing protocol: device identity received.
+    SelfDescribingIdentity(SelfDescribingIdentity),
+    /// Self-describing protocol: variable catalog page received.
+    SelfDescribingVariableCatalog(VariableCatalogPage),
+    /// Self-describing protocol: command catalog page received.
+    SelfDescribingCommandCatalog(CommandCatalogPage),
+    /// Self-describing protocol: telemetry sample received.
+    SelfDescribingSample(SelfDescribingSample),
+    /// Self-describing protocol: set variable request from host.
+    SelfDescribingSetVariable(SetVariable),
+    /// Self-describing protocol: acknowledgment/result from device.
+    SelfDescribingAckResult(AckResult),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -257,6 +273,69 @@ impl BusMessage {
             timestamp: SystemTime::now(),
             source: source.clone(),
             kind: MessageKind::Capability(event),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn self_describing_identity(
+        source: &MessageSource,
+        identity: SelfDescribingIdentity,
+    ) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::SelfDescribingIdentity(identity),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn self_describing_variable_catalog(
+        source: &MessageSource,
+        catalog: VariableCatalogPage,
+    ) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::SelfDescribingVariableCatalog(catalog),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn self_describing_command_catalog(
+        source: &MessageSource,
+        catalog: CommandCatalogPage,
+    ) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::SelfDescribingCommandCatalog(catalog),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn self_describing_sample(source: &MessageSource, sample: SelfDescribingSample) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::SelfDescribingSample(sample),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn self_describing_set_variable(source: &MessageSource, set_var: SetVariable) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::SelfDescribingSetVariable(set_var),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn self_describing_ack_result(source: &MessageSource, result: AckResult) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::SelfDescribingAckResult(result),
             parser: ParserMeta::default(),
         }
     }

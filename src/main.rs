@@ -231,6 +231,53 @@ fn print_messages(subscription: BusSubscription) {
             MessageKind::Capability(event) => {
                 println!("[capability] {:?}", event);
             }
+            MessageKind::SelfDescribingIdentity(identity) => {
+                println!(
+                    "[self-describing-identity] device={} firmware={} vars={} cmds={}",
+                    identity.device_name,
+                    identity.firmware_version,
+                    identity.variable_count,
+                    identity.command_count
+                );
+            }
+            MessageKind::SelfDescribingVariableCatalog(catalog) => {
+                println!(
+                    "[self-describing-variable-catalog] page={}/{} vars={}",
+                    catalog.page + 1,
+                    catalog.total_pages,
+                    catalog.variables.len()
+                );
+            }
+            MessageKind::SelfDescribingCommandCatalog(catalog) => {
+                println!(
+                    "[self-describing-command-catalog] page={}/{} cmds={}",
+                    catalog.page + 1,
+                    catalog.total_pages,
+                    catalog.commands.len()
+                );
+            }
+            MessageKind::SelfDescribingSample(sample) => {
+                println!(
+                    "[self-describing-sample] seq={} bitmap_len={} values_len={}",
+                    sample.seq,
+                    sample.changed_bitmap.len(),
+                    sample.values.len()
+                );
+            }
+            MessageKind::SelfDescribingSetVariable(set_var) => {
+                println!(
+                    "[self-describing-set-variable] seq={} var_idx={} value_len={}",
+                    set_var.seq,
+                    set_var.variable_index,
+                    set_var.value.len()
+                );
+            }
+            MessageKind::SelfDescribingAckResult(result) => {
+                println!(
+                    "[self-describing-ack-result] seq={} code={} msg={}",
+                    result.seq, result.code, result.message
+                );
+            }
         }
     }
 }
