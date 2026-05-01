@@ -64,3 +64,4 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 | `.agents/skills/tauri-streaming-debug/SKILL.md` | Tauri fake stream, waveform rendering, cursor/overlay sync, store batching, or high-frequency UI update debugging |
 | `.agents/skills/bmi088-host-handshake-sync/SKILL.md` | BMI088 UART4 schema-first handshake, host parser, ACK/START flow, or shared debug/telemetry port debugging |
 | `.agents/skills/protocol-handshake-debugging/SKILL.md` | Generic schema-first binary protocol, mixed text/binary stream, handshake, CRC, or high-rate telemetry debugging |
+| `.agents/skills/self-describing-protocol-integration/SKILL.md` | Firmware-side adoption of the generic self-describing device protocol: identity, catalog handshake, bitmap-compressed samples, variable write-back |
