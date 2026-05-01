@@ -1,20 +1,74 @@
 # Serial Multi-Protocol Contract
 
-> Executable contract for built-in serial protocol ingest beyond plain text, including BMI088, MAVLink, and Crazyflie CRTP-over-serial.
+> Executable contract for built-in protocol ingest beyond plain text, including BMI088, MAVLink, Crazyflie CRTP, and Crazyradio transport.
 
 ---
 
 ## 1. Scope / Trigger
 
-- Trigger: the serial runtime now supports multiple built-in protocols on the same backend ingest path.
-- Scope: parser selection, auto-detect behavior, protocol decoder boundaries, Rust bus events, and Tauri/UI projections.
-- This spec exists to prevent future sessions from conflating `CRTP-over-serial` support with full Crazyflie transport support.
+- Trigger: the runtime now supports multiple built-in protocols on the same backend ingest path, with explicit transport/framing/semantic/capability layering.
+- Scope: transport selection, parser selection, auto-detect behavior, protocol decoder boundaries, capability event mapping, Rust bus events, and Tauri/UI projections.
+- This spec documents the layered architecture for protocol support and the boundary between serial-only and Crazyradio transport.
 
 ---
 
-## 2. Signatures
+## 2. Architecture Layers
+
+The protocol support is organized into four explicit layers:
+
+```
++-------------------+
+|    Capability     |  <- Cross-protocol business events (Attitude, Battery, GPS, etc.)
++-------------------+
+|     Semantic      |  <- Protocol-specific field extraction (MAVLink fields, CRTP ports)
++-------------------+
+|     Framing       |  <- Frame detection and extraction (MAVLink v2, CRTP-over-serial)
++-------------------+
+|    Transport      |  <- Byte stream (Serial, Crazyradio, Fake)
++-------------------+
+```
+
+### Transport Layer (`src/protocols/transport.rs`)
+
+- `ByteTransport` trait: provides `read_chunk()`, `write_all()`, `flush()`, `is_connected()`
+- `TransportKind` enum: `Serial`, `Crazyradio`, `CrazyflieUsb`, `Fake`
+- Implementations:
+  - `SerialTransport` (`src/protocols/serial_transport.rs`): wraps `serialport::SerialPort`
+  - `CrazyradioTransport` (`src/protocols/crazyradio.rs`): wraps `crazyflie-link` async link
+- The transport layer is protocol-agnostic; it only provides byte streams.
+
+### Framing Layer (`src/protocols/mavlink.rs`, `src/protocols/crtp.rs`)
+
+- `MavlinkDecoder::push(chunk) -> Vec<MavlinkPacket>`: MAVLink v2 frame detection with CRC validation
+- `CrtpDecoder::push(chunk) -> Vec<CrtpPacket>`: CRTP-over-serial frame detection with CRC-8 validation
+- Decoders are stateful and handle partial frame assembly across chunks.
+
+### Semantic Layer (within decoder `fields()` methods)
+
+- `MavlinkPacket::fields() -> BTreeMap<String, String>`: extracts semantic fields for known message IDs
+- `CrtpPacket::fields() -> BTreeMap<String, String>`: extracts semantic fields for known CRTP ports
+- Semantic mapping is集中 in the Rust backend, not in the UI.
+
+### Capability Layer (`src/protocols/capability.rs`)
+
+- `CapabilityEvent` enum: cross-protocol business events
+  - `Attitude(AttitudeData)`: roll, pitch, yaw
+  - `BatteryStatus(BatteryData)`: voltage, current, remaining
+  - `GpsPosition(GpsData)`: lat, lon, alt, satellites
+  - `ImuData(ImuData)`: accel, gyro, mag
+  - `LocalPosition(LocalPositionData)`: x, y, z, vx, vy, vz
+  - `SystemStatus(SystemStatusData)`: system health
+  - `RawPacket(RawPacketData)`: debug/protocol-specific display
+- `mavlink_to_capabilities(packet)`: maps MAVLink messages to capability events
+- `crtp_to_capabilities(packet)`: maps CRTP packets to capability events
+- Capability events are published to the bus alongside raw protocol events.
+
+---
+
+## 3. Signatures
 
 - CLI parser modes: `ParserKind::{Auto, KeyValue, Measurements, Bmi088, Mavlink, Crtp}`.
+- CLI transport selection: `TransportSelection::{Serial, Crazyradio { uri }}`.
 - Runtime decoder entry points:
   - `Bmi088StreamDecoder::push(chunk)`
   - `MavlinkDecoder::push(chunk)`
@@ -25,24 +79,33 @@
   - `MessageKind::TelemetrySample`
   - `MessageKind::MavlinkPacket`
   - `MessageKind::CrtpPacket`
+  - `MessageKind::Capability` (new)
 - Tauri/UI event kinds:
   - `UiBusEvent::TelemetryIdentity`
   - `UiBusEvent::TelemetrySchema`
   - `UiBusEvent::TelemetrySample`
   - `UiBusEvent::MavlinkPacket`
   - `UiBusEvent::CrtpPacket`
+  - `UiBusEvent::Capability` (new)
 
 ---
 
-## 3. Contracts
+## 4. Contracts
+
+### Transport scope
+
+- `TransportSelection::Serial` is the default transport; uses `serialport` crate.
+- `TransportSelection::Crazyradio { uri }` uses `crazyflie-link` crate for real Crazyradio dongle communication.
+- `CrazyradioTransport` is a real, runnable transport backed by the `crazyflie-link` async link.
+- `CrazyflieUsb` is reserved for future USB native transport; not yet implemented.
+- CLI `--transport serial` and `--transport crazyradio --radio-uri <uri>` select the transport.
 
 ### Built-in protocol scope
 
-- `Mavlink` means serial MAVLink frame detection and parsing in the Rust backend.
-- `Crtp` means Crazyflie `CRTP-over-serial` only.
-- `Crtp` does **not** imply Crazyradio dongle support.
-- `Crtp` does **not** imply Crazyflie USB native transport support.
-- CLI or docs must not claim full Crazyflie support unless transport work is implemented separately.
+- `Mavlink` means MAVLink v2 frame detection and parsing in the Rust backend.
+- `Crtp` means Crazyflie `CRTP-over-serial` framing.
+- `Crtp` framing works over both serial and Crazyradio transports.
+- CLI or docs must not claim "complete Crazyflie support" unless all transports and capabilities are implemented.
 
 ### Auto-detect behavior
 
@@ -71,6 +134,14 @@
   - `channel`
   - `payload_len`
   - `fields`
+- Capability events include `source_protocol` field to identify the originating protocol.
+
+### Capability event contract
+
+- Capability events are published for every MAVLink/CRTP packet that maps to a known capability.
+- Raw protocol events are always published (for debug and protocol-specific display).
+- UI may consume capability events for cross-protocol unified display.
+- Capability events include `source_protocol` ("mavlink" or "crtp") for traceability.
 
 ### Semantic field projection
 
@@ -121,42 +192,45 @@
 
 ---
 
-## 4. Validation & Error Matrix
+## 5. Validation & Error Matrix
 
 - Invalid or truncated MAVLink frame -> drop/resync at decoder level, never panic.
 - Invalid or truncated CRTP-over-serial frame -> drop/resync at decoder level, never panic.
 - Unknown MAVLink message ID without known CRC extra -> packet may be surfaced as untyped/weakly validated, but must not masquerade as a different protocol.
 - Garbage bytes before a valid binary frame -> skipped until sync is re-established.
 - Auto mode receives ordinary text -> must fall through to text parsing instead of inventing protocol packets.
-- User selects `--parser crtp` -> behavior is limited to CRTP-over-serial; no transport side effects or Crazyradio assumptions.
+- User selects `--parser crtp` -> behavior is limited to CRTP framing; transport is selected separately via `--transport`.
+- Crazyradio connection failure -> transport returns `TransportError::ConnectionFailed`; runtime retries via reconnect controller.
 - Common-message semantic projection missing required keys -> contract drift; fix the Rust decoder mapping instead of patching around it in UI-only code.
 
 ---
 
-## 5. Good/Base/Bad Cases
+## 6. Good/Base/Bad Cases
 
-- Good: `--parser auto` on a MAVLink serial stream emits `MavlinkPacket` events into Rust, Tauri, and UI.
-- Good: `--parser auto` on a CRTP-over-serial stream emits `CrtpPacket` events into Rust, Tauri, and UI.
+- Good: `--parser auto --transport serial` on a MAVLink serial stream emits `MavlinkPacket` + `Capability` events.
+- Good: `--parser auto --transport serial` on a CRTP-over-serial stream emits `CrtpPacket` + `Capability` events.
+- Good: `--transport crazyradio --radio-uri radio://0/60/2M/E7E7E7E7E7` connects via Crazyradio dongle.
 - Good: `--parser auto` on legacy text telemetry still emits text line events and analysis.
-- Base: `--parser mavlink` and `--parser crtp` are explicit receive-side protocol modes, not promises about outbound control features.
-- Bad: describe `crtp` support as "Crazyflie supported" without stating it is serial-only.
+- Base: `--parser mavlink` and `--parser crtp` are explicit framing modes, not promises about outbound control features.
+- Bad: describe `crtp` support as "Crazyflie supported" without stating transport scope.
 - Bad: move MAVLink or CRTP decode logic into the frontend.
 - Bad: let auto mode greedily claim arbitrary text as binary packets without CRC or framing evidence.
 
 ---
 
-## 6. Tests Required
+## 7. Tests Required
 
 - Decoder tests must cover good frames, bad CRC/checksum, garbage before sync, and partial chunk assembly for both MAVLink and CRTP.
+- Capability tests must verify MAVLink-to-capability mapping for attitude, battery, GPS, IMU, and system status.
 - Runtime tests should preserve existing text parser behavior in auto mode.
 - Cross-layer tests should assert new bus event kinds serialize through Tauri models without shape drift.
 - Semantic mapping tests should assert the required `fields` keys for the covered MAVLink message IDs and CRTP ports/channels.
-- CLI tests should assert `--parser mavlink` and `--parser crtp` parse successfully.
-- Any future transport work for Crazyradio or USB must add new tests and must not silently piggyback on this serial-only contract.
+- CLI tests should assert `--parser mavlink`, `--parser crtp`, `--transport serial`, and `--transport crazyradio` parse successfully.
+- Transport tests should verify `ByteTransport` trait implementations for serial and Crazyradio.
 
 ---
 
-## 7. Wrong vs Correct
+## 8. Wrong vs Correct
 
 ### Wrong
 
@@ -171,10 +245,16 @@ match parser {
 ### Correct
 
 ```rust
-// Correct: CRTP mode is a serial decoder choice only.
-match parser {
-    ParserKind::Crtp => decode_crtp_over_serial(chunk),
-    ParserKind::Mavlink => decode_mavlink(chunk),
-    _ => run_existing_paths(chunk),
+// Correct: transport and framing are independent concerns.
+match config.transport {
+    TransportSelection::Serial => {
+        let port = open_serial_port(&config)?;
+        let mut transport = SerialTransport::from_port(port, &config);
+        run_framing_loop(&mut transport, parser)?;
+    }
+    TransportSelection::Crazyradio { uri } => {
+        let mut transport = CrazyradioTransport::connect(&uri, datarate)?;
+        run_framing_loop(&mut transport, parser)?;
+    }
 }
 ```

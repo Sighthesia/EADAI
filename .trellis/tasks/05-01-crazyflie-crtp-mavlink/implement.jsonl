@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/05-01-crazyflie-crtp-mavlink/prd.md", "reason": "Authoritative task scope, MVP boundary, acceptance criteria, and architectural direction for MAVLink plus CRTP-over-serial support."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend pre-development checklist and quality expectations for Rust-side protocol and runtime changes."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust implementation quality bar for modularity, naming, and test expectations while extending protocol ingest."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error modeling expectations for serial protocol auto-detection and parse failures."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer contract guidance because changes span Rust runtime, Tauri model adaptation, and UI event ingestion."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Encourages reusing the existing BMI088 binary ingest pattern rather than inventing a disconnected protocol path."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Serial multi-protocol contract for auto-detect, decoder boundaries, and cross-layer projection."}

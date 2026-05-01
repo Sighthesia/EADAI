@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/05-01-crazyflie-crtp-mavlink/prd.md", "reason": "Check implementation against confirmed MVP scope and acceptance criteria."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality checklist for verification."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review code structure, simplicity, and test expectations."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify protocol parse failures and auto-detect fallbacks follow repo expectations."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check Rust to Tauri to UI contract consistency."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Serial multi-protocol contract for quality verification."}
