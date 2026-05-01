@@ -11,18 +11,6 @@ export const DEFINITION_SEED_TIMESTAMP_MS = Date.now()
 export const MCP_STATUS_POLL_INTERVAL_MS = 1000
 export const DEFAULT_LOGIC_SAMPLE_COUNT = 2048
 
-export const BMI088_PROTOCOL_SCRIPT = `// BMI088 UART4 definition seed
-onSchema((fields, rateHz, sampleLen) => {
-  // Use logger.debug to avoid leaving console.log in production code
-  // eslint-disable-next-line no-undef
-  if (import.meta.env && import.meta.env.DEV) console.debug('schema', { rateHz, sampleLen, fields })
-})
-
-onSample((record) => {
-  // eslint-disable-next-line no-undef
-  if (import.meta.env && import.meta.env.DEV) console.debug('sample', record)
-})`
-
 export const RUNTIME_COMMAND_CATALOG: UiRuntimeCommandCatalogItem[] = [
   {
     command: 'REQ_IDENTITY',

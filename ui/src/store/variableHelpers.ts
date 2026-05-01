@@ -1,6 +1,5 @@
 import type {
   HookDefinition,
-  ScriptDefinition,
   SerialBusEvent,
   UiScriptHookExample,
   UiScriptsDefinitionModel,
@@ -10,22 +9,21 @@ import type {
   VariableExtractorKind,
   VariableSourceKind,
 } from '../types'
-import { BMI088_PROTOCOL_SCRIPT, DEFINITION_SEED_TIMESTAMP_MS } from './constants'
+import { DEFINITION_SEED_TIMESTAMP_MS } from './constants'
 
 export function createProtocolHookExamples(): UiScriptHookExample[] {
   return [
     {
-      name: 'Schema definition entrypoint',
+      name: 'Schema observation hook',
       snippet: `onSchema((fields, rateHz, sampleLen) => {
-  // Use logger.debug in your hook to avoid leaking console logs in production
-  logger.debug('BMI088 schema', { rateHz, sampleLen, fields })
+  logger.debug('Signals schema', { rateHz, sampleLen, fields })
 })`,
     },
     {
-      name: 'Sample extraction entrypoint',
+      name: 'Sample observation hook',
       snippet: `onSample((record) => {
   const { roll, pitch, yaw } = record
-  logger.debug('BMI088 sample', { roll, pitch, yaw })
+  logger.debug('Signals sample', { roll, pitch, yaw })
 })`,
     },
   ]
@@ -37,8 +35,8 @@ function createProtocolHookDefinitions(): HookDefinition[] {
     name: example.name,
     event: index === 0 ? 'schema' : 'sample',
     summary: index === 0
-      ? 'Capture the published telemetry schema and keep it available to the Scripts surface.'
-      : 'Draft runtime extraction rules from incoming telemetry samples.',
+      ? 'Capture the published telemetry schema and keep it available to the Signals surface.'
+      : 'Draft runtime extraction rules from incoming telemetry samples without owning the protocol.',
     source: example.snippet,
     enabled: true,
     status: 'seeded',
@@ -119,17 +117,6 @@ export function createVariableDefinitions(variables: Record<string, VariableEntr
 
 export function createScriptDefinitions(variables: Record<string, VariableEntry>): UiScriptsDefinitionModel {
   return {
-    scripts: [
-      {
-        id: 'bmi088-protocol-script',
-        name: 'BMI088 protocol definition',
-        summary: 'Seeded protocol script for handshake and telemetry definition ownership.',
-        language: 'typescript',
-        source: BMI088_PROTOCOL_SCRIPT,
-        status: 'seeded',
-        updatedAtMs: DEFINITION_SEED_TIMESTAMP_MS,
-      },
-    ],
     hooks: createProtocolHookDefinitions(),
     variables: createVariableDefinitions(variables),
   }

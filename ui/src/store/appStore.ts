@@ -61,7 +61,6 @@ import type {
 
 // -- Module imports --
 import {
-  BMI088_PROTOCOL_SCRIPT,
   DEFAULT_FAKE_PROFILE,
   DEFAULT_LOGIC_SAMPLE_COUNT,
   MAX_CONSOLE_ENTRIES,
@@ -201,7 +200,6 @@ type AppStore = {
   startLogicAnalyzerCapture: () => Promise<void>
   stopLogicAnalyzerCapture: () => Promise<void>
   colorForChannel: (channel: string) => string
-  protocolScript: string
   protocolHookExamples: UiScriptHookExample[]
 }
 
@@ -234,7 +232,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
   consoleEntries: [],
   sentConsoleEntries: [],
   protocol: defaultProtocolSnapshot(),
-  protocolScript: BMI088_PROTOCOL_SCRIPT,
   protocolHookExamples: createProtocolHookExamples(),
   variables: {},
   selectedChannels: [],
@@ -1026,5 +1023,3 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   colorForChannel: (channel) => colorForChannel(channel),
 }))
-
-

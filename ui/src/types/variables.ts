@@ -13,16 +13,6 @@ export interface UiScriptHookExample {
   snippet: string
 }
 
-export interface ScriptDefinition {
-  id: string
-  name: string
-  summary: string
-  language: 'typescript' | 'javascript'
-  source: string
-  status: UiDefinitionStatus
-  updatedAtMs: number
-}
-
 export interface HookDefinition {
   id: string
   name: string
@@ -55,7 +45,6 @@ export interface VariableDefinition {
 }
 
 export interface UiScriptsDefinitionModel {
-  scripts: ScriptDefinition[]
   hooks: HookDefinition[]
   variables: VariableDefinition[]
 }

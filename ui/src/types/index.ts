@@ -57,7 +57,6 @@ export type {
   VariableDefinitionVisibility,
   UiHookDefinitionEvent,
   UiScriptHookExample,
-  ScriptDefinition,
   HookDefinition,
   VariableDefinition,
   UiScriptsDefinitionModel,
