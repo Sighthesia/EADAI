@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/05-01-improve-self-describing-device-skill/prd.md", "reason": "Authoritative scope for improving the device-side self-describing protocol skill."}
+{"file": "AGENTS.md", "reason": "Project skill index and existing skill registration conventions."}
+{"file": ".agents/skills/self-describing-protocol-integration/SKILL.md", "reason": "Current device-side protocol skill that needs concise implementation-focused enhancements."}
+{"file": ".agents/skills/bmi088-host-handshake-sync/SKILL.md", "reason": "Reference style for protocol integration skill structure and density."}
+{"file": ".agents/skills/protocol-handshake-debugging/SKILL.md", "reason": "Reference style for concise protocol troubleshooting guidance."}

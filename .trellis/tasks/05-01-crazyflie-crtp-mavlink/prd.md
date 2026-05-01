@@ -26,9 +26,11 @@
 ## Requirements (evolving)
 
 * 把协议支持拆分为 `transport / framing / semantic / capability` 四层，避免把协议名直接等同于某个串口 parser。
+* 在现有协议接入层之上，引入一套与 transport 解耦的“通用自描述设备协议”，CRTP 只是第一种承载该协议的底层链路。
 * 完整接入 MAVLink：至少覆盖可演进的 dialect/version 策略、收包解析、统一消息/能力输出，以及后续发送/ACK/command 扩展边界。
 * 完整接入 Crazyflie：至少覆盖 CRTP 语义层、serial transport、Crazyradio transport 落地、USB native 的可接入边界，以及后续 commander/log/param 能力扩展边界。
 * 一期交付除 serial transport 外，还要真实落地 Crazyradio transport；接口设计不能阻塞后续 USB native 接入。
+* 新的自描述协议模型需要独立于 CRTP/MAVLink/BMI088 专属语义，至少能承载设备身份、命令定义、变量定义、握手状态与变量写回。
 * 支持自动识别并自动解析，不要求用户手动逐次切换协议才能看到结构化结果。
 * 尽量复用现有 Rust 后端统一消息总线，而不是把协议解析下放到前端。
 * UI 优先消费统一能力事件；协议原始包事件保留用于调试与协议专属展示。
@@ -50,6 +52,8 @@
 ## Technical Approach
 
 以分层方式重构当前运行时：`transport` 只负责连接与收发字节流，`framing` 负责从字节流切出协议帧，`semantic` 负责从帧提炼结构化语义，`capability` 负责沉淀跨协议的业务能力事件。当前已存在的 serial + MAVLink/CRTP 逻辑作为一期落地点接入该骨架；一期同时真实落地 Crazyradio transport，使 Crazyflie 不再只是 `CRTP-over-serial` 的接收展示。USB native 与更完整 MAVLink dialect/version 演进通过同层扩展完成，而不是继续把逻辑塞回 `ParserKind` 和 UI store。
+
+在该骨架之上，新增一层 transport-agnostic 的“自描述设备协议”语义模型，用于表达设备身份、命令目录、变量目录、握手确认、流式 sample 与变量写回。该协议一期优先落在 CRTP 链路上，但数据模型和状态机本身不能绑死在 CRTP header/port 语义上。
 
 ## Decision (ADR-lite)
 
@@ -81,3 +85,4 @@
 * 一期工作重点不再只是“补更多字段”，而是先把协议接入方式从功能堆叠改成可演进架构。
 * 当前已知风险：如果继续沿用手写消息语义 + UI formatter 扩张，后续支持 Crazyradio/USB/MAVLink 版本演进时维护成本会快速上升。
 * 新增 Crazyradio 意味着需要核实现有 Rust 生态、宿主平台依赖和测试可行性；如果底层库能力不足，需要在一期内至少把 transport 适配层和降级行为设计清楚。
+* 新协议方向已确认：做成通用自描述协议，CRTP 只是第一种 transport 载体，而不是把这套协议写死成 Crazyflie 专用分支。

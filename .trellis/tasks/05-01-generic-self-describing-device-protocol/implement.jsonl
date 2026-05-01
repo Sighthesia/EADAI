@@ -1,0 +1,9 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/05-01-generic-self-describing-device-protocol/prd.md", "reason": "Authoritative requirements and protocol decisions for the generic self-describing device protocol."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend checklist for protocol/runtime work."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Rust implementation quality bar for new protocol modules and state machines."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error modeling expectations for framing, handshake, and write-back failures."}
+{"file": ".trellis/spec/backend/bmi088-host-protocol.md", "reason": "Existing executable pattern for identity/schema/sample/ack style handshake that informs the new generic protocol."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Current transport/framing/semantic/capability layering and CRTP transport contracts."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer guidance because this protocol spans Rust runtime, Tauri projection, and UI consumption."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Encourages reuse of existing protocol/runtime patterns instead of duplicating them."}

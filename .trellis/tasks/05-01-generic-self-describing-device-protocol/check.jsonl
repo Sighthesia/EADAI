@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/05-01-generic-self-describing-device-protocol/prd.md", "reason": "Check implementation against confirmed generic protocol scope and acceptance criteria."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend verification checklist."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review structure, simplicity, and tests for protocol changes."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify handshake and write-back failures are handled explicitly."}
+{"file": ".trellis/spec/backend/bmi088-host-protocol.md", "reason": "Cross-check reusable handshake patterns and typed event expectations."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Verify consistency with the existing layered protocol runtime."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check Rust to Tauri to UI contract consistency."}
