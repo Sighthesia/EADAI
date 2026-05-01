@@ -70,6 +70,31 @@ This guide covers the shared presentation pattern used by the workbench shell an
 
 **Related**: `ui/src/components/RuntimeConsoleSection.tsx`, `ui/src/styles.css`
 
+## Convention: Runtime Session Uses Stream + Action Sidebar
+
+**What**: When the runtime panel needs to combine live traffic, command dispatch, trigger diagnostics, and protocol catalog context, keep the main session stream as the primary workspace and move command/diagnostic/catalog surfaces into a compact adjacent sidebar.
+
+**Why**: RX/TX traffic is the main narrative of a device session. Commands, recent triggers, and protocol catalog context should stay nearby, but they should not fragment the user's attention into disconnected panels.
+
+**Example**:
+```tsx
+<section className="runtime-panel">
+  <RuntimeOverviewSection ... />
+  <div className="runtime-session-layout">
+    <div className="runtime-session-primary">
+      <RuntimeConsoleSection ... />
+    </div>
+    <div className="runtime-session-sidebar">
+      <RuntimeCommandCenter ... />
+      <RuntimeHookSection ... />
+      <RuntimeCatalogSection ... />
+    </div>
+  </div>
+</section>
+```
+
+**Related**: `ui/src/components/RuntimePanel.tsx`, `ui/src/components/RuntimeCommandCenter.tsx`, `ui/src/components/RuntimeHookSection.tsx`, `ui/src/components/RuntimeCatalogSection.tsx`
+
 ## Convention: Keep Repeated Metadata Single-Sourced
 
 **What**: If protocol/device/telemetry state is already visible in one section, do not repeat it as another full card in the same panel.
@@ -92,3 +117,21 @@ input.setSelectionRange(selection[0], selection[1])
 ```
 
 **Related**: `ui/src/components/RuntimeConsoleSection.tsx`, `ui/src/components/runtimeUtils.tsx`
+
+## Convention: Scripts Surface Does Not Own Built-In Protocols
+
+**What**: The scripts/automation surface may show hook seeds and runtime-derived signal definitions, but it must not present built-in protocol ownership as an editable "protocol script".
+
+**Why**: Protocol state is a runtime concern. Treating built-in protocols as editable scripts collapses the boundary between device/runtime facts and user-authored automation.
+
+**Example**:
+```tsx
+<section className="scripts-panel">
+  <header className="runtime-header">
+    <span className="mcp-label">Automation surface</span>
+    <h2>Signals and hook seeds</h2>
+  </header>
+</section>
+```
+
+**Related**: `ui/src/components/ScriptsPanel.tsx`, `ui/src/store/variableHelpers.ts`
