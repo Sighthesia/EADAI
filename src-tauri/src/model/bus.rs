@@ -115,6 +115,11 @@ pub enum UiBusEvent {
         source: UiSource,
         result: AckResult,
     },
+    ProtocolDetected {
+        timestamp_ms: u64,
+        source: UiSource,
+        protocol: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -281,6 +286,11 @@ impl From<BusMessage> for UiBusEvent {
                 timestamp_ms,
                 source,
                 result,
+            },
+            MessageKind::ProtocolDetected(event) => Self::ProtocolDetected {
+                timestamp_ms,
+                source,
+                protocol: event.protocol,
             },
         }
     }

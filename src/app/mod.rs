@@ -56,7 +56,14 @@ impl App {
     }
 
     pub fn run(&self) -> Result<(), AppError> {
-        let source = MessageSource::serial(self.config.port.clone(), self.config.baud_rate);
+        let source = match &self.config.transport {
+            TransportSelection::Serial => {
+                MessageSource::serial(self.config.port.clone(), self.config.baud_rate)
+            }
+            TransportSelection::Crazyradio { .. } => {
+                MessageSource::crazyradio(self.config.port.clone(), self.config.baud_rate)
+            }
+        };
         self.bus.publish(BusMessage::connection(
             &source,
             ConnectionState::Idle,
@@ -357,67 +364,81 @@ impl App {
                 }
             }
             ParserKind::Auto => {
-                let mut handled = false;
+                let mut any_protocol_detected = false;
 
+                // Try BMI088 first — it has the strongest framing (TLV with CRC).
+                // Only run if no other protocol has been detected yet, to avoid
+                // false positives from BMI088 on random binary data.
                 for packet in bmi088_decoder.push(chunk) {
-                    handled = true;
+                    if !any_protocol_detected {
+                        self.bus.publish(BusMessage::protocol_detected(source, "bmi088"));
+                        any_protocol_detected = true;
+                    }
                     self.handle_bmi088_packet(packet, source, analysis, bmi088_session, transport)?;
                 }
 
-                if !handled {
-                    for packet in mavlink_decoder.push(chunk) {
-                        handled = true;
-                        eprintln!(
-                            "[mavlink][auto] decoded msg_id=0x{:04X} sys={} comp={}",
-                            packet.message_id, packet.system_id, packet.component_id,
-                        );
+                // Try MAVLink — has strong SOF (0xFD) + CRC validation.
+                for packet in mavlink_decoder.push(chunk) {
+                    if !any_protocol_detected {
                         self.bus
-                            .publish(BusMessage::mavlink_packet(source, packet.clone()));
-                        for cap_event in mavlink_to_capabilities(&packet) {
+                            .publish(BusMessage::protocol_detected(source, "mavlink"));
+                        any_protocol_detected = true;
+                    }
+                    eprintln!(
+                        "[mavlink][auto] decoded msg_id=0x{:04X} sys={} comp={}",
+                        packet.message_id, packet.system_id, packet.component_id,
+                    );
+                    self.bus
+                        .publish(BusMessage::mavlink_packet(source, packet.clone()));
+                    for cap_event in mavlink_to_capabilities(&packet) {
+                        self.bus.publish(BusMessage::capability(source, cap_event));
+                    }
+                }
+
+                // Try CRTP — has CRC-8 validation.
+                for packet in crtp_decoder.push(chunk) {
+                    if !any_protocol_detected {
+                        self.bus
+                            .publish(BusMessage::protocol_detected(source, "crtp"));
+                        any_protocol_detected = true;
+                    }
+                    eprintln!(
+                        "[crtp][auto] decoded port={} channel={} payload_len={}",
+                        packet.port.label(),
+                        packet.channel,
+                        packet.payload.len(),
+                    );
+                    self.bus
+                        .publish(BusMessage::crtp_packet(source, packet.clone()));
+
+                    // Check if this is a self-describing protocol packet
+                    if is_self_describing_packet(&packet) {
+                        if let Ok(Some(frame)) = decode_crtp_packet(&packet) {
+                            let responses = self_describing_session.on_frame(&frame);
+                            self.publish_self_describing_frame(source, &frame);
+
+                            // Send any response frames
+                            for response in responses {
+                                self.publish_self_describing_frame(source, &response);
+                                if let Err(e) = self
+                                    .send_self_describing_frame(source, transport, &response)
+                                {
+                                    eprintln!(
+                                        "[crtp][auto] failed to send self-describing response: {e}"
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        // Emit unified capability events for non-self-describing packets
+                        for cap_event in crtp_to_capabilities(&packet) {
                             self.bus.publish(BusMessage::capability(source, cap_event));
                         }
                     }
                 }
 
-                if !handled {
-                    for packet in crtp_decoder.push(chunk) {
-                        handled = true;
-                        eprintln!(
-                            "[crtp][auto] decoded port={} channel={}",
-                            packet.port.label(),
-                            packet.channel,
-                        );
-                        self.bus
-                            .publish(BusMessage::crtp_packet(source, packet.clone()));
-
-                        // Check if this is a self-describing protocol packet
-                        if is_self_describing_packet(&packet) {
-                            if let Ok(Some(frame)) = decode_crtp_packet(&packet) {
-                                let responses = self_describing_session.on_frame(&frame);
-                                self.publish_self_describing_frame(source, &frame);
-
-                                // Send any response frames
-                                for response in responses {
-                                    self.publish_self_describing_frame(source, &response);
-                                    if let Err(e) = self
-                                        .send_self_describing_frame(source, transport, &response)
-                                    {
-                                        eprintln!(
-                                            "[crtp][auto] failed to send self-describing response: {e}"
-                                        );
-                                    }
-                                }
-                            }
-                        } else {
-                            // Emit unified capability events for non-self-describing packets
-                            for cap_event in crtp_to_capabilities(&packet) {
-                                self.bus.publish(BusMessage::capability(source, cap_event));
-                            }
-                        }
-                    }
-                }
-
-                if !handled {
+                // If no binary protocol claimed the data, fall back to text parsing.
+                if !any_protocol_detected {
                     let framed = crate::serial::FramedLine {
                         payload: crate::message::LinePayload {
                             text: String::from_utf8_lossy(chunk).into_owned(),

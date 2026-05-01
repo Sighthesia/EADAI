@@ -176,11 +176,13 @@ fn runtime_state_error(message: &str) -> String {
 
 fn initial_snapshot(request: &ConnectRequest) -> SessionSnapshot {
     match request.source_kind {
-        SourceKind::Serial => SessionSnapshot::connecting(
-            UiTransportKind::Serial,
-            request.port.clone(),
-            request.baud_rate,
-        ),
+        SourceKind::Serial => {
+            let transport = match request.transport.as_deref() {
+                Some("crazyradio") => UiTransportKind::Crazyradio,
+                _ => UiTransportKind::Serial,
+            };
+            SessionSnapshot::connecting(transport, request.port.clone(), request.baud_rate)
+        }
         SourceKind::Fake => SessionSnapshot::connecting(
             UiTransportKind::Fake,
             crate::fake_session::fake_port_label(
@@ -196,15 +198,36 @@ fn initial_snapshot(request: &ConnectRequest) -> SessionSnapshot {
 
 fn runtime_config(request: &ConnectRequest) -> RuntimeSessionConfig {
     match request.source_kind {
-        SourceKind::Serial => RuntimeSessionConfig::Serial(RunConfig {
-            port: request.port.clone(),
-            baud_rate: request.baud_rate,
-            retry_delay: Duration::from_millis(request.retry_ms),
-            read_timeout: Duration::from_millis(request.read_timeout_ms),
-            parser: ParserKind::Bmi088,
-            max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
-            transport: eadai::cli::TransportSelection::Serial,
-        }),
+        SourceKind::Serial => {
+            let parser = match request.parser.as_deref() {
+                Some("auto") => ParserKind::Auto,
+                Some("bmi088") => ParserKind::Bmi088,
+                Some("mavlink") => ParserKind::Mavlink,
+                Some("crtp") => ParserKind::Crtp,
+                Some("key_value") => ParserKind::KeyValue,
+                Some("measurements") => ParserKind::Measurements,
+                _ => ParserKind::Bmi088, // backward-compatible default
+            };
+            let transport = match request.transport.as_deref() {
+                Some("crazyradio") => {
+                    let uri = request
+                        .radio_uri
+                        .clone()
+                        .unwrap_or_default();
+                    eadai::cli::TransportSelection::Crazyradio { uri }
+                }
+                _ => eadai::cli::TransportSelection::Serial,
+            };
+            RuntimeSessionConfig::Serial(RunConfig {
+                port: request.port.clone(),
+                baud_rate: request.baud_rate,
+                retry_delay: Duration::from_millis(request.retry_ms),
+                read_timeout: Duration::from_millis(request.read_timeout_ms),
+                parser,
+                max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
+                transport,
+            })
+        }
         SourceKind::Fake => RuntimeSessionConfig::Fake(FakeRuntimeConfig {
             profile: request
                 .fake_profile

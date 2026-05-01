@@ -12,6 +12,7 @@ use std::time::SystemTime;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum TransportKind {
     Serial,
+    Crazyradio,
     Fake,
 }
 
@@ -26,6 +27,14 @@ impl MessageSource {
     pub fn serial(port: impl Into<String>, baud_rate: u32) -> Self {
         Self {
             transport: TransportKind::Serial,
+            port: port.into(),
+            baud_rate,
+        }
+    }
+
+    pub fn crazyradio(port: impl Into<String>, baud_rate: u32) -> Self {
+        Self {
+            transport: TransportKind::Crazyradio,
             port: port.into(),
             baud_rate,
         }
@@ -140,6 +149,14 @@ pub enum MessageKind {
     SelfDescribingSetVariable(SetVariable),
     /// Self-describing protocol: acknowledgment/result from device.
     SelfDescribingAckResult(AckResult),
+    /// Auto-detect: protocol identified by the runtime.
+    ProtocolDetected(ProtocolDetectedEvent),
+}
+
+/// Emitted once when auto mode locks onto a specific protocol.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ProtocolDetectedEvent {
+    pub protocol: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -336,6 +353,17 @@ impl BusMessage {
             timestamp: SystemTime::now(),
             source: source.clone(),
             kind: MessageKind::SelfDescribingAckResult(result),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn protocol_detected(source: &MessageSource, protocol: impl Into<String>) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::ProtocolDetected(ProtocolDetectedEvent {
+                protocol: protocol.into(),
+            }),
             parser: ParserMeta::default(),
         }
     }

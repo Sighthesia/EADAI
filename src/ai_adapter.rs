@@ -791,6 +791,22 @@ impl AiContextState {
                     trigger: None,
                 });
             }
+            MessageKind::ProtocolDetected(event) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!("[protocol] detected: {}", event.protocol),
+                        raw_length: 0,
+                        parser: crate::message::ParserMeta::parsed("auto_detect", [].into()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 use eadai::protocols::crtp::{CrtpDecoder, CrtpPacket, CrtpPort};
+use eadai::protocols::capability::{crtp_to_capabilities, CapabilityEvent};
 
 #[test]
 fn decodes_single_crtp_frame() {
@@ -236,4 +237,53 @@ fn commander_emergency_stop_command() {
     };
     let fields = packet.fields();
     assert_eq!(fields.get("command").unwrap(), "emergency_stop");
+}
+
+#[test]
+fn commander_rpyt_produces_attitude_capability() {
+    let mut payload = vec![0u8; 16];
+    // roll: 0.1 rad
+    payload[0..4].copy_from_slice(&0.1f32.to_le_bytes());
+    // pitch: -0.2 rad
+    payload[4..8].copy_from_slice(&(-0.2f32).to_le_bytes());
+    // yaw: 0.5 rad
+    payload[8..12].copy_from_slice(&0.5f32.to_le_bytes());
+    // thrust: 0.5
+    payload[12..16].copy_from_slice(&0.5f32.to_le_bytes());
+
+    let packet = CrtpPacket {
+        port: CrtpPort::Commander,
+        channel: 0,
+        payload,
+    };
+
+    let events = crtp_to_capabilities(&packet);
+    let attitude = events.iter().find_map(|e| match e {
+        CapabilityEvent::Attitude(a) => Some(a),
+        _ => None,
+    });
+    assert!(attitude.is_some(), "should produce Attitude capability");
+    let a = attitude.unwrap();
+    assert!((a.roll - 0.1).abs() < 0.01);
+    assert!((a.pitch - (-0.2)).abs() < 0.01);
+    assert!((a.yaw - 0.5).abs() < 0.01);
+    assert_eq!(a.source_protocol, "crtp");
+
+    // RawPacket should also be present
+    let raw = events
+        .iter()
+        .find(|e| matches!(e, CapabilityEvent::RawPacket(_)));
+    assert!(raw.is_some(), "should always emit RawPacket");
+}
+
+#[test]
+fn non_commander_crtp_only_produces_raw_packet() {
+    let packet = CrtpPacket {
+        port: CrtpPort::Console,
+        channel: 0,
+        payload: b"hello".to_vec(),
+    };
+    let events = crtp_to_capabilities(&packet);
+    assert_eq!(events.len(), 1);
+    assert!(matches!(&events[0], CapabilityEvent::RawPacket(_)));
 }

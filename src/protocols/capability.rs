@@ -5,7 +5,7 @@
 //! standardized events (e.g., `Attitude`, `BatteryStatus`, `GpsPosition`)
 //! regardless of whether the source is MAVLink or CRTP.
 
-use crate::protocols::crtp::CrtpPacket;
+use crate::protocols::crtp::{CrtpPacket, CrtpPort};
 use crate::protocols::mavlink::MavlinkPacket;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -309,17 +309,48 @@ pub fn mavlink_to_capabilities(packet: &MavlinkPacket) -> Vec<CapabilityEvent> {
 
 /// Extracts capability events from a CRTP packet.
 ///
-/// Phase 1: only emits `RawPacket` for all CRTP packets. Future work should
-/// map CRTP logging/sensor ports (e.g., `sensor.headers` on port 0x1) to
-/// `ImuData`, `Attitude`, etc. The CRTP semantic layer already extracts
-/// per-port fields via `CrtpPacket::fields()`; the capability mapper needs
-/// to consume those fields when port-specific decoding is added.
+/// Maps CRTP port-specific semantic fields to cross-protocol capability events:
+/// - Commander port (0x2) channel 0: RPYT control → AttitudeData
+/// - Logging port (0x4) channel 1: log data → RawPacket (requires device-specific log config for ImuData)
+/// - All other ports: RawPacket for debug display.
 pub fn crtp_to_capabilities(packet: &CrtpPacket) -> Vec<CapabilityEvent> {
     let mut events = Vec::new();
 
-    // Phase 1: emit raw packet for all CRTP packets.
-    // TODO: map CRTP logging port (0x01) sensor data to ImuData/Attitude
-    // TODO: map CRTP commander port (0x03) to control status
+    match &packet.port {
+        CrtpPort::Commander if packet.channel == 0 && packet.payload.len() >= 12 => {
+            // Commander RPYT: roll(4), pitch(4), yaw(4) as f32 LE
+            let roll = f32::from_le_bytes([
+                packet.payload[0],
+                packet.payload[1],
+                packet.payload[2],
+                packet.payload[3],
+            ]);
+            let pitch = f32::from_le_bytes([
+                packet.payload[4],
+                packet.payload[5],
+                packet.payload[6],
+                packet.payload[7],
+            ]);
+            let yaw = f32::from_le_bytes([
+                packet.payload[8],
+                packet.payload[9],
+                packet.payload[10],
+                packet.payload[11],
+            ]);
+            events.push(CapabilityEvent::Attitude(AttitudeData {
+                roll,
+                pitch,
+                yaw,
+                rollspeed: None,
+                pitchspeed: None,
+                yawspeed: None,
+                source_protocol: "crtp",
+            }));
+        }
+        _ => {}
+    }
+
+    // Always emit a raw packet event for debug display
     events.push(CapabilityEvent::RawPacket(RawPacketData {
         protocol: "crtp",
         fields: packet.fields(),

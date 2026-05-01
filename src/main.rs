@@ -278,6 +278,9 @@ fn print_messages(subscription: BusSubscription) {
                     result.seq, result.code, result.message
                 );
             }
+            MessageKind::ProtocolDetected(event) => {
+                println!("[protocol] detected: {}", event.protocol);
+            }
         }
     }
 }

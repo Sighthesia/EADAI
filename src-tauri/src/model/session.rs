@@ -20,6 +20,16 @@ pub struct ConnectRequest {
     pub source_kind: SourceKind,
     #[serde(default)]
     pub fake_profile: Option<String>,
+    /// Parser selection: "auto", "bmi088", "mavlink", "crtp", "key_value", "measurements".
+    /// Defaults to "bmi088" for backward compatibility.
+    #[serde(default)]
+    pub parser: Option<String>,
+    /// Transport selection: "serial" (default) or "crazyradio".
+    #[serde(default)]
+    pub transport: Option<String>,
+    /// Crazyradio URI (required when transport is "crazyradio").
+    #[serde(default)]
+    pub radio_uri: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -59,6 +69,7 @@ pub struct McpToolUsageSnapshot {
 #[serde(rename_all = "camelCase")]
 pub enum UiTransportKind {
     Serial,
+    Crazyradio,
     Fake,
 }
 
@@ -134,6 +145,7 @@ impl From<TransportKind> for UiTransportKind {
     fn from(value: TransportKind) -> Self {
         match value {
             TransportKind::Serial => Self::Serial,
+            TransportKind::Crazyradio => Self::Crazyradio,
             TransportKind::Fake => Self::Fake,
         }
     }
