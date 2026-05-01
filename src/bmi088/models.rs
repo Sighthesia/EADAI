@@ -1,5 +1,4 @@
 /// BMI088 protocol data types and frame models.
-
 use crate::message::LinePayload;
 use crate::serial::FramedLine;
 use serde::Serialize;

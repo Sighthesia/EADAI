@@ -174,8 +174,13 @@ fn system_time_semantic_fields() {
     payload[8..12].copy_from_slice(&boot.to_le_bytes());
 
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x0002, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x0002,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();
@@ -199,8 +204,13 @@ fn attitude_quaternion_semantic_fields() {
     payload[24..28].copy_from_slice(&roll.to_le_bytes());
 
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x0033, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x0033,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();
@@ -219,8 +229,13 @@ fn local_position_ned_semantic_fields() {
     payload[12..16].copy_from_slice(&z.to_le_bytes());
 
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x0035, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x0035,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();
@@ -233,8 +248,13 @@ fn command_ack_semantic_fields() {
     // COMMAND_ACK (0x0053): command(2), result(1)
     let payload = vec![0x00, 0x01, 0x00]; // command=0x0100, result=0 (Accepted)
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x0053, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x0053,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();
@@ -253,8 +273,13 @@ fn rc_channels_semantic_fields() {
     payload[42] = 75;
 
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x00A0, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x00A0,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();
@@ -267,12 +292,20 @@ fn gps_status_semantic_fields() {
     // GPS_STATUS (0x00C7): satellites_visible[10]
     let payload = vec![12, 8, 5, 3, 0, 0, 0, 0, 0, 0];
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x00C7, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x00C7,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();
-    assert_eq!(fields.get("satellites_visible").unwrap(), "12, 8, 5, 3, 0, 0, 0, 0, 0, 0");
+    assert_eq!(
+        fields.get("satellites_visible").unwrap(),
+        "12, 8, 5, 3, 0, 0, 0, 0, 0, 0"
+    );
     assert_eq!(fields.get("satellite_count").unwrap(), "10");
 }
 
@@ -286,8 +319,13 @@ fn scaled_pressure_semantic_fields() {
     payload[12..14].copy_from_slice(&temp.to_le_bytes());
 
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x00C9, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x00C9,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();
@@ -311,8 +349,13 @@ fn battery_status_semantic_fields() {
     payload[34] = 85; // 85% remaining (offset 34)
 
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x00D0, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x00D0,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();
@@ -336,8 +379,13 @@ fn vibration_semantic_fields() {
     payload[16..20].copy_from_slice(&vz.to_le_bytes());
 
     let packet = MavlinkPacket {
-        sequence: 1, system_id: 1, component_id: 1,
-        message_id: 0x00FE, payload, target_system: None, target_component: None,
+        sequence: 1,
+        system_id: 1,
+        component_id: 1,
+        message_id: 0x00FE,
+        payload,
+        target_system: None,
+        target_component: None,
         crc_validated: true,
     };
     let fields = packet.fields();

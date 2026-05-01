@@ -1,5 +1,4 @@
 /// BMI088 session handshake state machine.
-
 use super::encoder::host_command_label;
 use super::models::{
     Bmi088Frame, Bmi088HostCommand, Bmi088IdentityFrame, Bmi088SchemaFrame, Bmi088SessionPhase,
@@ -72,7 +71,10 @@ impl Bmi088SessionState {
             Bmi088Frame::ShellOutput(_) => Vec::new(),
             Bmi088Frame::Schema(schema) => {
                 self.schema = Some(schema.clone());
-                if matches!(self.phase, Bmi088SessionPhase::Streaming | Bmi088SessionPhase::Stopped) {
+                if matches!(
+                    self.phase,
+                    Bmi088SessionPhase::Streaming | Bmi088SessionPhase::Stopped
+                ) {
                     eprintln!(
                         "[bmi088][session] rx SCHEMA seq={} phase={:?} field_count={} sample_len={} ignored_rehandshake=true",
                         schema.seq,
@@ -97,8 +99,7 @@ impl Bmi088SessionState {
                 self.phase = Bmi088SessionPhase::Streaming;
                 eprintln!(
                     "[bmi088][session] rx SAMPLE phase={:?}->{:?}",
-                    previous_phase,
-                    self.phase,
+                    previous_phase, self.phase,
                 );
                 Vec::new()
             }

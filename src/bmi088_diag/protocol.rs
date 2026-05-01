@@ -1,8 +1,7 @@
 use crate::bmi088::{
     self, Bmi088DecodeError, Bmi088FieldDescriptor, Bmi088Frame, Bmi088HostCommand,
-    Bmi088IdentityFrame, Bmi088SchemaFrame, decode_binary_frame_with_schema,
-    decode_frame_envelope, decode_sample_raw_values, encode_host_command_with_seq, find_sof,
-    frame_len_from_payload_len,
+    Bmi088IdentityFrame, Bmi088SchemaFrame, decode_binary_frame_with_schema, decode_frame_envelope,
+    decode_sample_raw_values, encode_host_command_with_seq, find_sof, frame_len_from_payload_len,
 };
 use crate::serial::{FrameStatus, FramedLine, LineFramer};
 
@@ -167,7 +166,11 @@ impl DiagnosticDecoder {
             }
 
             if self.buffer.len() > self.max_buffer_bytes {
-                let drain = self.buffer.len().saturating_sub(self.max_buffer_bytes).max(1);
+                let drain = self
+                    .buffer
+                    .len()
+                    .saturating_sub(self.max_buffer_bytes)
+                    .max(1);
                 self.buffer.drain(..drain);
                 self.desync_drop_bytes += drain;
             }
@@ -196,14 +199,16 @@ pub fn encode_host_command(command: HostCommand, seq: u8) -> Vec<u8> {
 }
 
 pub fn encode_event_frame(command: u8, seq: u8, payload: &[u8]) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(bmi088::BMI088_HEADER_LEN + payload.len() + bmi088::BMI088_CRC_LEN);
+    let mut frame =
+        Vec::with_capacity(bmi088::BMI088_HEADER_LEN + payload.len() + bmi088::BMI088_CRC_LEN);
     frame.extend_from_slice(&SOF);
     frame.push(VERSION);
     frame.push(FRAME_TYPE_EVENT);
     frame.push(command);
     frame.push(seq);
     frame.push(u8::try_from(payload.len()).unwrap_or(u8::MAX));
-    frame.extend_from_slice(&payload[..usize::from(u8::try_from(payload.len()).unwrap_or(u8::MAX))]);
+    frame
+        .extend_from_slice(&payload[..usize::from(u8::try_from(payload.len()).unwrap_or(u8::MAX))]);
     let crc = bmi088::crc16_ccitt(&frame);
     frame.extend_from_slice(&crc.to_le_bytes());
     frame
@@ -245,19 +250,19 @@ fn decode_frame_with_schema(
     let (frame_type, command, seq, payload): (u8, u8, u8, &[u8]) =
         decode_frame_envelope(frame).map_err(map_decode_error)?;
 
-        match (frame_type, command) {
-        (FRAME_TYPE_EVENT | FRAME_TYPE_RESPONSE, CMD_IDENTITY) => match decode_binary_frame_with_schema(frame, schema)
-            .map_err(map_decode_error)?
-        {
-            Bmi088Frame::Identity(identity) => Ok(Frame::Identity(identity)),
-            _ => Err(DecodeError::Malformed("unexpected non-identity frame")),
-        },
-        (FRAME_TYPE_EVENT | FRAME_TYPE_RESPONSE, CMD_SCHEMA) => match decode_binary_frame_with_schema(frame, schema)
-            .map_err(map_decode_error)?
-        {
-            Bmi088Frame::Schema(schema) => Ok(Frame::Schema(schema)),
-            _ => Err(DecodeError::Malformed("unexpected non-schema frame")),
-        },
+    match (frame_type, command) {
+        (FRAME_TYPE_EVENT | FRAME_TYPE_RESPONSE, CMD_IDENTITY) => {
+            match decode_binary_frame_with_schema(frame, schema).map_err(map_decode_error)? {
+                Bmi088Frame::Identity(identity) => Ok(Frame::Identity(identity)),
+                _ => Err(DecodeError::Malformed("unexpected non-identity frame")),
+            }
+        }
+        (FRAME_TYPE_EVENT | FRAME_TYPE_RESPONSE, CMD_SCHEMA) => {
+            match decode_binary_frame_with_schema(frame, schema).map_err(map_decode_error)? {
+                Bmi088Frame::Schema(schema) => Ok(Frame::Schema(schema)),
+                _ => Err(DecodeError::Malformed("unexpected non-schema frame")),
+            }
+        }
         (FRAME_TYPE_EVENT, bmi088::BMI088_CMD_SHELL_OUTPUT) => Ok(Frame::ShellOutput(FramedLine {
             payload: crate::message::LinePayload {
                 text: String::from_utf8_lossy(payload).into_owned(),
@@ -290,7 +295,7 @@ fn map_decode_error(error: Bmi088DecodeError) -> DecodeError {
 }
 
 fn to_bmi088_command(command: HostCommand) -> Bmi088HostCommand {
-        match command {
+    match command {
         HostCommand::Ack => Bmi088HostCommand::Ack,
         HostCommand::Start => Bmi088HostCommand::Start,
         HostCommand::Stop => Bmi088HostCommand::Stop,

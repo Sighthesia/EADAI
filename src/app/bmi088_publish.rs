@@ -122,9 +122,18 @@ pub(super) fn publish_identity(
             ("protocol_version", identity.protocol_version.clone()),
             ("transport_name", identity.transport_name.clone()),
             ("sample_rate_hz", identity.sample_rate_hz.to_string()),
-            ("schema_field_count", identity.schema_field_count.to_string()),
-            ("sample_payload_len", identity.sample_payload_len.to_string()),
-            ("protocol_version_byte", identity.protocol_version_byte.to_string()),
+            (
+                "schema_field_count",
+                identity.schema_field_count.to_string(),
+            ),
+            (
+                "sample_payload_len",
+                identity.sample_payload_len.to_string(),
+            ),
+            (
+                "protocol_version_byte",
+                identity.protocol_version_byte.to_string(),
+            ),
             ("feature_flags", format!("0x{:04X}", identity.feature_flags)),
             ("baud_rate", identity.baud_rate.to_string()),
             (

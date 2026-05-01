@@ -5,7 +5,6 @@
 /// - `encoder`: frame encoding, CRC, host command encoding, default generators
 /// - `decoder`: frame decoding, stream decoder, identity/schema/sample parsing
 /// - `session`: handshake state machine
-
 mod constants;
 mod decoder;
 mod encoder;
@@ -33,9 +32,8 @@ pub use decoder::{
     Bmi088StreamDecoder, decode_binary_frame, decode_binary_frame_with_schema,
     decode_frame_envelope, decode_identity_payload, decode_identity_payload_with_seq,
     decode_sample_payload, decode_sample_payload_with_schema,
-    decode_sample_payload_with_schema_and_seq, decode_sample_raw_values,
-    decode_schema_payload, decode_schema_payload_with_seq, find_sof, frame_len,
-    frame_len_from_payload_len,
+    decode_sample_payload_with_schema_and_seq, decode_sample_raw_values, decode_schema_payload,
+    decode_schema_payload_with_seq, find_sof, frame_len, frame_len_from_payload_len,
 };
 
 // Re-export session

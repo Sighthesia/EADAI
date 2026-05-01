@@ -1,8 +1,8 @@
-use eadai::bmi088_diag::{self, CommandPath, DiagStats};
 use eadai::bmi088_diag::protocol::{
     CMD_IDENTITY, CMD_SAMPLE, CMD_SCHEMA, DiagnosticDecoder, Frame, HostCommand, Packet,
     decode_frame, encode_event_frame, encode_host_command,
 };
+use eadai::bmi088_diag::{self, CommandPath, DiagStats};
 
 #[test]
 fn encodes_host_commands_with_seq_and_len_byte() {
@@ -58,7 +58,10 @@ fn decode_frame_rejects_crc_mismatch() {
     let last = frame.len() - 1;
     frame[last] ^= 0xFF;
     let error = decode_frame(&frame).expect_err("crc should fail");
-    assert!(matches!(error, eadai::bmi088_diag::protocol::DecodeError::InvalidCrc));
+    assert!(matches!(
+        error,
+        eadai::bmi088_diag::protocol::DecodeError::InvalidCrc
+    ));
 }
 
 #[test]

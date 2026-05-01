@@ -13,7 +13,16 @@ fn only_payload_commands_forward_bytes() {
         UiBmi088HostCommand::ShellExec.payload_bytes(Some("fc status")),
         Some(b"fc status".to_vec())
     );
-    assert_eq!(UiBmi088HostCommand::ReqIdentity.payload_bytes(Some("ignored")), None);
-    assert_eq!(UiBmi088HostCommand::ReqTuning.payload_bytes(Some("ignored")), None);
-    assert_eq!(UiBmi088HostCommand::Ack.payload_bytes(Some("ignored")), None);
+    assert_eq!(
+        UiBmi088HostCommand::ReqIdentity.payload_bytes(Some("ignored")),
+        None
+    );
+    assert_eq!(
+        UiBmi088HostCommand::ReqTuning.payload_bytes(Some("ignored")),
+        None
+    );
+    assert_eq!(
+        UiBmi088HostCommand::Ack.payload_bytes(Some("ignored")),
+        None
+    );
 }

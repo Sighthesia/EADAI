@@ -1,11 +1,10 @@
 /// BMI088 frame decoding: identity TLV, schema payload (modern + legacy), sample payload,
 /// binary frame dispatch, and the stream decoder.
-
 use super::constants::*;
 use super::encoder::{compact_field_name, compact_unit_name, crc16_ccitt, default_schema};
 use super::models::{
-    Bmi088DecodeError, Bmi088FieldDescriptor, Bmi088Frame, Bmi088IdentityFrame, Bmi088SchemaFrame,
-    Bmi088SampleFrame, TelemetryPacket,
+    Bmi088DecodeError, Bmi088FieldDescriptor, Bmi088Frame, Bmi088IdentityFrame, Bmi088SampleFrame,
+    Bmi088SchemaFrame, TelemetryPacket,
 };
 use crate::message::LinePayload;
 use crate::serial::LineFramer;
@@ -71,9 +70,7 @@ impl Bmi088StreamDecoder {
                 if frame_len > self.max_buffer_bytes {
                     eprintln!(
                         "[bmi088][stream] drop oversize frame payload_len={} frame_len={} max_buffer_bytes={}",
-                        payload_len,
-                        frame_len,
-                        self.max_buffer_bytes,
+                        payload_len, frame_len, self.max_buffer_bytes,
                     );
                     self.buffer.drain(..1);
                     continue;
@@ -88,9 +85,7 @@ impl Bmi088StreamDecoder {
                     Ok(Bmi088Frame::Identity(identity)) => {
                         eprintln!(
                             "[bmi088][stream] decoded IDENTITY seq={} payload_len={} frame_len={}",
-                            identity.seq,
-                            payload_len,
-                            frame_len,
+                            identity.seq, payload_len, frame_len,
                         );
                         self.buffer.drain(..frame_len);
                         self.identity = Some(identity.clone());
@@ -135,7 +130,9 @@ impl Bmi088StreamDecoder {
                         | Bmi088DecodeError::InvalidVersion
                         | Bmi088DecodeError::InvalidSof,
                     ) => {
-                        if let Err(error) = decode_binary_frame_with_schema(&frame, self.schema.as_ref()) {
+                        if let Err(error) =
+                            decode_binary_frame_with_schema(&frame, self.schema.as_ref())
+                        {
                             eprintln!(
                                 "[bmi088][stream] frame decode error={} frame_len={} preview={}",
                                 decode_error_label(&error),
@@ -147,7 +144,9 @@ impl Bmi088StreamDecoder {
                     }
                     Err(Bmi088DecodeError::SchemaMismatch(_))
                     | Err(Bmi088DecodeError::MalformedFrame(_)) => {
-                        if let Err(error) = decode_binary_frame_with_schema(&frame, self.schema.as_ref()) {
+                        if let Err(error) =
+                            decode_binary_frame_with_schema(&frame, self.schema.as_ref())
+                        {
                             eprintln!(
                                 "[bmi088][stream] frame decode error={} frame_len={} preview={}",
                                 decode_error_label(&error),
@@ -185,7 +184,8 @@ impl Bmi088StreamDecoder {
 
     fn should_cache_schema(&self, schema: &Bmi088SchemaFrame) -> bool {
         if let Some(identity) = &self.identity {
-            let matches_identity_shape = schema.sample_len == usize::from(identity.sample_payload_len)
+            let matches_identity_shape = schema.sample_len
+                == usize::from(identity.sample_payload_len)
                 && schema.fields.len() == usize::from(identity.schema_field_count);
             if !matches_identity_shape {
                 eprintln!(
@@ -247,21 +247,18 @@ pub fn decode_binary_frame_with_schema(
     let payload = &frame[BMI088_HEADER_LEN..expected_len - 2];
 
     match (frame_type, command) {
-        (
-            BMI088_FRAME_TYPE_EVENT | BMI088_FRAME_TYPE_RESPONSE,
-            BMI088_CMD_IDENTITY,
-        ) => Ok(Bmi088Frame::Identity(
-            decode_identity_payload_with_seq(seq, payload)?,
-        )),
-        (BMI088_FRAME_TYPE_EVENT | BMI088_FRAME_TYPE_RESPONSE, BMI088_CMD_SCHEMA) => {
-            Ok(Bmi088Frame::Schema(decode_schema_payload_with_seq(seq, payload)?))
-        }
-        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SHELL_OUTPUT) => Ok(Bmi088Frame::ShellOutput(
-            LinePayload {
+        (BMI088_FRAME_TYPE_EVENT | BMI088_FRAME_TYPE_RESPONSE, BMI088_CMD_IDENTITY) => Ok(
+            Bmi088Frame::Identity(decode_identity_payload_with_seq(seq, payload)?),
+        ),
+        (BMI088_FRAME_TYPE_EVENT | BMI088_FRAME_TYPE_RESPONSE, BMI088_CMD_SCHEMA) => Ok(
+            Bmi088Frame::Schema(decode_schema_payload_with_seq(seq, payload)?),
+        ),
+        (BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SHELL_OUTPUT) => {
+            Ok(Bmi088Frame::ShellOutput(LinePayload {
                 text: String::from_utf8_lossy(payload).into_owned(),
                 raw: payload.to_vec(),
-            },
-        )),
+            }))
+        }
         (BMI088_FRAME_TYPE_EVENT | BMI088_FRAME_TYPE_RESPONSE, BMI088_CMD_SAMPLE) => {
             let fallback_schema = default_schema();
             let active_schema = schema.unwrap_or(&fallback_schema);
@@ -276,11 +273,9 @@ pub fn decode_binary_frame_with_schema(
                         fallback_schema.fields.len(),
                         fallback_schema.sample_len,
                     );
-                    Ok(Bmi088Frame::Sample(decode_sample_payload_with_schema_and_seq(
-                        payload,
-                        &fallback_schema,
-                        seq,
-                    )?))
+                    Ok(Bmi088Frame::Sample(
+                        decode_sample_payload_with_schema_and_seq(payload, &fallback_schema, seq)?,
+                    ))
                 }
                 Err(error) => Err(error),
             }
@@ -293,9 +288,7 @@ pub fn decode_binary_frame_with_schema(
 
 // ── Identity TLV decode ──────────────────────────────────────────────────────
 
-pub fn decode_identity_payload(
-    payload: &[u8],
-) -> Result<Bmi088IdentityFrame, Bmi088DecodeError> {
+pub fn decode_identity_payload(payload: &[u8]) -> Result<Bmi088IdentityFrame, Bmi088DecodeError> {
     decode_identity_payload_with_seq(0, payload)
 }
 
@@ -336,7 +329,9 @@ pub fn decode_identity_payload_with_seq(
         offset += value_len;
 
         match tag {
-            0x00 => identity_format_version = Some(decode_tlv_u8(value, "identity format version")?),
+            0x00 => {
+                identity_format_version = Some(decode_tlv_u8(value, "identity format version")?)
+            }
             0x01 => device_name = Some(decode_tlv_string(value, "device name")?),
             0x02 => board_name = Some(decode_tlv_string(value, "board name")?),
             0x03 => firmware_version = Some(decode_tlv_string(value, "firmware version")?),
@@ -346,21 +341,20 @@ pub fn decode_identity_payload_with_seq(
             0x07 => sample_rate_hz = Some(decode_tlv_u16(value, "sample rate")?),
             0x08 => schema_field_count = Some(decode_tlv_u8(value, "schema field count")?),
             0x09 => sample_payload_len = Some(decode_tlv_u8(value, "sample payload length")?),
-            0x0A => {
-                protocol_version_byte = Some(decode_tlv_u8(value, "protocol version byte")?)
-            }
+            0x0A => protocol_version_byte = Some(decode_tlv_u8(value, "protocol version byte")?),
             0x0B => feature_flags = Some(decode_tlv_u16(value, "feature flags")?),
             0x0C => baud_rate = Some(decode_tlv_u32(value, "baud rate")?),
-            0x0D => {
-                protocol_minor_version = Some(decode_tlv_u8(value, "protocol minor version")?)
-            }
+            0x0D => protocol_minor_version = Some(decode_tlv_u8(value, "protocol minor version")?),
             _ => {}
         }
     }
 
     Ok(Bmi088IdentityFrame {
         seq,
-        identity_format_version: require_tlv_field(identity_format_version, "identity format version")?,
+        identity_format_version: require_tlv_field(
+            identity_format_version,
+            "identity format version",
+        )?,
         device_name: require_tlv_field(device_name, "device name")?,
         board_name: require_tlv_field(board_name, "board name")?,
         firmware_version: require_tlv_field(firmware_version, "firmware version")?,
@@ -373,7 +367,10 @@ pub fn decode_identity_payload_with_seq(
         protocol_version_byte: require_tlv_field(protocol_version_byte, "protocol version byte")?,
         feature_flags: require_tlv_field(feature_flags, "feature flags")?,
         baud_rate: require_tlv_field(baud_rate, "baud rate")?,
-        protocol_minor_version: require_tlv_field(protocol_minor_version, "protocol minor version")?,
+        protocol_minor_version: require_tlv_field(
+            protocol_minor_version,
+            "protocol minor version",
+        )?,
     })
 }
 
@@ -404,8 +401,7 @@ pub fn decode_schema_payload_with_seq(
     if payload[0] != BMI088_SCHEMA_VERSION {
         eprintln!(
             "[bmi088][schema] branch=legacy seq={} first_byte=0x{:02X}",
-            seq,
-            payload[0],
+            seq, payload[0],
         );
         return decode_legacy_schema_payload_with_seq(seq, payload);
     }
@@ -654,10 +650,7 @@ fn decode_legacy_schema_payload_with_mixed_descriptors(
     let (scale_q, name, unit, next_offset) = decode_legacy_short_descriptor(payload, offset)?;
     eprintln!(
         "[bmi088][schema] legacy-mixed first field index=0 scale_q={} name={} unit={} next_offset={}",
-        scale_q,
-        name,
-        unit,
-        next_offset,
+        scale_q, name, unit, next_offset,
     );
     offset = next_offset;
     fields.push(Bmi088FieldDescriptor {
@@ -688,9 +681,7 @@ fn decode_legacy_schema_payload_with_mixed_descriptors(
         offset += 5;
 
         let name_bytes = payload.get(offset..offset + name_len).ok_or_else(|| {
-            Bmi088DecodeError::MalformedFrame(
-                "missing legacy mixed field name bytes".to_string(),
-            )
+            Bmi088DecodeError::MalformedFrame("missing legacy mixed field name bytes".to_string())
         })?;
         let name = String::from_utf8(name_bytes.to_vec()).map_err(|_| {
             Bmi088DecodeError::MalformedFrame("invalid legacy mixed field name utf8".to_string())
@@ -755,20 +746,23 @@ fn decode_legacy_short_descriptor(
     let unit_len = payload[offset + 2] as usize;
     let mut next_offset = offset + 3;
 
-    let name_bytes = payload.get(next_offset..next_offset + name_len).ok_or_else(|| {
-        Bmi088DecodeError::MalformedFrame("missing legacy field name bytes".to_string())
-    })?;
+    let name_bytes = payload
+        .get(next_offset..next_offset + name_len)
+        .ok_or_else(|| {
+            Bmi088DecodeError::MalformedFrame("missing legacy field name bytes".to_string())
+        })?;
     let name = String::from_utf8(name_bytes.to_vec()).map_err(|_| {
         Bmi088DecodeError::MalformedFrame("invalid legacy field name utf8".to_string())
     })?;
     next_offset += name_len;
 
-    let unit_bytes = payload.get(next_offset..next_offset + unit_len).ok_or_else(|| {
-        Bmi088DecodeError::MalformedFrame("missing legacy unit bytes".to_string())
-    })?;
-    let unit = String::from_utf8(unit_bytes.to_vec()).map_err(|_| {
-        Bmi088DecodeError::MalformedFrame("invalid legacy unit utf8".to_string())
-    })?;
+    let unit_bytes = payload
+        .get(next_offset..next_offset + unit_len)
+        .ok_or_else(|| {
+            Bmi088DecodeError::MalformedFrame("missing legacy unit bytes".to_string())
+        })?;
+    let unit = String::from_utf8(unit_bytes.to_vec())
+        .map_err(|_| Bmi088DecodeError::MalformedFrame("invalid legacy unit utf8".to_string()))?;
     next_offset += unit_len;
 
     Ok((scale_q, name, unit, next_offset))
@@ -844,9 +838,7 @@ pub fn frame_len(frame: &[u8]) -> Result<usize, Bmi088DecodeError> {
     Ok(frame_len_from_payload_len(frame[6]))
 }
 
-pub fn decode_frame_envelope(
-    frame: &[u8],
-) -> Result<(u8, u8, u8, &[u8]), Bmi088DecodeError> {
+pub fn decode_frame_envelope(frame: &[u8]) -> Result<(u8, u8, u8, &[u8]), Bmi088DecodeError> {
     if frame.len() < BMI088_MIN_FRAME_LEN {
         return Err(Bmi088DecodeError::MalformedFrame(
             "frame too short".to_string(),
@@ -872,7 +864,12 @@ pub fn decode_frame_envelope(
         return Err(Bmi088DecodeError::InvalidCrc);
     }
 
-    Ok((frame[3], frame[4], frame[5], &frame[BMI088_HEADER_LEN..expected_len - 2]))
+    Ok((
+        frame[3],
+        frame[4],
+        frame[5],
+        &frame[BMI088_HEADER_LEN..expected_len - 2],
+    ))
 }
 
 pub fn find_sof(buffer: &[u8]) -> Option<usize> {
@@ -888,9 +885,8 @@ fn require_tlv_field<T>(value: Option<T>, field_name: &str) -> Result<T, Bmi088D
 }
 
 fn decode_tlv_string(value: &[u8], field_name: &str) -> Result<String, Bmi088DecodeError> {
-    String::from_utf8(value.to_vec()).map_err(|_| {
-        Bmi088DecodeError::MalformedFrame(format!("invalid {field_name} utf8"))
-    })
+    String::from_utf8(value.to_vec())
+        .map_err(|_| Bmi088DecodeError::MalformedFrame(format!("invalid {field_name} utf8")))
 }
 
 fn decode_tlv_u8(value: &[u8], field_name: &str) -> Result<u8, Bmi088DecodeError> {

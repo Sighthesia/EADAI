@@ -1,7 +1,7 @@
 use eadai::ai_adapter::AiContextAdapter;
 use eadai::analysis::{AnalysisFrame, TriggerEvent, TriggerSeverity};
-use eadai::mcp_server::TelemetryMcpServer;
 use eadai::mcp_server::McpToolUsageTracker;
+use eadai::mcp_server::TelemetryMcpServer;
 use eadai::message::{BusMessage, MessageSource, ParserMeta, ParserStatus};
 use rmcp::{
     ServerHandler,

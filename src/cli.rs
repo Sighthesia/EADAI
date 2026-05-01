@@ -152,9 +152,7 @@ where
                 let value = next_value(&collected, &mut index, "--transport")?;
                 transport = match value.as_str() {
                     "serial" => TransportSelection::Serial,
-                    "crazyradio" => TransportSelection::Crazyradio {
-                        uri: String::new(),
-                    },
+                    "crazyradio" => TransportSelection::Crazyradio { uri: String::new() },
                     _ => {
                         return Err(AppError::Usage(format!(
                             "Invalid transport value: {value}. Expected serial or crazyradio\n\n{}",

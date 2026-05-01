@@ -31,7 +31,10 @@ impl TelemetryMcpServer {
 
     /// Creates a read-only MCP server around the provided adapter and tracker.
     pub fn with_tool_usage(adapter: AiContextAdapter, tool_usage: McpToolUsageTracker) -> Self {
-        Self { adapter, tool_usage }
+        Self {
+            adapter,
+            tool_usage,
+        }
     }
 
     /// Returns the static resource catalog exposed to MCP clients.
@@ -366,7 +369,9 @@ fn timestamp_ms(timestamp: SystemTime) -> u64 {
         .as_millis() as u64
 }
 
-fn lock_tool_usage<'a>(usage: &'a Arc<Mutex<Vec<McpToolUsageSnapshot>>>) -> MutexGuard<'a, Vec<McpToolUsageSnapshot>> {
+fn lock_tool_usage<'a>(
+    usage: &'a Arc<Mutex<Vec<McpToolUsageSnapshot>>>,
+) -> MutexGuard<'a, Vec<McpToolUsageSnapshot>> {
     match usage.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),

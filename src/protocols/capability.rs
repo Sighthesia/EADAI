@@ -125,10 +125,7 @@ pub fn mavlink_to_capabilities(packet: &MavlinkPacket) -> Vec<CapabilityEvent> {
                 events.push(CapabilityEvent::SystemStatus(SystemStatusData {
                     system_id: packet.system_id,
                     component_id: packet.component_id,
-                    status: fields
-                        .get("system_status")
-                        .cloned()
-                        .unwrap_or_default(),
+                    status: fields.get("system_status").cloned().unwrap_or_default(),
                     custom_mode: fields.get("custom_mode").and_then(|v| v.parse().ok()),
                     source_protocol: "mavlink",
                 }));
@@ -138,15 +135,15 @@ pub fn mavlink_to_capabilities(packet: &MavlinkPacket) -> Vec<CapabilityEvent> {
         0x0001 => {
             if let Some(fields) = try_extract_fields(packet) {
                 events.push(CapabilityEvent::BatteryStatus(BatteryData {
-                    voltage_mv: fields.get("voltage_battery").and_then(|v| {
-                        v.strip_suffix(" mV").and_then(|s| s.parse().ok())
-                    }),
-                    current_ma: fields.get("current_battery").and_then(|v| {
-                        v.strip_suffix(" mA").and_then(|s| s.parse().ok())
-                    }),
-                    remaining_percent: fields.get("battery_remaining").and_then(|v| {
-                        v.strip_suffix('%').and_then(|s| s.parse().ok())
-                    }),
+                    voltage_mv: fields
+                        .get("voltage_battery")
+                        .and_then(|v| v.strip_suffix(" mV").and_then(|s| s.parse().ok())),
+                    current_ma: fields
+                        .get("current_battery")
+                        .and_then(|v| v.strip_suffix(" mA").and_then(|s| s.parse().ok())),
+                    remaining_percent: fields
+                        .get("battery_remaining")
+                        .and_then(|v| v.strip_suffix('%').and_then(|s| s.parse().ok())),
                     source_protocol: "mavlink",
                 }));
                 events.push(CapabilityEvent::SystemStatus(SystemStatusData {
@@ -225,12 +222,17 @@ pub fn mavlink_to_capabilities(packet: &MavlinkPacket) -> Vec<CapabilityEvent> {
                         latitude_deg: lat,
                         longitude_deg: lon,
                         altitude_m: alt,
-                        satellites: fields.get("satellites_visible").and_then(|v| v.parse().ok()),
+                        satellites: fields
+                            .get("satellites_visible")
+                            .and_then(|v| v.parse().ok()),
                         fix_type: fields.get("fix_type").cloned(),
                         source_protocol: "mavlink",
                     }));
                 }
-                if let Some(rel_alt) = fields.get("relative_alt").and_then(|v| v.strip_suffix(" m").and_then(|s| s.parse::<f64>().ok())) {
+                if let Some(rel_alt) = fields
+                    .get("relative_alt")
+                    .and_then(|v| v.strip_suffix(" m").and_then(|s| s.parse::<f64>().ok()))
+                {
                     events.push(CapabilityEvent::LocalPosition(LocalPositionData {
                         x: 0.0,
                         y: 0.0,
@@ -247,12 +249,27 @@ pub fn mavlink_to_capabilities(packet: &MavlinkPacket) -> Vec<CapabilityEvent> {
         0x0035 => {
             if let Some(fields) = try_extract_fields(packet) {
                 events.push(CapabilityEvent::LocalPosition(LocalPositionData {
-                    x: fields.get("x").and_then(|v| v.strip_suffix(" m").and_then(|s| s.parse().ok())).unwrap_or(0.0),
-                    y: fields.get("y").and_then(|v| v.strip_suffix(" m").and_then(|s| s.parse().ok())).unwrap_or(0.0),
-                    z: fields.get("z").and_then(|v| v.strip_suffix(" m").and_then(|s| s.parse().ok())).unwrap_or(0.0),
-                    vx: fields.get("vx").and_then(|v| v.strip_suffix(" m/s").and_then(|s| s.parse().ok())),
-                    vy: fields.get("vy").and_then(|v| v.strip_suffix(" m/s").and_then(|s| s.parse().ok())),
-                    vz: fields.get("vz").and_then(|v| v.strip_suffix(" m/s").and_then(|s| s.parse().ok())),
+                    x: fields
+                        .get("x")
+                        .and_then(|v| v.strip_suffix(" m").and_then(|s| s.parse().ok()))
+                        .unwrap_or(0.0),
+                    y: fields
+                        .get("y")
+                        .and_then(|v| v.strip_suffix(" m").and_then(|s| s.parse().ok()))
+                        .unwrap_or(0.0),
+                    z: fields
+                        .get("z")
+                        .and_then(|v| v.strip_suffix(" m").and_then(|s| s.parse().ok()))
+                        .unwrap_or(0.0),
+                    vx: fields
+                        .get("vx")
+                        .and_then(|v| v.strip_suffix(" m/s").and_then(|s| s.parse().ok())),
+                    vy: fields
+                        .get("vy")
+                        .and_then(|v| v.strip_suffix(" m/s").and_then(|s| s.parse().ok())),
+                    vz: fields
+                        .get("vz")
+                        .and_then(|v| v.strip_suffix(" m/s").and_then(|s| s.parse().ok())),
                     source_protocol: "mavlink",
                 }));
             }
@@ -269,7 +286,9 @@ pub fn mavlink_to_capabilities(packet: &MavlinkPacket) -> Vec<CapabilityEvent> {
                         latitude_deg: lat,
                         longitude_deg: lon,
                         altitude_m: alt,
-                        satellites: fields.get("satellites_visible").and_then(|v| v.parse().ok()),
+                        satellites: fields
+                            .get("satellites_visible")
+                            .and_then(|v| v.parse().ok()),
                         fix_type: fields.get("fix_type").cloned(),
                         source_protocol: "mavlink",
                     }));
@@ -432,7 +451,9 @@ mod tests {
         };
 
         let events = mavlink_to_capabilities(&packet);
-        let raw = events.iter().find(|e| matches!(e, CapabilityEvent::RawPacket(_)));
+        let raw = events
+            .iter()
+            .find(|e| matches!(e, CapabilityEvent::RawPacket(_)));
         assert!(raw.is_some());
     }
 }

@@ -224,10 +224,14 @@ impl RuntimeControl {
         payload: Option<Vec<u8>>,
     ) -> Result<(), AppError> {
         match self {
-            Self::Serial { command_handle, .. } => command_handle.send_bmi088_command(command, payload),
+            Self::Serial { command_handle, .. } => {
+                command_handle.send_bmi088_command(command, payload)
+            }
             Self::Fake(handle) => handle
                 .send_payload(match payload.as_deref() {
-                    Some(payload) => crate::bmi088::encode_host_command_with_payload(command, payload),
+                    Some(payload) => {
+                        crate::bmi088::encode_host_command_with_payload(command, payload)
+                    }
                     None => crate::bmi088::encode_host_command(command),
                 })
                 .map_err(|error| AppError::Io(std::io::Error::new(ErrorKind::BrokenPipe, error))),

@@ -3,8 +3,8 @@ use std::cmp::min;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::command::StopSignal;
 use super::RETRY_SLEEP_SLICE_MS;
+use super::command::StopSignal;
 
 pub(super) fn timestamp_ms(timestamp: SystemTime) -> u64 {
     timestamp

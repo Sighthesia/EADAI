@@ -22,7 +22,7 @@
 //!   - length: payload length (0-63)
 //!   - crc8: CRC over header+length+data (init=0, poly=0x1D)
 
-use super::{CrazyradioDatarate, ByteTransport, TransportError, TransportKind, TransportResult};
+use super::{ByteTransport, CrazyradioDatarate, TransportError, TransportKind, TransportResult};
 use std::sync::mpsc;
 use std::thread;
 
@@ -53,10 +53,7 @@ pub struct CrazyradioTransport {
 
 impl CrazyradioTransport {
     /// Connects to a Crazyflie via Crazyradio.
-    pub fn connect(
-        uri: &str,
-        datarate: CrazyradioDatarate,
-    ) -> TransportResult<Self> {
+    pub fn connect(uri: &str, datarate: CrazyradioDatarate) -> TransportResult<Self> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<CrtpSerFrame>();
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
         let (evt_tx, evt_rx) = mpsc::channel::<LinkEvent>();
@@ -67,7 +64,9 @@ impl CrazyradioTransport {
             .spawn(move || {
                 run_link_worker(&uri_owned, datarate, cmd_rx, shutdown_rx, evt_tx);
             })
-            .map_err(|e| TransportError::ConnectionFailed(format!("failed to spawn worker: {e}")))?;
+            .map_err(|e| {
+                TransportError::ConnectionFailed(format!("failed to spawn worker: {e}"))
+            })?;
 
         match evt_rx.recv() {
             Ok(LinkEvent::Connected) => {}
@@ -296,7 +295,10 @@ fn run_link_worker(
                     let port = pkt.get_port();
                     let channel = pkt.get_channel();
                     let data: Vec<u8> = pkt.get_data().clone();
-                    if evt_tx.send(LinkEvent::Received(port, channel, data)).is_err() {
+                    if evt_tx
+                        .send(LinkEvent::Received(port, channel, data))
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -359,7 +361,11 @@ mod tests {
         let mut decoder = crate::protocols::CrtpDecoder::new(4096);
         let packets = decoder.push(&frame);
 
-        assert_eq!(packets.len(), 1, "decoder should parse the frame, got 0 packets");
+        assert_eq!(
+            packets.len(),
+            1,
+            "decoder should parse the frame, got 0 packets"
+        );
         assert_eq!(packets[0].port, crate::protocols::crtp::CrtpPort::Logging);
         assert_eq!(packets[0].channel, 1);
         assert_eq!(packets[0].payload, data);

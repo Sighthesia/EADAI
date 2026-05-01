@@ -17,11 +17,7 @@ pub struct SerialTransport {
 
 impl SerialTransport {
     /// Opens a serial port and returns a transport wrapper.
-    pub fn open(
-        port_name: &str,
-        baud_rate: u32,
-        read_timeout_ms: u64,
-    ) -> TransportResult<Self> {
+    pub fn open(port_name: &str, baud_rate: u32, read_timeout_ms: u64) -> TransportResult<Self> {
         let port = serialport::new(port_name, baud_rate)
             .timeout(std::time::Duration::from_millis(read_timeout_ms))
             .open()
@@ -38,7 +34,10 @@ impl SerialTransport {
     }
 
     /// Wraps an already-opened serial port into a transport.
-    pub fn from_port(port: Box<dyn serialport::SerialPort>, config: &crate::cli::RunConfig) -> Self {
+    pub fn from_port(
+        port: Box<dyn serialport::SerialPort>,
+        config: &crate::cli::RunConfig,
+    ) -> Self {
         Self {
             kind: TransportKind::Serial {
                 port: config.port.clone(),

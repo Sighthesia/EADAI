@@ -147,7 +147,10 @@ impl CrtpPacket {
                     if self.payload.len() > 2 {
                         let value = match self.payload.len() {
                             3 => format!("{} (int8)", self.payload[2] as i8),
-                            4 => format!("{} (int16)", i16::from_le_bytes([self.payload[2], self.payload[3]])),
+                            4 => format!(
+                                "{} (int16)",
+                                i16::from_le_bytes([self.payload[2], self.payload[3]])
+                            ),
                             6 => {
                                 let val = i32::from_le_bytes([
                                     self.payload[2],
@@ -382,7 +385,14 @@ impl CrtpPacket {
                         self.payload[15],
                         self.payload[16],
                     ]);
-                    fields.insert("yaw".into(), format!("{:.2} rad ({:.1}°)", yaw, yaw * 180.0 / std::f32::consts::PI));
+                    fields.insert(
+                        "yaw".into(),
+                        format!(
+                            "{:.2} rad ({:.1}°)",
+                            yaw,
+                            yaw * 180.0 / std::f32::consts::PI
+                        ),
+                    );
                 }
             }
             _ => {

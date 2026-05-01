@@ -55,19 +55,12 @@ pub const BMI088_SAMPLE_FIELD_NAMES: [&str; 30] = [
     "bench_test_throttle",
 ];
 pub const BMI088_SAMPLE_UNITS: [&str; 30] = [
-    "raw", "raw", "raw", "raw", "raw", "raw", "deg", "deg", "deg",
-    "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw",
-    "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw",
-    "raw",
+    "raw", "raw", "raw", "raw", "raw", "raw", "deg", "deg", "deg", "raw", "raw", "raw", "raw",
+    "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw", "raw",
+    "raw", "raw", "raw", "raw",
 ];
 pub const BMI088_SAMPLE_SCALE_Q: [i8; 30] = [
-    0, 0, 0, 0, 0, 0, -2, -2, -2,
-    0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    -2, -2, -2,
-    -2, -2, -2,
-    -2, -2, -2,
+    0, 0, 0, 0, 0, 0, -2, -2, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -2, -2, -2, -2, -2, -2, -2, -2, -2,
     0, 0,
 ];
 

@@ -1,5 +1,4 @@
 /// BMI088 frame encoding, CRC, host command encoding, and default data generators.
-
 use super::constants::*;
 use super::models::{
     Bmi088DecodeError, Bmi088FieldDescriptor, Bmi088HostCommand, Bmi088IdentityFrame,
@@ -85,7 +84,12 @@ pub fn encode_schema_frame(schema: &Bmi088SchemaFrame) -> Vec<u8> {
 }
 
 pub fn encode_schema_frame_with_seq(schema: &Bmi088SchemaFrame, seq: u8) -> Vec<u8> {
-    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SCHEMA, seq, &schema.encode_payload())
+    encode_frame(
+        BMI088_FRAME_TYPE_EVENT,
+        BMI088_CMD_SCHEMA,
+        seq,
+        &schema.encode_payload(),
+    )
 }
 
 pub fn encode_sample_frame(sample: &Bmi088SampleFrame) -> Vec<u8> {
@@ -101,7 +105,12 @@ pub fn encode_sample_frame_with_seq(sample: &Bmi088SampleFrame, seq: u8) -> Vec<
 }
 
 pub fn encode_shell_output_frame(output: &LinePayload, seq: u8) -> Vec<u8> {
-    encode_frame(BMI088_FRAME_TYPE_EVENT, BMI088_CMD_SHELL_OUTPUT, seq, &output.raw)
+    encode_frame(
+        BMI088_FRAME_TYPE_EVENT,
+        BMI088_CMD_SHELL_OUTPUT,
+        seq,
+        &output.raw,
+    )
 }
 
 pub fn default_schema() -> Bmi088SchemaFrame {
@@ -235,40 +244,42 @@ pub(crate) fn compact_field_code(name: &str) -> Option<u8> {
 }
 
 pub(crate) fn compact_field_name(code: u8) -> Option<String> {
-    Some(match code {
-        0x00 => "acc_x",
-        0x01 => "acc_y",
-        0x02 => "acc_z",
-        0x03 => "gyro_x",
-        0x04 => "gyro_y",
-        0x05 => "gyro_z",
-        0x06 => "roll",
-        0x07 => "pitch",
-        0x08 => "yaw",
-        0x09 => "reserved_0",
-        0x0A => "reserved_1",
-        0x0B => "motor_left_rear_wheel",
-        0x0C => "motor_left_front_wheel",
-        0x0D => "motor_right_front_wheel",
-        0x0E => "motor_right_rear_wheel",
-        0x0F => "roll_correction_output",
-        0x10 => "pitch_correction_output",
-        0x11 => "yaw_correction_output",
-        0x12 => "throttle_correction_output",
-        0x13 => "roll_proportional_gain_x100",
-        0x14 => "roll_integral_gain_x100",
-        0x15 => "roll_derivative_gain_x100",
-        0x16 => "pitch_proportional_gain_x100",
-        0x17 => "pitch_integral_gain_x100",
-        0x18 => "pitch_derivative_gain_x100",
-        0x19 => "yaw_proportional_gain_x100",
-        0x1A => "yaw_integral_gain_x100",
-        0x1B => "yaw_derivative_gain_x100",
-        0x1C => "output_limit",
-        0x1D => "bench_test_throttle",
-        _ => return None,
-    }
-    .to_string())
+    Some(
+        match code {
+            0x00 => "acc_x",
+            0x01 => "acc_y",
+            0x02 => "acc_z",
+            0x03 => "gyro_x",
+            0x04 => "gyro_y",
+            0x05 => "gyro_z",
+            0x06 => "roll",
+            0x07 => "pitch",
+            0x08 => "yaw",
+            0x09 => "reserved_0",
+            0x0A => "reserved_1",
+            0x0B => "motor_left_rear_wheel",
+            0x0C => "motor_left_front_wheel",
+            0x0D => "motor_right_front_wheel",
+            0x0E => "motor_right_rear_wheel",
+            0x0F => "roll_correction_output",
+            0x10 => "pitch_correction_output",
+            0x11 => "yaw_correction_output",
+            0x12 => "throttle_correction_output",
+            0x13 => "roll_proportional_gain_x100",
+            0x14 => "roll_integral_gain_x100",
+            0x15 => "roll_derivative_gain_x100",
+            0x16 => "pitch_proportional_gain_x100",
+            0x17 => "pitch_integral_gain_x100",
+            0x18 => "pitch_derivative_gain_x100",
+            0x19 => "yaw_proportional_gain_x100",
+            0x1A => "yaw_integral_gain_x100",
+            0x1B => "yaw_derivative_gain_x100",
+            0x1C => "output_limit",
+            0x1D => "bench_test_throttle",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 pub(crate) fn compact_unit_code(unit: &str) -> Option<u8> {
@@ -280,12 +291,14 @@ pub(crate) fn compact_unit_code(unit: &str) -> Option<u8> {
 }
 
 pub(crate) fn compact_unit_name(code: u8) -> Option<String> {
-    Some(match code {
-        0x00 => "raw",
-        0x01 => "deg",
-        _ => return None,
-    }
-    .to_string())
+    Some(
+        match code {
+            0x00 => "raw",
+            0x01 => "deg",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 // ── Model impl blocks that depend on encoder internals ───────────────────────
@@ -316,7 +329,11 @@ impl Bmi088SchemaFrame {
     }
 
     pub fn encode_payload(&self) -> Vec<u8> {
-        if self.fields.iter().all(|field| field.name != "" && compact_field_code(&field.name).is_some()) {
+        if self
+            .fields
+            .iter()
+            .all(|field| field.name != "" && compact_field_code(&field.name).is_some())
+        {
             let mut payload = Vec::with_capacity(4 + self.fields.len() * 5);
             payload.push(self.schema_version);
             payload.push(self.rate_hz.min(u8::MAX as u32) as u8);

@@ -10,7 +10,7 @@ fn encodes_and_decodes_identity_frames() {
 
     match bmi088::decode_binary_frame(&frame).expect("decode identity") {
         Bmi088Frame::Identity(decoded) => {
-    assert_eq!(decoded.device_name, "BMI088 Bringup");
+            assert_eq!(decoded.device_name, "BMI088 Bringup");
             assert_eq!(decoded.board_name, "TC264 Board");
             assert_eq!(decoded.protocol_version, "1.0");
             assert_eq!(decoded.sample_rate_hz, 100);
@@ -159,7 +159,10 @@ fn schema_retry_commands_are_available_until_handshake_advances() {
     let mut session = Bmi088SessionState::new();
 
     session.boot_commands();
-    assert_eq!(session.schema_retry_commands(), vec![Bmi088HostCommand::ReqSchema]);
+    assert_eq!(
+        session.schema_retry_commands(),
+        vec![Bmi088HostCommand::ReqSchema]
+    );
 
     session.on_frame(&Bmi088Frame::Schema(bmi088::default_schema()));
     assert!(session.schema_retry_commands().is_empty());
@@ -170,16 +173,33 @@ fn host_handshake_commands_encode_to_binary_request_frames() {
     let req_identity = bmi088::encode_host_command(Bmi088HostCommand::ReqIdentity);
     let req_schema = bmi088::encode_host_command(Bmi088HostCommand::ReqSchema);
     let req_tuning = bmi088::encode_host_command(Bmi088HostCommand::ReqTuning);
-    let set_tuning = bmi088::encode_host_command_with_payload(Bmi088HostCommand::SetTuning, b"payload");
-    let shell_exec = bmi088::encode_host_command_with_payload(Bmi088HostCommand::ShellExec, b"help");
+    let set_tuning =
+        bmi088::encode_host_command_with_payload(Bmi088HostCommand::SetTuning, b"payload");
+    let shell_exec =
+        bmi088::encode_host_command_with_payload(Bmi088HostCommand::ShellExec, b"help");
     let ack = bmi088::encode_host_command(Bmi088HostCommand::Ack);
     let start = bmi088::encode_host_command(Bmi088HostCommand::Start);
 
-    assert_eq!(&req_identity[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x14, 0x00, 0x00]);
-    assert_eq!(&req_schema[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x13, 0x00, 0x00]);
-    assert_eq!(&req_tuning[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x26, 0x00, 0x00]);
-    assert_eq!(&set_tuning[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x27, 0x00, 0x07]);
-    assert_eq!(&shell_exec[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x28, 0x00, 0x04]);
+    assert_eq!(
+        &req_identity[..7],
+        &[0xA5, 0x5A, 0x01, 0x01, 0x14, 0x00, 0x00]
+    );
+    assert_eq!(
+        &req_schema[..7],
+        &[0xA5, 0x5A, 0x01, 0x01, 0x13, 0x00, 0x00]
+    );
+    assert_eq!(
+        &req_tuning[..7],
+        &[0xA5, 0x5A, 0x01, 0x01, 0x26, 0x00, 0x00]
+    );
+    assert_eq!(
+        &set_tuning[..7],
+        &[0xA5, 0x5A, 0x01, 0x01, 0x27, 0x00, 0x07]
+    );
+    assert_eq!(
+        &shell_exec[..7],
+        &[0xA5, 0x5A, 0x01, 0x01, 0x28, 0x00, 0x04]
+    );
     assert_eq!(&ack[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x10, 0x00, 0x00]);
     assert_eq!(&start[..7], &[0xA5, 0x5A, 0x01, 0x01, 0x11, 0x00, 0x00]);
 }
@@ -202,9 +222,21 @@ fn shell_command_and_output_frames_round_trip() {
 
 #[test]
 fn decodes_response_typed_frames_for_backward_compatibility() {
-    let identity = response_frame(bmi088::BMI088_CMD_IDENTITY, 7, &sample_identity().encode_payload());
-    let schema = response_frame(bmi088::BMI088_CMD_SCHEMA, 8, &bmi088::default_schema().encode_payload());
-    let sample = response_frame(bmi088::BMI088_CMD_SAMPLE, 9, &sample_payload_from_raw(&[1, 2, 3]));
+    let identity = response_frame(
+        bmi088::BMI088_CMD_IDENTITY,
+        7,
+        &sample_identity().encode_payload(),
+    );
+    let schema = response_frame(
+        bmi088::BMI088_CMD_SCHEMA,
+        8,
+        &bmi088::default_schema().encode_payload(),
+    );
+    let sample = response_frame(
+        bmi088::BMI088_CMD_SAMPLE,
+        9,
+        &sample_payload_from_raw(&[1, 2, 3]),
+    );
 
     assert!(matches!(
         bmi088::decode_binary_frame(&identity).expect("decode response identity"),
@@ -215,7 +247,8 @@ fn decodes_response_typed_frames_for_backward_compatibility() {
         Bmi088Frame::Schema(_)
     ));
     assert!(matches!(
-        bmi088::decode_binary_frame_with_schema(&sample, Some(&three_field_schema())).expect("decode response sample"),
+        bmi088::decode_binary_frame_with_schema(&sample, Some(&three_field_schema()))
+            .expect("decode response sample"),
         Bmi088Frame::Sample(_)
     ));
 }
@@ -249,7 +282,11 @@ fn duplicate_schema_frames_do_not_restart_streaming_handshake() {
     session.on_host_command(Bmi088HostCommand::Start);
     assert_eq!(session.phase(), Bmi088SessionPhase::Streaming);
 
-    assert!(session.on_frame(&Bmi088Frame::Schema(bmi088::default_schema())).is_empty());
+    assert!(
+        session
+            .on_frame(&Bmi088Frame::Schema(bmi088::default_schema()))
+            .is_empty()
+    );
     assert_eq!(session.phase(), Bmi088SessionPhase::Streaming);
 }
 
@@ -289,7 +326,10 @@ fn stream_decoder_uses_latest_schema_order_for_samples() {
     let mut decoder = bmi088::Bmi088StreamDecoder::new(4096);
 
     let schema_packets = decoder.push(&bmi088::encode_schema_frame(&schema));
-    assert!(matches!(schema_packets.first(), Some(TelemetryPacket::Schema(_))));
+    assert!(matches!(
+        schema_packets.first(),
+        Some(TelemetryPacket::Schema(_))
+    ));
 
     let sample_packets = decoder.push(&bmi088::encode_sample_frame(&sample));
     match sample_packets.first().expect("sample packet") {
@@ -303,7 +343,8 @@ fn stream_decoder_uses_latest_schema_order_for_samples() {
 }
 
 #[test]
-fn stream_decoder_does_not_replace_streaming_schema_with_short_tuning_schema_when_identity_disagrees() {
+fn stream_decoder_does_not_replace_streaming_schema_with_short_tuning_schema_when_identity_disagrees()
+ {
     let identity = sample_identity();
     let stream_schema = bmi088::default_schema();
     let tuning_schema = bmi088::decode_schema_payload(&mixed_legacy_schema_payload(
@@ -319,13 +360,22 @@ fn stream_decoder_does_not_replace_streaming_schema_with_short_tuning_schema_whe
     let mut decoder = bmi088::Bmi088StreamDecoder::new(4096);
 
     let identity_packets = decoder.push(&bmi088::encode_identity_frame(&identity));
-    assert!(matches!(identity_packets.first(), Some(TelemetryPacket::Identity(_))));
+    assert!(matches!(
+        identity_packets.first(),
+        Some(TelemetryPacket::Identity(_))
+    ));
 
     let stream_schema_packets = decoder.push(&bmi088::encode_schema_frame(&stream_schema));
-    assert!(matches!(stream_schema_packets.first(), Some(TelemetryPacket::Schema(_))));
+    assert!(matches!(
+        stream_schema_packets.first(),
+        Some(TelemetryPacket::Schema(_))
+    ));
 
     let tuning_schema_packets = decoder.push(&bmi088::encode_schema_frame(&tuning_schema));
-    assert!(matches!(tuning_schema_packets.first(), Some(TelemetryPacket::Schema(_))));
+    assert!(matches!(
+        tuning_schema_packets.first(),
+        Some(TelemetryPacket::Schema(_))
+    ));
 
     let sample_packets = decoder.push(&bmi088::encode_sample_frame(&sample));
     match sample_packets.first().expect("sample packet") {
@@ -353,7 +403,10 @@ fn stream_decoder_falls_back_to_default_sample_schema_when_cached_schema_is_shor
     let mut decoder = bmi088::Bmi088StreamDecoder::new(4096);
 
     let schema_packets = decoder.push(&bmi088::encode_schema_frame(&tuning_schema));
-    assert!(matches!(schema_packets.first(), Some(TelemetryPacket::Schema(_))));
+    assert!(matches!(
+        schema_packets.first(),
+        Some(TelemetryPacket::Schema(_))
+    ));
 
     let sample_packets = decoder.push(&bmi088::encode_sample_frame(&sample));
     match sample_packets.first().expect("sample packet") {
@@ -376,7 +429,10 @@ fn stream_decoder_emits_identity_packets_before_schema() {
     ));
 
     let schema_packets = decoder.push(&bmi088::encode_schema_frame(&bmi088::default_schema()));
-    assert!(matches!(schema_packets.first(), Some(TelemetryPacket::Schema(_))));
+    assert!(matches!(
+        schema_packets.first(),
+        Some(TelemetryPacket::Schema(_))
+    ));
 }
 
 fn sample_identity() -> bmi088::Bmi088IdentityFrame {
@@ -443,7 +499,8 @@ fn response_frame(command: u8, seq: u8, payload: &[u8]) -> Vec<u8> {
 }
 
 fn encode_frame_like_device(frame_type: u8, command: u8, seq: u8, payload: &[u8]) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(bmi088::BMI088_HEADER_LEN + payload.len() + bmi088::BMI088_CRC_LEN);
+    let mut frame =
+        Vec::with_capacity(bmi088::BMI088_HEADER_LEN + payload.len() + bmi088::BMI088_CRC_LEN);
     frame.extend_from_slice(&bmi088::BMI088_SOF);
     frame.push(bmi088::BMI088_VERSION);
     frame.push(frame_type);

@@ -101,7 +101,9 @@ where
     while index < collected.len() {
         match collected[index].as_str() {
             "--port" => port = Some(next_value(&collected, &mut index, "--port")?),
-            "--baud" => baud_rate = parse_number(&next_value(&collected, &mut index, "--baud")?, "--baud")?,
+            "--baud" => {
+                baud_rate = parse_number(&next_value(&collected, &mut index, "--baud")?, "--baud")?
+            }
             "--read-timeout-ms" => {
                 timeout_ms = parse_number(
                     &next_value(&collected, &mut index, "--read-timeout-ms")?,
@@ -133,11 +135,8 @@ where
                 )?
             }
             "--ascii-newline" => {
-                ascii_newline = parse_newline_mode(&next_value(
-                    &collected,
-                    &mut index,
-                    "--ascii-newline",
-                )?)?
+                ascii_newline =
+                    parse_newline_mode(&next_value(&collected, &mut index, "--ascii-newline")?)?
             }
             "--listen-only" => listen_only = true,
             "--skip-ascii" => skip_ascii = true,
@@ -147,7 +146,7 @@ where
                     "Unknown flag: {}\n\n{}",
                     collected[index],
                     usage()
-                )))
+                )));
             }
         }
 
@@ -200,31 +199,77 @@ pub fn run(config: DiagConfig) -> Result<(), AppError> {
         "[note] This probe uses the firmware skill contract: 115200 8N1, type=0x03 EVENT, seq+1-byte len, CRC over header+payload."
     );
 
-    observe_budgeted(&mut *port, &mut state, started_at, config.overall_timeout, config.schema_wait)?;
+    observe_budgeted(
+        &mut *port,
+        &mut state,
+        started_at,
+        config.overall_timeout,
+        config.schema_wait,
+    )?;
 
     if !config.listen_only && state.stats.sample_count == 0 && !config.skip_ascii {
-        send_ascii(&mut *port, &mut state, HostCommand::Ack, config.ascii_newline)?;
-        observe_budgeted(&mut *port, &mut state, started_at, config.overall_timeout, config.step_wait / 3)?;
+        send_ascii(
+            &mut *port,
+            &mut state,
+            HostCommand::Ack,
+            config.ascii_newline,
+        )?;
+        observe_budgeted(
+            &mut *port,
+            &mut state,
+            started_at,
+            config.overall_timeout,
+            config.step_wait / 3,
+        )?;
         if state.stats.sample_count == 0 {
-            send_ascii(&mut *port, &mut state, HostCommand::Start, config.ascii_newline)?;
-            observe_budgeted(&mut *port, &mut state, started_at, config.overall_timeout, config.step_wait)?;
+            send_ascii(
+                &mut *port,
+                &mut state,
+                HostCommand::Start,
+                config.ascii_newline,
+            )?;
+            observe_budgeted(
+                &mut *port,
+                &mut state,
+                started_at,
+                config.overall_timeout,
+                config.step_wait,
+            )?;
         }
     }
 
     if !config.listen_only && state.stats.sample_count == 0 {
         if state.schema.is_none() {
             send_binary(&mut *port, &mut state, HostCommand::ReqSchema)?;
-            observe_budgeted(&mut *port, &mut state, started_at, config.overall_timeout, config.step_wait)?;
+            observe_budgeted(
+                &mut *port,
+                &mut state,
+                started_at,
+                config.overall_timeout,
+                config.step_wait,
+            )?;
         }
 
         if state.schema.is_some() && state.stats.sample_count == 0 {
             send_binary(&mut *port, &mut state, HostCommand::Ack)?;
-            observe_budgeted(&mut *port, &mut state, started_at, config.overall_timeout, config.step_wait / 3)?;
+            observe_budgeted(
+                &mut *port,
+                &mut state,
+                started_at,
+                config.overall_timeout,
+                config.step_wait / 3,
+            )?;
         }
 
         if state.schema.is_some() && state.stats.sample_count == 0 {
             send_binary(&mut *port, &mut state, HostCommand::Start)?;
-            observe_budgeted(&mut *port, &mut state, started_at, config.overall_timeout, config.step_wait)?;
+            observe_budgeted(
+                &mut *port,
+                &mut state,
+                started_at,
+                config.overall_timeout,
+                config.step_wait,
+            )?;
         }
     }
 
@@ -233,7 +278,13 @@ pub fn run(config: DiagConfig) -> Result<(), AppError> {
         .saturating_sub(started_at.elapsed())
         .min(config.step_wait / 2);
     if !remaining.is_zero() {
-        observe_budgeted(&mut *port, &mut state, started_at, config.overall_timeout, remaining)?;
+        observe_budgeted(
+            &mut *port,
+            &mut state,
+            started_at,
+            config.overall_timeout,
+            remaining,
+        )?;
     }
 
     state.stats.invalid_crc_count = state.decoder.invalid_crc_count();
@@ -408,9 +459,7 @@ fn handle_packet(state: &mut RunState, packet: Packet) {
             state.stats.unknown_frame_count += 1;
             println!(
                 "[rx/frame] count={} type=0x{frame_type:02X} cmd=0x{command:02X} seq={} len={}",
-                state.stats.unknown_frame_count,
-                seq,
-                payload_len
+                state.stats.unknown_frame_count, seq, payload_len
             );
         }
     }
@@ -467,9 +516,10 @@ fn usage() -> String {
 
 fn next_value(values: &[String], index: &mut usize, flag: &str) -> Result<String, AppError> {
     *index += 1;
-    values.get(*index).cloned().ok_or_else(|| {
-        AppError::Usage(format!("Missing value for {flag}\n\n{}", usage()))
-    })
+    values
+        .get(*index)
+        .cloned()
+        .ok_or_else(|| AppError::Usage(format!("Missing value for {flag}\n\n{}", usage())))
 }
 
 fn parse_number<T>(value: &str, flag: &str) -> Result<T, AppError>
@@ -509,7 +559,8 @@ fn should_log_raw(stats: &DiagStats) -> bool {
 }
 
 fn hex_preview(bytes: &[u8]) -> String {
-    bytes.iter()
+    bytes
+        .iter()
         .take(DEFAULT_HEX_PREVIEW_BYTES)
         .map(|byte| format!("{byte:02X}"))
         .collect::<Vec<_>>()
