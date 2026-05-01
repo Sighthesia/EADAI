@@ -79,6 +79,7 @@ The protocol support is organized into four explicit layers:
   - `MessageKind::TelemetrySample`
   - `MessageKind::MavlinkPacket`
   - `MessageKind::CrtpPacket`
+  - `MessageKind::ProtocolDetected { protocol }`
   - `MessageKind::Capability` (new)
 - Tauri/UI event kinds:
   - `UiBusEvent::TelemetryIdentity`
@@ -86,6 +87,7 @@ The protocol support is organized into four explicit layers:
   - `UiBusEvent::TelemetrySample`
   - `UiBusEvent::MavlinkPacket`
   - `UiBusEvent::CrtpPacket`
+  - `UiBusEvent::ProtocolDetected { protocol }`
   - `UiBusEvent::Capability` (new)
 
 ---
@@ -99,6 +101,7 @@ The protocol support is organized into four explicit layers:
 - `CrazyradioTransport` is a real, runnable transport backed by the `crazyflie-link` async link.
 - `CrazyflieUsb` is reserved for future USB native transport; not yet implemented.
 - CLI `--transport serial` and `--transport crazyradio --radio-uri <uri>` select the transport.
+- Rust bus `MessageSource.transport` must project `TransportKind::{Serial, Crazyradio, Fake}` consistently into Tauri `UiTransportKind`.
 
 ### Built-in protocol scope
 
@@ -117,6 +120,19 @@ The protocol support is organized into four explicit layers:
   4. Text auto-parse
 - Auto mode must tolerate garbage and partial chunks without panicking.
 - Auto mode must keep false positives low enough that ordinary text does not frequently surface as MAVLink or CRTP packets.
+- Auto mode must not let an earlier successful decoder suppress later binary decoders for the same chunk; BMI088, MAVLink, and CRTP decoders each get a chance to inspect the bytes.
+- `ProtocolDetected` is emitted once per chunk-processing pass on the first protocol that successfully produced structured packets; it is a UI/debug hint, not an exclusive session lock.
+- CRTP packets detected in auto mode must still pass through `is_self_describing_packet()` so the self-describing session path remains active without requiring explicit `--parser crtp`.
+
+### Desktop/Tauri connect contract
+
+- `src-tauri/src/model/session.rs::ConnectRequest` accepts:
+  - `parser?: "auto" | "bmi088" | "mavlink" | "crtp" | "key_value" | "measurements"`
+  - `transport?: "serial" | "crazyradio"`
+  - `radioUri?: string`
+- Missing `parser` keeps the backward-compatible default `bmi088`.
+- Missing `transport` defaults to `serial`.
+- When `transport == "crazyradio"`, `radioUri` is the intended connection target and must be forwarded into `TransportSelection::Crazyradio { uri }` instead of being ignored by the desktop state layer.
 
 ### Cross-layer projection
 
@@ -134,6 +150,8 @@ The protocol support is organized into four explicit layers:
   - `channel`
   - `payload_len`
   - `fields`
+- Protocol-detected UI events must include:
+  - `protocol`
 - Capability events include `source_protocol` field to identify the originating protocol.
 
 ### Capability event contract
@@ -142,6 +160,7 @@ The protocol support is organized into four explicit layers:
 - Raw protocol events are always published (for debug and protocol-specific display).
 - UI may consume capability events for cross-protocol unified display.
 - Capability events include `source_protocol` ("mavlink" or "crtp") for traceability.
+- CRTP commander RPYT packets must map to `CapabilityEvent::Attitude` in addition to `RawPacket`, so the unified attitude path is available even without MAVLink.
 
 ### Semantic field projection
 
@@ -199,7 +218,9 @@ The protocol support is organized into four explicit layers:
 - Unknown MAVLink message ID without known CRC extra -> packet may be surfaced as untyped/weakly validated, but must not masquerade as a different protocol.
 - Garbage bytes before a valid binary frame -> skipped until sync is re-established.
 - Auto mode receives ordinary text -> must fall through to text parsing instead of inventing protocol packets.
+- Auto mode receives a chunk where one decoder succeeds -> later decoders may still inspect the same bytes; do not short-circuit on `handled = true` style logic.
 - User selects `--parser crtp` -> behavior is limited to CRTP framing; transport is selected separately via `--transport`.
+- Desktop connect request sets `transport = "crazyradio"` but omits `radioUri` -> runtime currently forwards an empty URI; UI should treat this as invalid input even if backend fallback behavior still exists.
 - Crazyradio connection failure -> transport returns `TransportError::ConnectionFailed`; runtime retries via reconnect controller.
 - Common-message semantic projection missing required keys -> contract drift; fix the Rust decoder mapping instead of patching around it in UI-only code.
 
@@ -209,9 +230,11 @@ The protocol support is organized into four explicit layers:
 
 - Good: `--parser auto --transport serial` on a MAVLink serial stream emits `MavlinkPacket` + `Capability` events.
 - Good: `--parser auto --transport serial` on a CRTP-over-serial stream emits `CrtpPacket` + `Capability` events.
+- Good: `--parser auto` on a self-describing CRTP stream emits `ProtocolDetected`, raw `CrtpPacket`, and self-describing events without requiring a parser switch.
 - Good: `--transport crazyradio --radio-uri radio://0/60/2M/E7E7E7E7E7` connects via Crazyradio dongle.
 - Good: `--parser auto` on legacy text telemetry still emits text line events and analysis.
 - Base: `--parser mavlink` and `--parser crtp` are explicit framing modes, not promises about outbound control features.
+- Base: `ProtocolDetected` is informative for UI/debug state; packet and capability events remain the authoritative data path.
 - Bad: describe `crtp` support as "Crazyflie supported" without stating transport scope.
 - Bad: move MAVLink or CRTP decode logic into the frontend.
 - Bad: let auto mode greedily claim arbitrary text as binary packets without CRC or framing evidence.
@@ -224,7 +247,9 @@ The protocol support is organized into four explicit layers:
 - Capability tests must verify MAVLink-to-capability mapping for attitude, battery, GPS, IMU, and system status.
 - Runtime tests should preserve existing text parser behavior in auto mode.
 - Cross-layer tests should assert new bus event kinds serialize through Tauri models without shape drift.
+- Cross-layer tests should cover `ProtocolDetected` plus `TransportKind::Crazyradio -> UiTransportKind::Crazyradio` projection.
 - Semantic mapping tests should assert the required `fields` keys for the covered MAVLink message IDs and CRTP ports/channels.
+- Capability tests should assert CRTP commander RPYT produces `CapabilityEvent::Attitude`.
 - CLI tests should assert `--parser mavlink`, `--parser crtp`, `--transport serial`, and `--transport crazyradio` parse successfully.
 - Transport tests should verify `ByteTransport` trait implementations for serial and Crazyradio.
 
