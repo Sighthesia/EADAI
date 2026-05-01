@@ -350,6 +350,25 @@ button {
   min-height: 0;
 }
 
+.runtime-session-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.85fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.runtime-session-primary,
+.runtime-session-sidebar {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.runtime-session-sidebar {
+  align-content: start;
+}
+
 .scripts-panel {
   padding: 14px;
   gap: 12px;
@@ -680,6 +699,27 @@ button {
   height: 100%;
 }
 
+.runtime-terminal-rail {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.runtime-terminal-workspace-compact {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+  align-items: start;
+}
+
+.runtime-terminal-sidecar {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  align-content: start;
+}
+
 .runtime-terminal-half {
   display: grid;
   gap: 10px;
@@ -693,6 +733,12 @@ button {
   min-height: 0;
   grid-template-rows: minmax(0, 1fr) auto;
   flex: 1;
+}
+
+.runtime-terminal-command-rail {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
 }
 
 .runtime-terminal-summary-card {

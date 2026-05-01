@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import type { Bmi088HostCommand, ConsoleDisplayMode, ConsoleEntry, UiProtocolHandshakePhase, UiRuntimeCommandCatalogItem } from '../types'
-import { buildRuntimeCommandTemplateSelection, formatBytes, formatEntry, formatTime } from './runtimeUtils'
+import { memo, useMemo, useRef, useState } from 'react'
+import type { ConsoleDisplayMode, ConsoleEntry, UiProtocolHandshakePhase } from '../types'
+import { formatBytes, formatEntry, formatTime } from './runtimeUtils'
 
 type PacketGroup = {
   key: string
@@ -21,7 +21,6 @@ const SEND_WINDOW_SIZE = 120
 const RECEIVE_GROUP_WINDOW_SIZE = 24
 
 export function RuntimeConsoleSection({
-  runtimeCommands,
   protocolPhase,
   commandInput,
   consoleDisplayMode,
@@ -32,9 +31,7 @@ export function RuntimeConsoleSection({
   onAppendNewlineChange,
   onConsoleDisplayModeChange,
   onSend,
-  onSendCommand,
 }: {
-  runtimeCommands: UiRuntimeCommandCatalogItem[]
   protocolPhase: UiProtocolHandshakePhase
   commandInput: string
   consoleDisplayMode: ConsoleDisplayMode
@@ -45,23 +42,9 @@ export function RuntimeConsoleSection({
   onAppendNewlineChange: (value: boolean) => void
   onConsoleDisplayModeChange: (value: ConsoleDisplayMode) => void
   onSend: () => void
-  onSendCommand: (command: Bmi088HostCommand, payload?: string | null) => void
 }) {
-  const [selectedCommand, setSelectedCommand] = useState<Bmi088HostCommand | null>(runtimeCommands[0]?.command ?? null)
   const [receiveGroupingEnabled, setReceiveGroupingEnabled] = useState(false)
   const commandInputRef = useRef<HTMLTextAreaElement | null>(null)
-
-  useEffect(() => {
-    const commandExists = selectedCommand ? runtimeCommands.some((item) => item.command === selectedCommand) : false
-    if (!commandExists) {
-      setSelectedCommand(runtimeCommands[0]?.command ?? null)
-    }
-  }, [runtimeCommands, selectedCommand])
-
-  const selectedCommandItem = useMemo(
-    () => runtimeCommands.find((item) => item.command === selectedCommand) ?? null,
-    [runtimeCommands, selectedCommand],
-  )
 
   const receivedEntries = useMemo(() => {
     const received = consoleEntries.filter((entry) => entry.direction === 'rx')
@@ -81,150 +64,87 @@ export function RuntimeConsoleSection({
     [consoleDisplayMode, receiveGroupingEnabled, receivedGroupEntries],
   )
   const sentEntries = useMemo(() => sentConsoleEntries.slice(-SEND_WINDOW_SIZE).reverse(), [sentConsoleEntries])
-  const commandTemplate = useMemo(() => (selectedCommandItem ? buildRuntimeCommandTemplateSelection(selectedCommandItem) : null), [selectedCommandItem])
-
-  const applyCommandTemplate = (item: UiRuntimeCommandCatalogItem) => {
-    setSelectedCommand(item.command)
-
-    if (item.parameters?.length === 0) {
-      onCommandInputChange('')
-      onSendCommand(item.command)
-      return
-    }
-
-    const { template, selection } = buildRuntimeCommandTemplateSelection(item)
-    onCommandInputChange(template)
-
-    window.requestAnimationFrame(() => {
-      const input = commandInputRef.current
-      if (!input) return
-
-      input.focus()
-      input.setSelectionRange(selection[0], selection[1])
-    })
-  }
-
-  const sendSelectedCommand = () => {
-    if (!selectedCommandItem) {
-      onSend()
-      return
-    }
-
-    if ((selectedCommandItem.parameters?.length ?? 0) === 0) {
-      onSendCommand(selectedCommandItem.command)
-      return
-    }
-
-    const payload = commandInput.trim()
-    onSendCommand(selectedCommandItem.command, payload.length > 0 ? payload : null)
-  }
 
   return (
     <section className="runtime-section runtime-terminal-shell">
-      <div className="runtime-terminal-workspace">
-        <section className="runtime-section-card runtime-terminal-half runtime-terminal-receive-half">
-          <div className="protocol-schema-header">
-            <div>
-              <strong>Receive area</strong>
-            </div>
-            <div className="runtime-terminal-header-actions">
-              <span className="metric-chip">{protocolPhase}</span>
-              {consoleDisplayMode === 'ascii' ? (
-                <button
-                  type="button"
-                  className={`metric-display-button ${receiveGroupingEnabled ? 'active' : ''}`}
-                  onClick={() => setReceiveGroupingEnabled((value) => !value)}
-                >
-                  {receiveGroupingEnabled ? 'Grouped' : 'Flat'}
-                </button>
-              ) : null}
-              <div className="runtime-terminal-mode-switch" role="group" aria-label="Terminal payload display mode">
-                {(['ascii', 'hex', 'binary'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={`metric-display-button ${consoleDisplayMode === mode ? 'active' : ''}`}
-                    onClick={() => onConsoleDisplayModeChange(mode)}
-                  >
-                    {mode === 'ascii' ? 'ASCII' : mode.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
+      <section className="runtime-section-card runtime-terminal-rail">
+        <div className="protocol-schema-header">
+          <div>
+            <strong>Runtime stream</strong>
+            <small>{protocolPhase} · live RX/TX and command composer</small>
           </div>
-
-          <div className="runtime-terminal-stack runtime-terminal-receive-stack">
-            <div className="runtime-entry-list runtime-console-entry-list runtime-terminal-entry-list runtime-terminal-fill-list">
-              {receivedEntries.length > 0 ? (
-                consoleDisplayMode === 'ascii' && receiveGroupingEnabled ? (
-                  receivedGroups.map((group) => <RuntimePacketGroupRow key={group.key} group={group} />)
-                ) : consoleDisplayMode === 'ascii' ? (
-                  receivedEntries.map((entry, index) => (
-                    <RuntimeFlatAsciiRow key={`${entry.id}-${index}`} entry={entry} />
-                  ))
-                ) : (
-                  receivedEntries.map((entry, index) => (
-                    <RuntimeTrafficRow key={`${entry.id}-${index}`} entry={entry} mode={consoleDisplayMode} />
-                  ))
-                )
-              ) : (
-                <div className="protocol-empty">Awaiting serial receive traffic.</div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="runtime-section-card runtime-terminal-half runtime-terminal-send-half">
-          <div className="protocol-schema-header">
-            <div>
-              <strong>Send area</strong>
-            </div>
+          <div className="runtime-terminal-header-actions">
             <span className={`metric-chip ${appendNewline ? 'selected' : ''}`}>{appendNewline ? 'newline on' : 'newline off'}</span>
+            <span className="metric-chip">{consoleDisplayMode.toUpperCase()}</span>
+            {consoleDisplayMode === 'ascii' ? (
+              <button
+                type="button"
+                className={`metric-display-button ${receiveGroupingEnabled ? 'active' : ''}`}
+                onClick={() => setReceiveGroupingEnabled((value) => !value)}
+              >
+                {receiveGroupingEnabled ? 'Grouped' : 'Flat'}
+              </button>
+            ) : null}
+            <div className="runtime-terminal-mode-switch" role="group" aria-label="Terminal payload display mode">
+              {(['ascii', 'hex', 'binary'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`metric-display-button ${consoleDisplayMode === mode ? 'active' : ''}`}
+                  onClick={() => onConsoleDisplayModeChange(mode)}
+                >
+                  {mode === 'ascii' ? 'ASCII' : mode.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
+        </div>
 
-          <div className="runtime-terminal-stack runtime-terminal-send-stack">
-            <div className="runtime-entry-list runtime-console-entry-list runtime-terminal-entry-list runtime-terminal-fill-list">
-              {sentEntries.length > 0 ? sentEntries.map((entry, index) => <RuntimeTrafficRow key={`${entry.id}-${index}`} entry={entry} mode={consoleDisplayMode} />) : <div className="protocol-empty">Awaiting sent traffic.</div>}
+        <div className="runtime-terminal-workspace runtime-terminal-workspace-compact">
+          <section className="runtime-section-card runtime-terminal-half runtime-terminal-receive-half">
+            <div className="protocol-schema-header">
+              <strong>Receive</strong>
+              <small>{receivedEntries.length} lines</small>
             </div>
 
-            <details className="runtime-disclosure runtime-terminal-command-disclosure" open>
-              <summary>
-                <strong>Command list</strong>
-                <small>{runtimeCommands.length} commands</small>
-              </summary>
-              <div className="runtime-disclosure-body">
-                <div className="runtime-terminal-command-list" role="list" aria-label="Runtime command list">
-                  {runtimeCommands.length > 0 ? (
-                    runtimeCommands.map((item) => {
-                      const active = item.command === selectedCommand
-                      return (
-                        <button key={item.command} type="button" className={`runtime-terminal-command-row ${active ? 'active' : ''}`} onClick={() => applyCommandTemplate(item)}>
-                          <div className="runtime-command-copy">
-                            <strong>{item.command}</strong>
-                            <span>{item.label}</span>
-                            <small>{item.description}</small>
-                          </div>
-                          <div className="runtime-terminal-command-meta">
-                            {item.recommendedPhase === protocolPhase ? <span className="metric-chip tone-success">recommended</span> : null}
-                            {item.parameters?.length ? <span className="metric-chip">template</span> : <span className="metric-chip">send now</span>}
-                          </div>
-                        </button>
-                      )
-                    })
+            <div className="runtime-terminal-stack runtime-terminal-receive-stack">
+              <div className="runtime-entry-list runtime-console-entry-list runtime-terminal-entry-list runtime-terminal-fill-list">
+                {receivedEntries.length > 0 ? (
+                  consoleDisplayMode === 'ascii' && receiveGroupingEnabled ? (
+                    receivedGroups.map((group) => <RuntimePacketGroupRow key={group.key} group={group} />)
+                  ) : consoleDisplayMode === 'ascii' ? (
+                    receivedEntries.map((entry, index) => (
+                      <RuntimeFlatAsciiRow key={`${entry.id}-${index}`} entry={entry} />
+                    ))
                   ) : (
-                    <div className="protocol-empty">No command catalog entries available yet.</div>
-                  )}
-                </div>
+                    receivedEntries.map((entry, index) => (
+                      <RuntimeTrafficRow key={`${entry.id}-${index}`} entry={entry} mode={consoleDisplayMode} />
+                    ))
+                  )
+                ) : (
+                  <div className="protocol-empty">Awaiting serial receive traffic.</div>
+                )}
               </div>
-            </details>
+            </div>
+          </section>
 
+          <section className="runtime-terminal-sidecar">
             <section className="runtime-section-card runtime-terminal-compose-card">
+              <div className="protocol-schema-header">
+                <div>
+                  <strong>Compose and send</strong>
+                  <small>Keep the outbound action beside the stream.</small>
+                </div>
+                <button type="button" className="primary-button" onClick={onSend}>
+                  Send raw
+                </button>
+              </div>
               <div className="console-compose runtime-console-compose">
                 <textarea
                   ref={commandInputRef}
                   value={commandInput}
                   onChange={(event) => onCommandInputChange(event.target.value)}
-                  placeholder={commandTemplate ? commandTemplate.template : 'Type a command payload'}
+                  placeholder="Type a command payload"
                   rows={3}
                 />
                 <div className="toolbar-row runtime-terminal-compose-toolbar">
@@ -232,15 +152,22 @@ export function RuntimeConsoleSection({
                     <input type="checkbox" checked={appendNewline} onChange={(event) => onAppendNewlineChange(event.target.checked)} />
                     <span>Append newline</span>
                   </label>
-                  <button className="primary-button" onClick={selectedCommandItem ? sendSelectedCommand : onSend}>
-                    Send
-                  </button>
                 </div>
               </div>
             </section>
-          </div>
-        </section>
-      </div>
+
+            <section className="runtime-section-card runtime-terminal-command-rail">
+              <div className="protocol-schema-header">
+                <strong>Command rail</strong>
+                <small>{sentEntries.length} sent</small>
+              </div>
+              <div className="runtime-terminal-activity-list">
+                {sentEntries.length > 0 ? sentEntries.map((entry, index) => <RuntimeTrafficRow key={`${entry.id}-${index}`} entry={entry} mode={consoleDisplayMode} />) : <div className="protocol-empty">Awaiting sent traffic.</div>}
+              </div>
+            </section>
+          </section>
+        </div>
+      </section>
     </section>
   )
 }
