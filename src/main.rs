@@ -210,6 +210,24 @@ fn print_messages(subscription: BusSubscription) {
             MessageKind::TelemetrySample(sample) => {
                 println!("[telemetry-sample] fields={}", sample.fields.len());
             }
+            MessageKind::MavlinkPacket(packet) => {
+                println!(
+                    "[mavlink] msg_id=0x{:04X} sys={} comp={} seq={} payload_len={}",
+                    packet.message_id,
+                    packet.system_id,
+                    packet.component_id,
+                    packet.sequence,
+                    packet.payload.len()
+                );
+            }
+            MessageKind::CrtpPacket(packet) => {
+                println!(
+                    "[crtp] port={} channel={} payload_len={}",
+                    packet.port.label(),
+                    packet.channel,
+                    packet.payload.len()
+                );
+            }
         }
     }
 }

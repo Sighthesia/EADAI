@@ -599,6 +599,70 @@ impl AiContextState {
                     trigger: Some(trigger),
                 });
             }
+            MessageKind::MavlinkPacket(packet) => {
+                let summary = self
+                    .telemetry
+                    .entry(format!("mavlink.msg_0x{:04X}", packet.message_id))
+                    .or_insert_with(|| {
+                        empty_summary(
+                            &format!("mavlink.msg_0x{:04X}", packet.message_id),
+                            timestamp_ms,
+                            Some("mavlink".to_string()),
+                        )
+                    });
+                summary.current_value = Some(format!("sys={} comp={}", packet.system_id, packet.component_id));
+                summary.updated_at_ms = timestamp_ms;
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "mavlink msg_id=0x{:04X} sys={} comp={}",
+                            packet.message_id, packet.system_id, packet.component_id
+                        ),
+                        raw_length: packet.payload.len(),
+                        parser: crate::message::ParserMeta::parsed("mavlink", packet.fields()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
+            MessageKind::CrtpPacket(packet) => {
+                let channel_key = format!("crtp.{}", packet.port.label());
+                let summary = self
+                    .telemetry
+                    .entry(channel_key.clone())
+                    .or_insert_with(|| {
+                        empty_summary(
+                            &channel_key,
+                            timestamp_ms,
+                            Some("crtp".to_string()),
+                        )
+                    });
+                summary.current_value = Some(format!("ch={}", packet.channel));
+                summary.updated_at_ms = timestamp_ms;
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "crtp port={} ch={}",
+                            packet.port.label(),
+                            packet.channel
+                        ),
+                        raw_length: packet.payload.len(),
+                        parser: crate::message::ParserMeta::parsed("crtp", packet.fields()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
         }
     }
 

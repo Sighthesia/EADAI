@@ -7,10 +7,11 @@ pub use command::{ReconnectController, RuntimeCommandHandle, StopSignal};
 use crate::analysis::AnalysisEngine;
 use crate::bmi088::{self, Bmi088Frame, Bmi088SessionState, TelemetryPacket, host_command_label};
 use crate::bus::MessageBus;
-use crate::cli::RunConfig;
+use crate::cli::{ParserKind, RunConfig};
 use crate::error::AppError;
 use crate::message::{BusMessage, ConnectionState, MessageSource};
 use crate::parser;
+use crate::protocols::{CrtpDecoder, MavlinkDecoder};
 use crate::serial;
 use std::sync::mpsc;
 
@@ -88,11 +89,16 @@ impl App {
                     ));
 
                     let mut analysis = AnalysisEngine::new();
-                    let mut binary_decoder =
+                    let mut bmi088_decoder =
                         bmi088::Bmi088StreamDecoder::new(self.config.max_frame_bytes);
+                    let mut mavlink_decoder =
+                        MavlinkDecoder::new(self.config.max_frame_bytes);
+                    let mut crtp_decoder =
+                        CrtpDecoder::new(self.config.max_frame_bytes);
                     let mut bmi088_session = Bmi088SessionState::new();
+                    let parser = self.config.parser;
 
-                    if self.config.parser == crate::cli::ParserKind::Bmi088 {
+                    if parser == ParserKind::Bmi088 {
                         for command in bmi088_session.boot_commands() {
                             send_bmi088_command(
                                 &self.bus,
@@ -119,59 +125,28 @@ impl App {
                             &source,
                             &mut *port,
                             &mut bmi088_session,
-                            self.config.parser == crate::cli::ParserKind::Bmi088,
+                            parser == ParserKind::Bmi088,
                         ) {
                             self.publish_retry(&source, attempt, error.to_string(), &reconnect);
                             break;
                         }
 
                         if let Some(chunk) = serial::read_bytes(&mut *port)? {
-                            for packet in binary_decoder.push(&chunk) {
-                                match packet {
-                                    TelemetryPacket::Text(line) => {
-                                        let parser =
-                                            parser::parse_framed_line(self.config.parser, &line);
-                                        publish_rx_with_analysis(
-                                            &self.bus,
-                                            &source,
-                                            &mut analysis,
-                                            line.payload,
-                                            parser,
-                                        );
-                                    }
-                                    TelemetryPacket::ShellOutput(output) => {
-                                        self.bus.publish(BusMessage::shell_output(&source, output));
-                                    }
-                                    TelemetryPacket::Identity(identity) => {
-                                        bmi088_session
-                                            .on_frame(&Bmi088Frame::Identity(identity.clone()));
-                                        publish_identity(&self.bus, &source, identity);
-                                    }
-                                    TelemetryPacket::Schema(schema) => {
-                                        for command in bmi088_session
-                                            .on_frame(&Bmi088Frame::Schema(schema.clone()))
-                                        {
-                                            send_bmi088_command(
-                                                &self.bus,
-                                                &source,
-                                                &mut *port,
-                                                &mut bmi088_session,
-                                                command,
-                                                None,
-                                            )?;
-                                        }
-                                        publish_schema(&self.bus, &source, schema);
-                                    }
-                                    TelemetryPacket::Sample(sample) => {
-                                        bmi088_session
-                                            .on_frame(&Bmi088Frame::Sample(sample.clone()));
-                                        publish_sample(&self.bus, &source, sample);
-                                    }
-                                }
-                            }
+                            self.process_chunk(
+                                &chunk,
+                                parser,
+                                &source,
+                                attempt,
+                                &mut analysis,
+                                &mut bmi088_decoder,
+                                &mut mavlink_decoder,
+                                &mut crtp_decoder,
+                                &mut bmi088_session,
+                                &mut *port,
+                            )?;
                         }
 
-                        if self.config.parser == crate::cli::ParserKind::Bmi088
+                        if parser == ParserKind::Bmi088
                             && bmi088_session.phase() == bmi088::Bmi088SessionPhase::AwaitingSchema
                         {
                             for command in bmi088_session.schema_retry_commands() {
@@ -261,5 +236,174 @@ impl App {
                 Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
             }
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn process_chunk<T>(
+        &self,
+        chunk: &[u8],
+        parser: ParserKind,
+        source: &MessageSource,
+        _attempt: u32,
+        analysis: &mut AnalysisEngine,
+        bmi088_decoder: &mut bmi088::Bmi088StreamDecoder,
+        mavlink_decoder: &mut MavlinkDecoder,
+        crtp_decoder: &mut CrtpDecoder,
+        bmi088_session: &mut Bmi088SessionState,
+        port: &mut T,
+    ) -> Result<(), AppError>
+    where
+        T: std::io::Write + ?Sized,
+    {
+        match parser {
+            ParserKind::Bmi088 => {
+                for packet in bmi088_decoder.push(chunk) {
+                    self.handle_bmi088_packet(
+                        packet, source, analysis, bmi088_session, port,
+                    )?;
+                }
+            }
+            ParserKind::Mavlink => {
+                for packet in mavlink_decoder.push(chunk) {
+                    eprintln!(
+                        "[mavlink][app] decoded msg_id=0x{:04X} sys={} comp={} payload_len={}",
+                        packet.message_id,
+                        packet.system_id,
+                        packet.component_id,
+                        packet.payload.len(),
+                    );
+                    self.bus.publish(BusMessage::mavlink_packet(source, packet));
+                }
+            }
+            ParserKind::Crtp => {
+                for packet in crtp_decoder.push(chunk) {
+                    eprintln!(
+                        "[crtp][app] decoded port={} channel={} payload_len={}",
+                        packet.port.label(),
+                        packet.channel,
+                        packet.payload.len(),
+                    );
+                    self.bus.publish(BusMessage::crtp_packet(source, packet));
+                }
+            }
+            ParserKind::Auto => {
+                let mut handled = false;
+
+                for packet in bmi088_decoder.push(chunk) {
+                    handled = true;
+                    self.handle_bmi088_packet(
+                        packet, source, analysis, bmi088_session, port,
+                    )?;
+                }
+
+                if !handled {
+                    for packet in mavlink_decoder.push(chunk) {
+                        handled = true;
+                        eprintln!(
+                            "[mavlink][auto] decoded msg_id=0x{:04X} sys={} comp={}",
+                            packet.message_id, packet.system_id, packet.component_id,
+                        );
+                        self.bus.publish(BusMessage::mavlink_packet(source, packet));
+                    }
+                }
+
+                if !handled {
+                    for packet in crtp_decoder.push(chunk) {
+                        eprintln!(
+                            "[crtp][auto] decoded port={} channel={}",
+                            packet.port.label(), packet.channel,
+                        );
+                        self.bus.publish(BusMessage::crtp_packet(source, packet));
+                    }
+                }
+
+                if !handled {
+                    let framed = crate::serial::FramedLine {
+                        payload: crate::message::LinePayload {
+                            text: String::from_utf8_lossy(chunk).into_owned(),
+                            raw: chunk.to_vec(),
+                        },
+                        status: crate::serial::FrameStatus::Complete,
+                    };
+                    let parser_meta = parser::parse_framed_line(ParserKind::Auto, &framed);
+                    publish_rx_with_analysis(
+                        &self.bus,
+                        source,
+                        analysis,
+                        framed.payload,
+                        parser_meta,
+                    );
+                }
+            }
+            _ => {
+                let framed = crate::serial::FramedLine {
+                    payload: crate::message::LinePayload {
+                        text: String::from_utf8_lossy(chunk).into_owned(),
+                        raw: chunk.to_vec(),
+                    },
+                    status: crate::serial::FrameStatus::Complete,
+                };
+                let parser_meta = parser::parse_framed_line(parser, &framed);
+                publish_rx_with_analysis(
+                    &self.bus,
+                    source,
+                    analysis,
+                    framed.payload,
+                    parser_meta,
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_bmi088_packet<T>(
+        &self,
+        packet: TelemetryPacket,
+        source: &MessageSource,
+        analysis: &mut AnalysisEngine,
+        bmi088_session: &mut Bmi088SessionState,
+        port: &mut T,
+    ) -> Result<(), AppError>
+    where
+        T: std::io::Write + ?Sized,
+    {
+        match packet {
+            TelemetryPacket::Text(line) => {
+                let parser_meta = parser::parse_framed_line(ParserKind::Auto, &line);
+                publish_rx_with_analysis(
+                    &self.bus,
+                    source,
+                    analysis,
+                    line.payload,
+                    parser_meta,
+                );
+            }
+            TelemetryPacket::ShellOutput(output) => {
+                self.bus.publish(BusMessage::shell_output(source, output));
+            }
+            TelemetryPacket::Identity(identity) => {
+                bmi088_session.on_frame(&Bmi088Frame::Identity(identity.clone()));
+                publish_identity(&self.bus, source, identity);
+            }
+            TelemetryPacket::Schema(schema) => {
+                for command in bmi088_session.on_frame(&Bmi088Frame::Schema(schema.clone())) {
+                    send_bmi088_command(
+                        &self.bus,
+                        source,
+                        port,
+                        bmi088_session,
+                        command,
+                        None,
+                    )?;
+                }
+                publish_schema(&self.bus, source, schema);
+            }
+            TelemetryPacket::Sample(sample) => {
+                bmi088_session.on_frame(&Bmi088Frame::Sample(sample.clone()));
+                publish_sample(&self.bus, source, sample);
+            }
+        }
+        Ok(())
     }
 }
