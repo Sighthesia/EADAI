@@ -3,6 +3,7 @@ use eadai::bmi088::{
     encode_identity_frame, encode_sample_frame, encode_schema_frame,
 };
 use eadai::message::{BusMessage, MessageKind};
+use eadai::protocols::{CrtpPacket, MavlinkPacket};
 use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -51,6 +52,16 @@ pub enum UiBusEvent {
         raw_frame: Vec<u8>,
         parser: UiParserMeta,
     },
+    MavlinkPacket {
+        timestamp_ms: u64,
+        source: UiSource,
+        packet: UiMavlinkPacket,
+    },
+    CrtpPacket {
+        timestamp_ms: u64,
+        source: UiSource,
+        packet: UiCrtpPacket,
+    },
     Analysis {
         timestamp_ms: u64,
         source: UiSource,
@@ -61,6 +72,52 @@ pub enum UiBusEvent {
         source: UiSource,
         trigger: UiTriggerPayload,
     },
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiMavlinkPacket {
+    pub sequence: u8,
+    pub system_id: u8,
+    pub component_id: u8,
+    pub message_id: u32,
+    pub payload_len: usize,
+    pub fields: std::collections::BTreeMap<String, String>,
+}
+
+impl From<MavlinkPacket> for UiMavlinkPacket {
+    fn from(value: MavlinkPacket) -> Self {
+        let fields = value.fields();
+        Self {
+            sequence: value.sequence,
+            system_id: value.system_id,
+            component_id: value.component_id,
+            message_id: value.message_id,
+            payload_len: value.payload.len(),
+            fields,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiCrtpPacket {
+    pub port: String,
+    pub channel: u8,
+    pub payload_len: usize,
+    pub fields: std::collections::BTreeMap<String, String>,
+}
+
+impl From<CrtpPacket> for UiCrtpPacket {
+    fn from(value: CrtpPacket) -> Self {
+        let fields = value.fields();
+        Self {
+            port: value.port.label().to_string(),
+            channel: value.channel,
+            payload_len: value.payload.len(),
+            fields,
+        }
+    }
 }
 
 impl From<BusMessage> for UiBusEvent {
@@ -122,6 +179,16 @@ impl From<BusMessage> for UiBusEvent {
                 raw_frame: encode_sample_frame(&sample),
                 sample,
                 parser: parser.into(),
+            },
+            MessageKind::MavlinkPacket(packet) => Self::MavlinkPacket {
+                timestamp_ms,
+                source,
+                packet: packet.into(),
+            },
+            MessageKind::CrtpPacket(packet) => Self::CrtpPacket {
+                timestamp_ms,
+                source,
+                packet: packet.into(),
             },
             MessageKind::Analysis(frame) => Self::Analysis {
                 timestamp_ms,

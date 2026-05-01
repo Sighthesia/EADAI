@@ -4,6 +4,22 @@ import type { UiTelemetrySchemaPayload, UiTelemetryIdentityPayload, UiTelemetryS
 import type { UiAnalysisPayload, UiTriggerPayload } from './analysis'
 import type { VariableSourceKind } from './variables'
 
+export type UiMavlinkPacketPayload = {
+  sequence: number
+  systemId: number
+  componentId: number
+  messageId: number
+  payloadLen: number
+  fields: Record<string, string>
+}
+
+export type UiCrtpPacketPayload = {
+  port: string
+  channel: number
+  payloadLen: number
+  fields: Record<string, string>
+}
+
 export type SerialBusEvent =
   | {
       kind: 'connection'
@@ -54,6 +70,18 @@ export type SerialBusEvent =
       sample: UiTelemetrySamplePayload
       rawFrame: number[]
       parser: UiParserMeta
+    }
+  | {
+      kind: 'mavlinkPacket'
+      timestampMs: number
+      source: UiSource
+      packet: UiMavlinkPacketPayload
+    }
+  | {
+      kind: 'crtpPacket'
+      timestampMs: number
+      source: UiSource
+      packet: UiCrtpPacketPayload
     }
   | {
       kind: 'trigger'

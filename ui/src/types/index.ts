@@ -96,4 +96,6 @@ export type {
   ConsoleEntry,
   SamplePoint,
   VariableEntry,
+  UiMavlinkPacketPayload,
+  UiCrtpPacketPayload,
 } from './bus'

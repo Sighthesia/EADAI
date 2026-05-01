@@ -123,6 +123,12 @@ import {
   shouldPollMcpStatus,
 } from './sessionHelpers'
 import {
+  buildCrtpConsoleText,
+  buildCrtpDisplayValue,
+  buildMavlinkConsoleText,
+  buildMavlinkDisplayValue,
+} from './protocolDisplayHelpers'
+import {
   createProtocolHookExamples,
   createScriptDefinitions,
   syncScriptDefinitions,
@@ -735,6 +741,77 @@ export const useAppStore = create<AppStore>((set, get) => ({
             continue
           }
 
+          if (event.kind === 'mavlinkPacket') {
+            const messageIdHex = `0x${event.packet.messageId.toString(16).padStart(4, '0')}`
+            const channelKey = `mavlink.msg_${messageIdHex}`
+            
+            // Build rich display value from semantic fields
+            const displayValue = buildMavlinkDisplayValue(event.packet)
+            const previous = variables[channelKey] ?? createVariableEntry(channelKey, event.timestampMs, runtimeDeviceRef(session, state.config), 'protocol-text')
+
+            if (!variablesChanged) {
+              variables = { ...variables }
+              variablesChanged = true
+            }
+
+            variables[channelKey] = {
+              ...previous,
+              name: channelKey,
+              sourceKind: 'protocol-text',
+              currentValue: displayValue,
+              parserName: 'mavlink',
+              sampleCount: previous.sampleCount + 1,
+              updatedAtMs: event.timestampMs,
+            }
+
+            // Build rich console text from semantic fields
+            const consoleText = buildMavlinkConsoleText(event.packet)
+            pendingConsoleEntries.push(asConsoleEntry({
+              kind: 'line',
+              timestampMs: event.timestampMs,
+              source: event.source,
+              line: { direction: 'rx', text: consoleText, raw: [], rawLength: event.packet.payloadLen },
+              parser: { parserName: 'mavlink', status: 'parsed', fields: event.packet.fields },
+            } as Extract<SerialBusEvent, { kind: 'line' }>))
+
+            continue
+          }
+
+          if (event.kind === 'crtpPacket') {
+            const channelKey = `crtp.${event.packet.port}.ch${event.packet.channel}`
+            
+            // Build rich display value from semantic fields
+            const displayValue = buildCrtpDisplayValue(event.packet)
+            const previous = variables[channelKey] ?? createVariableEntry(channelKey, event.timestampMs, runtimeDeviceRef(session, state.config), 'protocol-text')
+
+            if (!variablesChanged) {
+              variables = { ...variables }
+              variablesChanged = true
+            }
+
+            variables[channelKey] = {
+              ...previous,
+              name: channelKey,
+              sourceKind: 'protocol-text',
+              currentValue: displayValue,
+              parserName: 'crtp',
+              sampleCount: previous.sampleCount + 1,
+              updatedAtMs: event.timestampMs,
+            }
+
+            // Build rich console text from semantic fields
+            const consoleText = buildCrtpConsoleText(event.packet)
+            pendingConsoleEntries.push(asConsoleEntry({
+              kind: 'line',
+              timestampMs: event.timestampMs,
+              source: event.source,
+              line: { direction: 'rx', text: consoleText, raw: [], rawLength: event.packet.payloadLen },
+              parser: { parserName: 'crtp', status: 'parsed', fields: event.packet.fields },
+            } as Extract<SerialBusEvent, { kind: 'line' }>))
+
+            continue
+          }
+
           const channelId = event.trigger.channelId
           const previous = variables[channelId] ?? createVariableEntry(channelId, event.timestampMs, runtimeDeviceRef(session, state.config), 'protocol-text')
 
@@ -949,3 +1026,5 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   colorForChannel: (channel) => colorForChannel(channel),
 }))
+
+
