@@ -18,6 +18,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | Filled |
 | [Error Handling](./error-handling.md) | Error types, handling strategies | Filled |
 | [BMI088 Host Protocol Contract](./bmi088-host-protocol.md) | Wire contract, host commands, TLV/schema/sample behavior | Filled |
+| [Serial Multi-Protocol Contract](./serial-multi-protocol.md) | Built-in serial protocol scope, auto-detect order, and bus projections | Filled |
 | [MCP AI Contract](./mcp-ai-contract.md) | Read-only MCP resources, tools, and error matrix | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | Filled |
