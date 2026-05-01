@@ -7,12 +7,14 @@ pub use command::{ReconnectController, RuntimeCommandHandle, StopSignal};
 use crate::analysis::AnalysisEngine;
 use crate::bmi088::{self, Bmi088Frame, Bmi088SessionState, TelemetryPacket, host_command_label};
 use crate::bus::MessageBus;
-use crate::cli::{ParserKind, RunConfig};
+use crate::cli::{ParserKind, RunConfig, TransportSelection};
 use crate::error::AppError;
 use crate::message::{BusMessage, ConnectionState, MessageSource};
 use crate::parser;
-use crate::protocols::{CrtpDecoder, MavlinkDecoder};
-use crate::serial;
+use crate::protocols::{
+    CrtpDecoder, MavlinkDecoder, SerialTransport, ByteTransport,
+    capability::{mavlink_to_capabilities, crtp_to_capabilities},
+};
 use std::sync::mpsc;
 
 use bmi088_publish::{publish_identity, publish_rx_with_analysis, publish_sample, publish_schema, send_bmi088_command};
@@ -77,8 +79,8 @@ impl App {
                 None,
             ));
 
-            match serial::open_port(&self.config) {
-                Ok(mut port) => {
+            match self.open_transport() {
+                Ok(mut transport) => {
                     reconnect.reset();
                     self.bus.publish(BusMessage::connection(
                         &source,
@@ -103,7 +105,7 @@ impl App {
                             send_bmi088_command(
                                 &self.bus,
                                 &source,
-                                &mut *port,
+                                &mut transport,
                                 &mut bmi088_session,
                                 command,
                                 None,
@@ -123,7 +125,7 @@ impl App {
 
                         if let Err(error) = self.drain_commands(
                             &source,
-                            &mut *port,
+                            &mut transport,
                             &mut bmi088_session,
                             parser == ParserKind::Bmi088,
                         ) {
@@ -131,7 +133,7 @@ impl App {
                             break;
                         }
 
-                        if let Some(chunk) = serial::read_bytes(&mut *port)? {
+                        if let Some(chunk) = transport.read_chunk()? {
                             self.process_chunk(
                                 &chunk,
                                 parser,
@@ -142,7 +144,7 @@ impl App {
                                 &mut mavlink_decoder,
                                 &mut crtp_decoder,
                                 &mut bmi088_session,
-                                &mut *port,
+                                &mut transport,
                             )?;
                         }
 
@@ -157,7 +159,7 @@ impl App {
                                 send_bmi088_command(
                                     &self.bus,
                                     &source,
-                                    &mut *port,
+                                    &mut transport,
                                     &mut bmi088_session,
                                     command,
                                     None,
@@ -174,6 +176,26 @@ impl App {
             if !sleep_with_stop(&self.stop_signal, self.config.retry_delay) {
                 self.publish_stopped(&source, attempt, Some("stop requested".to_string()));
                 return Ok(());
+            }
+        }
+    }
+
+    /// Opens a transport connection based on the configured transport selection.
+    fn open_transport(
+        &self,
+    ) -> Result<Box<dyn ByteTransport>, AppError> {
+        match &self.config.transport {
+            TransportSelection::Serial => {
+                let port = crate::serial::open_port(&self.config)?;
+                Ok(Box::new(SerialTransport::from_port(port, &self.config)))
+            }
+            TransportSelection::Crazyradio { uri } => {
+                use crate::protocols::{CrazyradioTransport, CrazyradioDatarate};
+                let transport = CrazyradioTransport::connect(
+                    uri,
+                    CrazyradioDatarate::Dr2M,
+                )?;
+                Ok(Box::new(transport))
             }
         }
     }
@@ -204,16 +226,13 @@ impl App {
         ));
     }
 
-    fn drain_commands<T>(
+    fn drain_commands(
         &self,
         source: &MessageSource,
-        port: &mut T,
+        transport: &mut dyn ByteTransport,
         bmi088_session: &mut Bmi088SessionState,
         bmi088_mode: bool,
-    ) -> Result<(), AppError>
-    where
-        T: std::io::Write + ?Sized,
-    {
+    ) -> Result<(), AppError> {
         use crate::bmi088::host_command_from_text;
 
         loop {
@@ -223,15 +242,16 @@ impl App {
                         && let Some(command) =
                             host_command_from_text(&String::from_utf8_lossy(&payload))
                     {
-                        send_bmi088_command(&self.bus, source, port, bmi088_session, command, None)?;
+                        send_bmi088_command(&self.bus, source, transport, bmi088_session, command, None)?;
                     } else {
-                        serial::write_payload(port, &payload)?;
+                        transport.write_all(&payload)?;
+                        transport.flush()?;
                         self.bus
                             .publish(BusMessage::tx_line(source, outbound_payload(&payload)));
                     }
                 }
                 Ok(RuntimeCommand::SendBmi088 { command, payload }) => {
-                    send_bmi088_command(&self.bus, source, port, bmi088_session, command, payload)?;
+                    send_bmi088_command(&self.bus, source, transport, bmi088_session, command, payload)?;
                 }
                 Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
             }
@@ -239,7 +259,7 @@ impl App {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn process_chunk<T>(
+    fn process_chunk(
         &self,
         chunk: &[u8],
         parser: ParserKind,
@@ -250,16 +270,13 @@ impl App {
         mavlink_decoder: &mut MavlinkDecoder,
         crtp_decoder: &mut CrtpDecoder,
         bmi088_session: &mut Bmi088SessionState,
-        port: &mut T,
-    ) -> Result<(), AppError>
-    where
-        T: std::io::Write + ?Sized,
-    {
+        transport: &mut dyn ByteTransport,
+    ) -> Result<(), AppError> {
         match parser {
             ParserKind::Bmi088 => {
                 for packet in bmi088_decoder.push(chunk) {
                     self.handle_bmi088_packet(
-                        packet, source, analysis, bmi088_session, port,
+                        packet, source, analysis, bmi088_session, transport,
                     )?;
                 }
             }
@@ -272,7 +289,12 @@ impl App {
                         packet.component_id,
                         packet.payload.len(),
                     );
-                    self.bus.publish(BusMessage::mavlink_packet(source, packet));
+                    // Emit raw protocol event
+                    self.bus.publish(BusMessage::mavlink_packet(source, packet.clone()));
+                    // Emit unified capability events
+                    for cap_event in mavlink_to_capabilities(&packet) {
+                        self.bus.publish(BusMessage::capability(source, cap_event));
+                    }
                 }
             }
             ParserKind::Crtp => {
@@ -283,7 +305,12 @@ impl App {
                         packet.channel,
                         packet.payload.len(),
                     );
-                    self.bus.publish(BusMessage::crtp_packet(source, packet));
+                    // Emit raw protocol event
+                    self.bus.publish(BusMessage::crtp_packet(source, packet.clone()));
+                    // Emit unified capability events
+                    for cap_event in crtp_to_capabilities(&packet) {
+                        self.bus.publish(BusMessage::capability(source, cap_event));
+                    }
                 }
             }
             ParserKind::Auto => {
@@ -292,7 +319,7 @@ impl App {
                 for packet in bmi088_decoder.push(chunk) {
                     handled = true;
                     self.handle_bmi088_packet(
-                        packet, source, analysis, bmi088_session, port,
+                        packet, source, analysis, bmi088_session, transport,
                     )?;
                 }
 
@@ -303,7 +330,10 @@ impl App {
                             "[mavlink][auto] decoded msg_id=0x{:04X} sys={} comp={}",
                             packet.message_id, packet.system_id, packet.component_id,
                         );
-                        self.bus.publish(BusMessage::mavlink_packet(source, packet));
+                        self.bus.publish(BusMessage::mavlink_packet(source, packet.clone()));
+                        for cap_event in mavlink_to_capabilities(&packet) {
+                            self.bus.publish(BusMessage::capability(source, cap_event));
+                        }
                     }
                 }
 
@@ -313,7 +343,10 @@ impl App {
                             "[crtp][auto] decoded port={} channel={}",
                             packet.port.label(), packet.channel,
                         );
-                        self.bus.publish(BusMessage::crtp_packet(source, packet));
+                        self.bus.publish(BusMessage::crtp_packet(source, packet.clone()));
+                        for cap_event in crtp_to_capabilities(&packet) {
+                            self.bus.publish(BusMessage::capability(source, cap_event));
+                        }
                     }
                 }
 
@@ -357,17 +390,14 @@ impl App {
         Ok(())
     }
 
-    fn handle_bmi088_packet<T>(
+    fn handle_bmi088_packet(
         &self,
         packet: TelemetryPacket,
         source: &MessageSource,
         analysis: &mut AnalysisEngine,
         bmi088_session: &mut Bmi088SessionState,
-        port: &mut T,
-    ) -> Result<(), AppError>
-    where
-        T: std::io::Write + ?Sized,
-    {
+        transport: &mut dyn ByteTransport,
+    ) -> Result<(), AppError> {
         match packet {
             TelemetryPacket::Text(line) => {
                 let parser_meta = parser::parse_framed_line(ParserKind::Auto, &line);
@@ -391,7 +421,7 @@ impl App {
                     send_bmi088_command(
                         &self.bus,
                         source,
-                        port,
+                        transport,
                         bmi088_session,
                         command,
                         None,

@@ -1,21 +1,19 @@
 use crate::bmi088::{self, Bmi088HostCommand, host_command_label};
 use crate::bus::MessageBus;
 use crate::message::{BusMessage, LinePayload, MessageSource, ParserMeta};
+use crate::protocols::ByteTransport;
 use std::collections::BTreeMap;
 
 use super::helpers::{hex_preview, timestamp_ms};
 
-pub(super) fn send_bmi088_command<T>(
+pub(super) fn send_bmi088_command(
     bus: &MessageBus,
     source: &MessageSource,
-    port: &mut T,
+    transport: &mut dyn ByteTransport,
     bmi088_session: &mut bmi088::Bmi088SessionState,
     command: Bmi088HostCommand,
     payload: Option<Vec<u8>>,
-) -> Result<(), crate::error::AppError>
-where
-    T: std::io::Write + ?Sized,
-{
+) -> Result<(), crate::error::AppError> {
     use bmi088::{encode_host_command, encode_host_command_with_payload};
 
     let encoded = match payload.as_deref() {
@@ -28,7 +26,8 @@ where
         encoded.len(),
         hex_preview(&encoded, 16),
     );
-    crate::serial::write_payload(port, &encoded)?;
+    transport.write_all(&encoded)?;
+    transport.flush()?;
     bmi088_session.on_host_command(command.clone());
     bus.publish(
         BusMessage::tx_line(

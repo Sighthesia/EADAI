@@ -160,6 +160,7 @@ where
             read_timeout: Duration::from_millis(read_timeout_ms),
             parser: ParserKind::Auto,
             max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
+            transport: eadai::cli::TransportSelection::Serial,
         }));
     }
 

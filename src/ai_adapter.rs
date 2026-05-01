@@ -663,6 +663,10 @@ impl AiContextState {
                     trigger: None,
                 });
             }
+            MessageKind::Capability(_) => {
+                // Capability events are consumed by the UI layer directly;
+                // the AI adapter does not need to track them separately.
+            }
         }
     }
 

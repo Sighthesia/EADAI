@@ -1,6 +1,6 @@
 use crate::analysis::{AnalysisFrame, TriggerEvent};
 use crate::bmi088::{Bmi088IdentityFrame, Bmi088SampleFrame, Bmi088SchemaFrame};
-use crate::protocols::{CrtpPacket, MavlinkPacket};
+use crate::protocols::{CapabilityEvent, CrtpPacket, MavlinkPacket};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::time::SystemTime;
@@ -121,6 +121,7 @@ pub enum MessageKind {
     TelemetrySample(Bmi088SampleFrame),
     MavlinkPacket(MavlinkPacket),
     CrtpPacket(CrtpPacket),
+    Capability(CapabilityEvent),
     Analysis(AnalysisFrame),
     Trigger(TriggerEvent),
 }
@@ -247,6 +248,15 @@ impl BusMessage {
             timestamp: SystemTime::now(),
             source: source.clone(),
             kind: MessageKind::CrtpPacket(packet),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn capability(source: &MessageSource, event: CapabilityEvent) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::Capability(event),
             parser: ParserMeta::default(),
         }
     }

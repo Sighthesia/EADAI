@@ -3,7 +3,7 @@ use eadai::bmi088::{
     encode_identity_frame, encode_sample_frame, encode_schema_frame,
 };
 use eadai::message::{BusMessage, MessageKind};
-use eadai::protocols::{CrtpPacket, MavlinkPacket};
+use eadai::protocols::{CapabilityEvent, CrtpPacket, MavlinkPacket};
 use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -61,6 +61,11 @@ pub enum UiBusEvent {
         timestamp_ms: u64,
         source: UiSource,
         packet: UiCrtpPacket,
+    },
+    Capability {
+        timestamp_ms: u64,
+        source: UiSource,
+        event: CapabilityEvent,
     },
     Analysis {
         timestamp_ms: u64,
@@ -189,6 +194,11 @@ impl From<BusMessage> for UiBusEvent {
                 timestamp_ms,
                 source,
                 packet: packet.into(),
+            },
+            MessageKind::Capability(event) => Self::Capability {
+                timestamp_ms,
+                source,
+                event,
             },
             MessageKind::Analysis(frame) => Self::Analysis {
                 timestamp_ms,

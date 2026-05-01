@@ -7,6 +7,7 @@ pub enum AppError {
     Usage(String),
     Serial(serialport::Error),
     Io(std::io::Error),
+    Transport(crate::protocols::TransportError),
     LoopbackTimeout(String),
     LoopbackMismatch { expected: String, received: String },
 }
@@ -17,6 +18,7 @@ impl Display for AppError {
             Self::Usage(message) => write!(formatter, "{message}"),
             Self::Serial(error) => write!(formatter, "serial error: {error}"),
             Self::Io(error) => write!(formatter, "io error: {error}"),
+            Self::Transport(error) => write!(formatter, "transport error: {error}"),
             Self::LoopbackTimeout(message) => write!(formatter, "loopback timeout: {message}"),
             Self::LoopbackMismatch { expected, received } => {
                 write!(
@@ -39,5 +41,11 @@ impl From<serialport::Error> for AppError {
 impl From<std::io::Error> for AppError {
     fn from(value: std::io::Error) -> Self {
         Self::Io(value)
+    }
+}
+
+impl From<crate::protocols::TransportError> for AppError {
+    fn from(value: crate::protocols::TransportError) -> Self {
+        Self::Transport(value)
     }
 }

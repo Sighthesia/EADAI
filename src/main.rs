@@ -228,6 +228,9 @@ fn print_messages(subscription: BusSubscription) {
                     packet.payload.len()
                 );
             }
+            MessageKind::Capability(event) => {
+                println!("[capability] {:?}", event);
+            }
         }
     }
 }

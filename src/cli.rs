@@ -18,6 +18,15 @@ pub enum ParserKind {
     Crtp,
 }
 
+/// Transport selection for the runtime.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TransportSelection {
+    /// Standard serial port transport.
+    Serial,
+    /// Crazyradio dongle transport.
+    Crazyradio { uri: String },
+}
+
 /// CLI commands supported by the MVP binary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -37,6 +46,7 @@ pub struct RunConfig {
     pub read_timeout: Duration,
     pub parser: ParserKind,
     pub max_frame_bytes: usize,
+    pub transport: TransportSelection,
 }
 
 /// Runtime configuration for one-shot serial writes.
@@ -90,7 +100,7 @@ where
 /// Returns CLI usage text.
 pub fn usage() -> String {
     format!(
-        "Usage:\n  eadai ports\n  eadai run --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>] [--parser <auto|key_value|measurements|bmi088|mavlink|crtp>] [--max-frame-bytes <bytes>]\n  eadai send --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n  eadai loopback-test --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--loopback-timeout-ms <ms>] [--no-newline]\n  eadai interactive --port <name> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n\nDefaults:\n  baud = {DEFAULT_BAUD_RATE}\n  retry-ms = {DEFAULT_RETRY_DELAY_MS}\n  read-timeout-ms = {DEFAULT_READ_TIMEOUT_MS}\n  loopback-timeout-ms = {DEFAULT_LOOPBACK_TIMEOUT_MS}\n  parser = auto\n  max-frame-bytes = {DEFAULT_MAX_FRAME_BYTES}\n"
+        "Usage:\n  eadai ports\n  eadai run --port <name> [--baud <rate>] [--retry-ms <ms>] [--read-timeout-ms <ms>] [--parser <auto|key_value|measurements|bmi088|mavlink|crtp>] [--max-frame-bytes <bytes>] [--transport <serial|crazyradio>] [--radio-uri <uri>]\n  eadai send --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n  eadai loopback-test --port <name> --payload <text> [--baud <rate>] [--read-timeout-ms <ms>] [--loopback-timeout-ms <ms>] [--no-newline]\n  eadai interactive --port <name> [--baud <rate>] [--read-timeout-ms <ms>] [--no-newline]\n\nDefaults:\n  baud = {DEFAULT_BAUD_RATE}\n  retry-ms = {DEFAULT_RETRY_DELAY_MS}\n  read-timeout-ms = {DEFAULT_READ_TIMEOUT_MS}\n  loopback-timeout-ms = {DEFAULT_LOOPBACK_TIMEOUT_MS}\n  parser = auto\n  max-frame-bytes = {DEFAULT_MAX_FRAME_BYTES}\n  transport = serial\n\nTransports:\n  serial      Standard serial port (default)\n  crazyradio  Crazyradio dongle (requires --radio-uri)\n"
     )
 }
 
@@ -104,6 +114,8 @@ where
     let mut read_timeout_ms = DEFAULT_READ_TIMEOUT_MS;
     let mut parser = ParserKind::Auto;
     let mut max_frame_bytes = DEFAULT_MAX_FRAME_BYTES;
+    let mut transport = TransportSelection::Serial;
+    let mut radio_uri = None;
     let collected: Vec<String> = args.into_iter().collect();
     let mut index = 0;
 
@@ -136,6 +148,24 @@ where
                     "--max-frame-bytes",
                 )?;
             }
+            "--transport" => {
+                let value = next_value(&collected, &mut index, "--transport")?;
+                transport = match value.as_str() {
+                    "serial" => TransportSelection::Serial,
+                    "crazyradio" => TransportSelection::Crazyradio {
+                        uri: String::new(),
+                    },
+                    _ => {
+                        return Err(AppError::Usage(format!(
+                            "Invalid transport value: {value}. Expected serial or crazyradio\n\n{}",
+                            usage()
+                        )));
+                    }
+                };
+            }
+            "--radio-uri" => {
+                radio_uri = Some(next_value(&collected, &mut index, "--radio-uri")?);
+            }
             _ => {
                 return Err(AppError::Usage(format!(
                     "Unknown flag: {}\n\n{}",
@@ -155,6 +185,11 @@ where
         )));
     };
 
+    // Apply radio URI if provided
+    if let Some(uri) = radio_uri {
+        transport = TransportSelection::Crazyradio { uri };
+    }
+
     Ok(Command::Run(RunConfig {
         port,
         baud_rate,
@@ -162,6 +197,7 @@ where
         read_timeout: Duration::from_millis(read_timeout_ms),
         parser,
         max_frame_bytes,
+        transport,
     }))
 }
 

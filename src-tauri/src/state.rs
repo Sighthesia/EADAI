@@ -203,6 +203,7 @@ fn runtime_config(request: &ConnectRequest) -> RuntimeSessionConfig {
             read_timeout: Duration::from_millis(request.read_timeout_ms),
             parser: ParserKind::Bmi088,
             max_frame_bytes: eadai::cli::DEFAULT_MAX_FRAME_BYTES,
+            transport: eadai::cli::TransportSelection::Serial,
         }),
         SourceKind::Fake => RuntimeSessionConfig::Fake(FakeRuntimeConfig {
             profile: request
