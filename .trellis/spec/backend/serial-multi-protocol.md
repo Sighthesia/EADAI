@@ -209,12 +209,27 @@ The protocol support is organized into four explicit layers:
 - When no binary decoder claims a chunk in auto mode, the runtime must still publish text-compatible line events.
 - BMI088 embedded text lines still flow through the text parse/analysis path after BMI088 framing.
 
+### Self-describing catalog framing contract
+
+- Self-describing catalog pages are canonical protocol frames, not private transitional fragments.
+- The raw self-describing transport remains `0x73 + len + payload` with no outer CRC.
+- `decode_crtp_packet()` must decode the embedded frame payload directly; it must not depend on a second `F3` catalog dialect or on fragment reassembly.
+- Command and variable catalog pages must begin with the host codec's canonical `Frame::CommandCatalogPage` / `Frame::VariableCatalogPage` layout.
+- If a device emits `F3` fragment wrappers or u8 page headers, that is contract drift and should be fixed on the device side.
+
+### Portable device reference pattern
+
+- When adding a firmware reference implementation for this protocol, keep it at the application layer and route all platform specifics through a driver adapter vtable or function pointers.
+- The reference should expose protocol state, identity/catalog/sample helpers, and byte-ingress handling without touching MCU registers or BSP details.
+- Portable references must preserve the canonical wire contract above; they are examples for transplant, not a second protocol dialect.
+
 ---
 
 ## 5. Validation & Error Matrix
 
 - Invalid or truncated MAVLink frame -> drop/resync at decoder level, never panic.
 - Invalid or truncated CRTP-over-serial frame -> drop/resync at decoder level, never panic.
+- Self-describing raw payload that is not a canonical frame -> drop/resync at the adapter level; do not try to recover a private catalog dialect.
 - Unknown MAVLink message ID without known CRC extra -> packet may be surfaced as untyped/weakly validated, but must not masquerade as a different protocol.
 - Garbage bytes before a valid binary frame -> skipped until sync is re-established.
 - Auto mode receives ordinary text -> must fall through to text parsing instead of inventing protocol packets.
@@ -231,6 +246,7 @@ The protocol support is organized into four explicit layers:
 - Good: `--parser auto --transport serial` on a MAVLink serial stream emits `MavlinkPacket` + `Capability` events.
 - Good: `--parser auto --transport serial` on a CRTP-over-serial stream emits `CrtpPacket` + `Capability` events.
 - Good: `--parser auto` on a self-describing CRTP stream emits `ProtocolDetected`, raw `CrtpPacket`, and self-describing events without requiring a parser switch.
+- Good: self-describing catalog pages are decoded directly by the canonical host codec; no transitional `F3` wrapper is required on the wire.
 - Good: `--transport crazyradio --radio-uri radio://0/60/2M/E7E7E7E7E7` connects via Crazyradio dongle.
 - Good: `--parser auto` on legacy text telemetry still emits text line events and analysis.
 - Base: `--parser mavlink` and `--parser crtp` are explicit framing modes, not promises about outbound control features.
@@ -244,6 +260,7 @@ The protocol support is organized into four explicit layers:
 ## 7. Tests Required
 
 - Decoder tests must cover good frames, bad CRC/checksum, garbage before sync, and partial chunk assembly for both MAVLink and CRTP.
+- Self-describing protocol tests must cover canonical raw transport framing, direct catalog page decoding, and rejection of transitional fragment wrappers.
 - Capability tests must verify MAVLink-to-capability mapping for attitude, battery, GPS, IMU, and system status.
 - Runtime tests should preserve existing text parser behavior in auto mode.
 - Cross-layer tests should assert new bus event kinds serialize through Tauri models without shape drift.
@@ -282,4 +299,7 @@ match config.transport {
         run_framing_loop(&mut transport, parser)?;
     }
 }
+
+// Correct: self-describing catalog pages are canonical frames; do not add a private F3 wrapper dialect.
+decode_crtp_packet(&packet)?;
 ```
