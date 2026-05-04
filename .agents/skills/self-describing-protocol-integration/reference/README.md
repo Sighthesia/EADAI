@@ -8,6 +8,7 @@ This folder contains a small application-layer C reference implementation for th
 - Identity first
 - HostAck: exactly `0x04 + stage`
 - Catalog pages: canonical host framing only
+- Identity and catalog strings use canonical `u16 LE` length prefixes
 - No `F3` wrapper
 
 ## Driver adapter

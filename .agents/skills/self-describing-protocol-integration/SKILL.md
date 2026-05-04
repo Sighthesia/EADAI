@@ -43,8 +43,8 @@ description: Use when implementing firmware for the repo's shared UART4 self-des
 - Identity payload:
   - `type = 0x01`
   - `protocol_version`
-  - `device_name`
-  - `firmware_version`
+  - `device_name` (`u16 LE` length + UTF-8 bytes)
+  - `firmware_version` (`u16 LE` length + UTF-8 bytes)
   - `sample_rate_hz (u32 LE)`
   - `variable_count (u16 LE)`
   - `command_count (u16 LE)`
@@ -81,6 +81,7 @@ description: Use when implementing firmware for the repo's shared UART4 self-des
 - Command catalog page limit = 16.
 - Catalog pages are ordered and finite; page encoding must use the host's canonical page framing.
 - Command catalog payloads remain protocol frames, not text summaries.
+- Command catalog string fields (`id`, `params`, `docs`) use canonical host framing with `u16 LE` length prefixes.
 - Command catalog pages are canonical self-describing frames, not `F3` fragments.
 
 ### Variable catalog contract
@@ -88,6 +89,7 @@ description: Use when implementing firmware for the repo's shared UART4 self-des
 - Variable catalog page limit = 32.
 - Variable pages follow the same transport and framing rules as command pages.
 - Variable catalog payloads remain protocol frames, not text summaries.
+- Variable catalog string fields (`name`, `unit`) use canonical host framing with `u16 LE` length prefixes.
 - Variable catalog pages are canonical self-describing frames, not `F3` fragments.
 
 ### SetVariable / AckResult contract

@@ -83,12 +83,13 @@ static int sdp_put_u32(uint8_t *buf, size_t cap, size_t *cursor, uint32_t v) {
     return 0;
 }
 
-static int sdp_put_string(uint8_t *buf, size_t cap, size_t *cursor, const char *s) {
+static int sdp_put_string_u16(uint8_t *buf, size_t cap, size_t *cursor, const char *s) {
     size_t len = sdp_strlen(s);
-    if (len > 255u || *cursor + 1u + len > cap) {
+    if (len > 0xFFFFu || *cursor + 2u + len > cap) {
         return -1;
     }
-    buf[(*cursor)++] = (uint8_t)len;
+    buf[(*cursor)++] = (uint8_t)(len & 0xFFu);
+    buf[(*cursor)++] = (uint8_t)((len >> 8) & 0xFFu);
     if (len > 0) {
         memcpy(&buf[*cursor], s, len);
         *cursor += len;
@@ -106,10 +107,10 @@ static int sdp_build_identity(uint8_t *payload, size_t cap, const sdp_identity_t
         return -1;
     }
     payload[cursor++] = identity->protocol_version;
-    if (sdp_put_string(payload, cap, &cursor, identity->device_name) != 0) {
+    if (sdp_put_string_u16(payload, cap, &cursor, identity->device_name) != 0) {
         return -1;
     }
-    if (sdp_put_string(payload, cap, &cursor, identity->firmware_version) != 0) {
+    if (sdp_put_string_u16(payload, cap, &cursor, identity->firmware_version) != 0) {
         return -1;
     }
     if (sdp_put_u32(payload, cap, &cursor, identity->sample_rate_hz) != 0) {
@@ -154,13 +155,13 @@ static int sdp_append_descriptor_bytes(uint8_t *payload,
                                        const char *a,
                                        const char *b,
                                        const char *c) {
-    if (sdp_put_string(payload, cap, cursor, a) != 0) {
+    if (sdp_put_string_u16(payload, cap, cursor, a) != 0) {
         return -1;
     }
-    if (sdp_put_string(payload, cap, cursor, b) != 0) {
+    if (sdp_put_string_u16(payload, cap, cursor, b) != 0) {
         return -1;
     }
-    if (sdp_put_string(payload, cap, cursor, c) != 0) {
+    if (sdp_put_string_u16(payload, cap, cursor, c) != 0) {
         return -1;
     }
     return 0;
@@ -310,13 +311,13 @@ int sdp_send_variable_catalog_page(sdp_device_t *dev, uint16_t page, uint16_t to
 
     for (idx = start; idx < start + count; ++idx) {
         const sdp_variable_descriptor_t *var = &dev->variables[idx];
-        if (sdp_put_string(payload, sizeof(payload), &cursor, var->name) != 0) {
+        if (sdp_put_string_u16(payload, sizeof(payload), &cursor, var->name) != 0) {
             return -1;
         }
         if (sdp_put_u16(payload, sizeof(payload), &cursor, var->order) != 0) {
             return -1;
         }
-        if (sdp_put_string(payload, sizeof(payload), &cursor, var->unit) != 0) {
+        if (sdp_put_string_u16(payload, sizeof(payload), &cursor, var->unit) != 0) {
             return -1;
         }
         if (cursor + 2u > sizeof(payload)) {
