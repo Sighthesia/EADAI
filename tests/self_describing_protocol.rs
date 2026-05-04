@@ -106,11 +106,138 @@ fn test_command_catalog_page_roundtrip() {
 }
 
 #[test]
+fn test_command_catalog_page_supports_short_string_lengths() {
+    let encoded = vec![
+        0x03, // frame type
+        0x00, 0x00, // page
+        0x01, 0x00, // total_pages
+        0x01, // count
+        0x03, b'a', b'r', b'm', // id
+        0x04, b'n', b'o', b'n', b'e', // params
+        0x08, b's', b't', b'a', b'r', b't', b'i', b'n', b'g', // docs
+    ];
+
+    let decoded = decode_frame(&encoded).expect("decode command catalog short-string payload");
+
+    match decoded {
+        Frame::CommandCatalogPage(page) => {
+            assert_eq!(page.page, 0);
+            assert_eq!(page.total_pages, 1);
+            assert_eq!(page.commands.len(), 1);
+            assert_eq!(page.commands[0].id, "arm");
+            assert_eq!(page.commands[0].params, "none");
+            assert_eq!(page.commands[0].docs, "starting");
+        }
+        _ => panic!("expected command catalog page frame"),
+    }
+}
+
+#[test]
+fn test_command_catalog_page_uses_one_string_mode_per_page_for_empty_fields() {
+    let encoded = vec![
+        0x03, // frame type
+        0x00, 0x00, // page
+        0x01, 0x00, // total_pages
+        0x02, // count
+        0x03, b'a', b'r', b'm', // id
+        0x04, b'n', b'o', b'n', b'e', // params
+        0x00, // docs (empty short string)
+        0x04, b's', b't', b'o', b'p', // id
+        0x00, // params (empty short string)
+        0x09, b'B', b'o', b'l', b't', b' ', b'd', b'o', b'w', b'n', // docs
+    ];
+
+    let decoded = decode_frame(&encoded).expect("decode command catalog page with empty fields");
+
+    match decoded {
+        Frame::CommandCatalogPage(page) => {
+            assert_eq!(page.page, 0);
+            assert_eq!(page.total_pages, 1);
+            assert_eq!(page.commands.len(), 2);
+            assert_eq!(page.commands[0].id, "arm");
+            assert_eq!(page.commands[0].params, "none");
+            assert_eq!(page.commands[0].docs, "");
+            assert_eq!(page.commands[1].id, "stop");
+            assert_eq!(page.commands[1].params, "");
+            assert_eq!(page.commands[1].docs, "Bolt down");
+        }
+        _ => panic!("expected command catalog page frame"),
+    }
+}
+
+#[test]
+fn test_variable_catalog_page_supports_short_string_lengths() {
+    let encoded = vec![
+        0x02, // frame type
+        0x00, 0x00, // page
+        0x01, 0x00, // total_pages
+        0x01, // count
+        0x05, b'a', b'c', b'c', b'_', b'x', // name
+        0x00, 0x00, // order
+        0x05, b'm', b'/', b's', b'^', b'2', // unit
+        0x00, // adjustable
+        0x04, // value type = I16
+    ];
+
+    let decoded = decode_frame(&encoded).expect("decode variable catalog short-string payload");
+
+    match decoded {
+        Frame::VariableCatalogPage(page) => {
+            assert_eq!(page.page, 0);
+            assert_eq!(page.total_pages, 1);
+            assert_eq!(page.variables.len(), 1);
+            assert_eq!(page.variables[0].name, "acc_x");
+            assert_eq!(page.variables[0].unit, "m/s^2");
+            assert!(!page.variables[0].adjustable);
+            assert_eq!(page.variables[0].value_type, ValueType::I16);
+        }
+        _ => panic!("expected variable catalog page frame"),
+    }
+}
+
+#[test]
+fn test_variable_catalog_page_uses_one_string_mode_per_page_for_empty_fields() {
+    let encoded = vec![
+        0x02, // frame type
+        0x00, 0x00, // page
+        0x01, 0x00, // total_pages
+        0x02, // count
+        0x05, b'a', b'c', b'c', b'_', b'x', // name
+        0x00, 0x00, // order
+        0x00, // unit (empty short string)
+        0x00, // adjustable
+        0x04, // value type = I16
+        0x05, b'a', b'c', b'c', b'_', b'y', // name
+        0x01, 0x00, // order
+        0x05, b'm', b'/', b's', b'^', b'2', // unit
+        0x01, // adjustable
+        0x07, // value type = F32
+    ];
+
+    let decoded = decode_frame(&encoded).expect("decode variable catalog page with empty fields");
+
+    match decoded {
+        Frame::VariableCatalogPage(page) => {
+            assert_eq!(page.page, 0);
+            assert_eq!(page.total_pages, 1);
+            assert_eq!(page.variables.len(), 2);
+            assert_eq!(page.variables[0].name, "acc_x");
+            assert_eq!(page.variables[0].unit, "");
+            assert!(!page.variables[0].adjustable);
+            assert_eq!(page.variables[0].value_type, ValueType::I16);
+            assert_eq!(page.variables[1].name, "acc_y");
+            assert_eq!(page.variables[1].unit, "m/s^2");
+            assert!(page.variables[1].adjustable);
+            assert_eq!(page.variables[1].value_type, ValueType::F32);
+        }
+        _ => panic!("expected variable catalog page frame"),
+    }
+}
+
+#[test]
 fn test_host_ack_roundtrip() {
     let ack = HostAck {
         stage: AckStage::VariableCatalog,
-        status: 0,
-        message: "OK".to_string(),
     };
 
     let frame = Frame::HostAck(ack);
@@ -120,11 +247,19 @@ fn test_host_ack_roundtrip() {
     match decoded {
         Frame::HostAck(d) => {
             assert_eq!(d.stage, AckStage::VariableCatalog);
-            assert_eq!(d.status, 0);
-            assert_eq!(d.message, "OK");
         }
         _ => panic!("expected host ack frame"),
     }
+}
+
+#[test]
+fn test_host_ack_encoding_is_compact_two_bytes() {
+    let encoded = encode_frame(&Frame::HostAck(HostAck {
+        stage: AckStage::Identity,
+    }));
+
+    assert_eq!(encoded, vec![0x04, 0x01]);
+    assert_eq!(encoded.len(), 2);
 }
 
 #[test]
@@ -255,8 +390,6 @@ fn test_handshake_complete_flow() {
     machine
         .on_host_ack(&HostAck {
             stage: AckStage::VariableCatalog,
-            status: 0,
-            message: "OK".to_string(),
         })
         .unwrap();
     assert_eq!(*machine.state(), HandshakeState::ReadyToStream);
@@ -451,8 +584,6 @@ fn test_handshake_with_intermediate_acks() {
     machine
         .on_host_ack(&HostAck {
             stage: AckStage::Identity,
-            status: 0,
-            message: "OK".to_string(),
         })
         .unwrap();
     assert_eq!(*machine.state(), HandshakeState::WaitingCommandCatalog);
@@ -475,8 +606,6 @@ fn test_handshake_with_intermediate_acks() {
     machine
         .on_host_ack(&HostAck {
             stage: AckStage::CommandCatalog,
-            status: 0,
-            message: "OK".to_string(),
         })
         .unwrap();
     assert_eq!(*machine.state(), HandshakeState::WaitingVariableCatalog);
@@ -501,8 +630,6 @@ fn test_handshake_with_intermediate_acks() {
     machine
         .on_host_ack(&HostAck {
             stage: AckStage::VariableCatalog,
-            status: 0,
-            message: "OK".to_string(),
         })
         .unwrap();
     assert_eq!(*machine.state(), HandshakeState::ReadyToStream);

@@ -76,6 +76,11 @@ impl SelfDescribingSession {
                 }
 
                 self.has_identity = true;
+
+                if matches!(self.handshake_state(), HandshakeState::WaitingCommandCatalog) {
+                    eprintln!("[self-describing][session] stage complete: identity -> ack identity");
+                    responses.push(Self::host_ack(AckStage::Identity));
+                }
             }
             Frame::CommandCatalogPage(page) => {
                 eprintln!(
@@ -87,6 +92,12 @@ impl SelfDescribingSession {
 
                 if let Err(e) = self.handshake.on_command_catalog_page(page.clone()) {
                     eprintln!("[self-describing][session] command catalog error: {e}");
+                    return responses;
+                }
+
+                if matches!(self.handshake_state(), HandshakeState::WaitingVariableCatalog) {
+                    eprintln!("[self-describing][session] stage complete: command catalog -> ack command catalog");
+                    responses.push(Self::host_ack(AckStage::CommandCatalog));
                 }
             }
             Frame::VariableCatalogPage(page) => {
@@ -99,19 +110,17 @@ impl SelfDescribingSession {
 
                 if let Err(e) = self.handshake.on_variable_catalog_page(page.clone()) {
                     eprintln!("[self-describing][session] variable catalog error: {e}");
+                    return responses;
                 }
 
                 // If we just completed the variable catalog, create the bitmap codec
                 if matches!(self.handshake.state(), HandshakeState::WaitingHostAck) {
+                    eprintln!("[self-describing][session] stage complete: variable catalog -> ack variable catalog");
                     let vars = self.handshake.variable_catalog();
                     self.bitmap_codec = Some(BitmapCodec::new(vars));
 
                     // Send host acknowledgment
-                    responses.push(Frame::HostAck(HostAck {
-                        stage: AckStage::VariableCatalog,
-                        status: 0,
-                        message: "OK".to_string(),
-                    }));
+                    responses.push(Self::host_ack(AckStage::VariableCatalog));
                 }
             }
             Frame::TelemetrySample(sample) => {
@@ -146,21 +155,18 @@ impl SelfDescribingSession {
                 );
             }
             Frame::HostAck(ack) => {
-                eprintln!(
-                    "[self-describing][session] rx HOST_ACK stage={:?} status={}",
-                    ack.stage, ack.status
-                );
+                eprintln!("[self-describing][session] rx HOST_ACK stage={:?}", ack.stage);
 
                 if let Err(e) = self.handshake.on_host_ack(ack) {
                     eprintln!("[self-describing][session] host ack error: {e}");
                 }
 
-                // If we're ready to stream, send start acknowledgment
-                if matches!(self.handshake.state(), HandshakeState::ReadyToStream) {
+                // If we're ready to stream, send the final streaming acknowledgment.
+                if matches!(self.handshake.state(), HandshakeState::ReadyToStream)
+                    && !self.is_streaming
+                {
                     responses.push(Frame::HostAck(HostAck {
                         stage: AckStage::Streaming,
-                        status: 0,
-                        message: "OK".to_string(),
                     }));
                     self.is_streaming = true;
                 }
@@ -202,6 +208,10 @@ impl SelfDescribingSession {
         self.has_identity = false;
         self.is_streaming = false;
     }
+
+    fn host_ack(stage: AckStage) -> Frame {
+        Frame::HostAck(HostAck { stage })
+    }
 }
 
 impl Default for SelfDescribingSession {
@@ -234,7 +244,8 @@ mod tests {
 
         // Receive identity
         let responses = session.on_frame(&Frame::Identity(sample_identity()));
-        assert!(responses.is_empty());
+        assert_eq!(responses.len(), 1);
+        assert!(matches!(responses[0], Frame::HostAck(HostAck { stage: AckStage::Identity })));
         assert_eq!(
             *session.handshake_state(),
             HandshakeState::WaitingCommandCatalog
@@ -251,7 +262,8 @@ mod tests {
             }],
         };
         let responses = session.on_frame(&Frame::CommandCatalogPage(cmd_catalog));
-        assert!(responses.is_empty());
+        assert_eq!(responses.len(), 1);
+        assert!(matches!(responses[0], Frame::HostAck(HostAck { stage: AckStage::CommandCatalog })));
         assert_eq!(
             *session.handshake_state(),
             HandshakeState::WaitingVariableCatalog
@@ -280,13 +292,12 @@ mod tests {
         };
         let responses = session.on_frame(&Frame::VariableCatalogPage(var_catalog));
         assert_eq!(responses.len(), 1); // Should send HostAck
+        assert!(matches!(responses[0], Frame::HostAck(HostAck { stage: AckStage::VariableCatalog })));
         assert_eq!(*session.handshake_state(), HandshakeState::WaitingHostAck);
 
         // Receive host acknowledgment
         let ack = HostAck {
             stage: AckStage::VariableCatalog,
-            status: 0,
-            message: "OK".to_string(),
         };
         let responses = session.on_frame(&Frame::HostAck(ack));
         assert_eq!(responses.len(), 1); // Should send Streaming ack
@@ -326,8 +337,6 @@ mod tests {
         }));
         session.on_frame(&Frame::HostAck(HostAck {
             stage: AckStage::VariableCatalog,
-            status: 0,
-            message: "OK".to_string(),
         }));
 
         // Send a sample
@@ -350,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_session_set_variable() {
-        let mut session = SelfDescribingSession::new();
+        let session = SelfDescribingSession::new();
 
         // Create a set variable frame
         let set_var = session.create_set_variable(1, vec![0x00, 0x00, 0x80, 0x3F], 10);

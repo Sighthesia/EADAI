@@ -1,7 +1,7 @@
 use eadai::protocols::self_describing::{
     crtp_adapter::{
-        SELF_DESCRIBING_CRTP_CHANNEL, SELF_DESCRIBING_CRTP_PORT, encode_crtp_packet,
-        is_self_describing_packet,
+        RawSelfDescribingDecoder, SELF_DESCRIBING_CRTP_CHANNEL, SELF_DESCRIBING_CRTP_PORT,
+        encode_crtp_packet, encode_raw_transport_frame, is_self_describing_packet,
     },
     frame::*,
     session::SelfDescribingSession,
@@ -15,6 +15,10 @@ fn build_raw_crtp_frame(payload: &[u8]) -> Vec<u8> {
     let crc = crc8_update(0, &frame);
     frame.push(crc);
     frame
+}
+
+fn build_raw_self_describing_frame(frame: &Frame) -> Vec<u8> {
+    encode_raw_transport_frame(frame)
 }
 
 fn crc8_update(crc: u8, data: &[u8]) -> u8 {
@@ -33,11 +37,11 @@ fn crc8_update(crc: u8, data: &[u8]) -> u8 {
 }
 
 #[test]
-fn test_session_generates_host_ack_for_variable_catalog() {
+fn test_session_generates_staged_host_acks() {
     let mut session = SelfDescribingSession::new();
 
-    // Complete handshake up to variable catalog
-    session.on_frame(&Frame::Identity(Identity {
+    // Identity should trigger the first staged ack.
+    let responses = session.on_frame(&Frame::Identity(Identity {
         protocol_version: 1,
         device_name: "Test Device".to_string(),
         firmware_version: "1.0.0".to_string(),
@@ -46,12 +50,17 @@ fn test_session_generates_host_ack_for_variable_catalog() {
         command_count: 1,
         sample_payload_len: 8,
     }));
+    assert_eq!(responses.len(), 1);
+    assert!(matches!(responses[0], Frame::HostAck(HostAck { stage: AckStage::Identity })));
 
-    session.on_frame(&Frame::CommandCatalogPage(CommandCatalogPage {
+    // Command catalog completion should trigger the second staged ack.
+    let responses = session.on_frame(&Frame::CommandCatalogPage(CommandCatalogPage {
         page: 0,
         total_pages: 1,
         commands: vec![],
     }));
+    assert_eq!(responses.len(), 1);
+    assert!(matches!(responses[0], Frame::HostAck(HostAck { stage: AckStage::CommandCatalog })));
 
     // Receive variable catalog - should generate HostAck
     let responses = session.on_frame(&Frame::VariableCatalogPage(VariableCatalogPage {
@@ -80,8 +89,6 @@ fn test_session_generates_host_ack_for_variable_catalog() {
     match &responses[0] {
         Frame::HostAck(ack) => {
             assert_eq!(ack.stage, AckStage::VariableCatalog);
-            assert_eq!(ack.status, 0);
-            assert_eq!(ack.message, "OK");
         }
         _ => panic!("expected HostAck response"),
     }
@@ -142,8 +149,6 @@ fn test_session_generates_streaming_ack() {
     // Host acknowledges variable catalog
     let responses = session.on_frame(&Frame::HostAck(HostAck {
         stage: AckStage::VariableCatalog,
-        status: 0,
-        message: "OK".to_string(),
     }));
 
     // Should have one response: Streaming ack
@@ -151,7 +156,6 @@ fn test_session_generates_streaming_ack() {
     match &responses[0] {
         Frame::HostAck(ack) => {
             assert_eq!(ack.stage, AckStage::Streaming);
-            assert_eq!(ack.status, 0);
         }
         _ => panic!("expected Streaming ack response"),
     }
@@ -221,8 +225,6 @@ fn test_ack_result_encode_decode_roundtrip() {
 fn test_host_ack_encode_decode_roundtrip() {
     let ack = HostAck {
         stage: AckStage::VariableCatalog,
-        status: 0,
-        message: "OK".to_string(),
     };
 
     let frame = Frame::HostAck(ack);
@@ -239,11 +241,21 @@ fn test_host_ack_encode_decode_roundtrip() {
     match decoded {
         Frame::HostAck(ha) => {
             assert_eq!(ha.stage, AckStage::VariableCatalog);
-            assert_eq!(ha.status, 0);
-            assert_eq!(ha.message, "OK");
         }
         _ => panic!("expected HostAck frame"),
     }
+}
+
+#[test]
+fn test_raw_host_ack_frame_payload_is_compact() {
+    let raw = build_raw_self_describing_frame(&Frame::HostAck(HostAck {
+        stage: AckStage::Identity,
+    }));
+
+    assert_eq!(raw[0], 0x73);
+    assert_eq!(raw[1], 2);
+    assert_eq!(&raw[2..], &[0x04, 0x01]);
+    assert_eq!(raw.len(), 4);
 }
 
 #[test]
@@ -282,4 +294,63 @@ fn test_raw_crtp_frame_preserves_self_describing_payload() {
         }
         _ => panic!("expected identity frame"),
     }
+}
+
+#[test]
+fn test_raw_self_describing_decoder_handles_identity_and_ack_sequence() {
+    let mut decoder = RawSelfDescribingDecoder::new(4096);
+
+    let identity = Frame::Identity(Identity {
+        protocol_version: 1,
+        device_name: "Raw Test".to_string(),
+        firmware_version: "1.0.0".to_string(),
+        sample_rate_hz: 100,
+        variable_count: 2,
+        command_count: 1,
+        sample_payload_len: 8,
+    });
+
+    let frames = decoder.push(&build_raw_self_describing_frame(&identity));
+    assert_eq!(frames.len(), 1);
+    assert!(matches!(frames[0], Frame::Identity(_)));
+
+    let command_catalog = Frame::CommandCatalogPage(CommandCatalogPage {
+        page: 0,
+        total_pages: 1,
+        commands: vec![],
+    });
+    let frames = decoder.push(&build_raw_self_describing_frame(&command_catalog));
+    assert_eq!(frames.len(), 1);
+    assert!(matches!(frames[0], Frame::CommandCatalogPage(_)));
+
+    let variable_catalog = Frame::VariableCatalogPage(VariableCatalogPage {
+        page: 0,
+        total_pages: 1,
+        variables: vec![],
+    });
+    let frames = decoder.push(&build_raw_self_describing_frame(&variable_catalog));
+    assert_eq!(frames.len(), 1);
+    assert!(matches!(frames[0], Frame::VariableCatalogPage(_)));
+}
+
+#[test]
+fn test_raw_self_describing_decoder_skips_crtp_empty_packet_false_positive() {
+    let mut decoder = RawSelfDescribingDecoder::new(4096);
+    let identity = Frame::Identity(Identity {
+        protocol_version: 1,
+        device_name: "Raw Test".to_string(),
+        firmware_version: "1.0.0".to_string(),
+        sample_rate_hz: 100,
+        variable_count: 2,
+        command_count: 1,
+        sample_payload_len: 8,
+    });
+
+    let frames = decoder.push(&build_raw_self_describing_frame(&identity));
+    assert_eq!(frames.len(), 1);
+
+    // Feed the same canonical raw bytes again to ensure the decoder stays aligned
+    // and does not create a fake CRTP console/channel-0 empty payload packet.
+    let frames = decoder.push(&build_raw_self_describing_frame(&identity));
+    assert_eq!(frames.len(), 1);
 }

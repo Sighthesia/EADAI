@@ -142,10 +142,10 @@ fn decode_identity(data: &[u8]) -> Result<Identity, DecodeError> {
     let protocol_version = data[0];
     cursor += 1;
 
-    let (device_name, bytes_read) = decode_string(data, cursor)?;
+    let (device_name, bytes_read) = decode_identity_string(data, cursor)?;
     cursor += bytes_read;
 
-    let (firmware_version, bytes_read) = decode_string(data, cursor)?;
+    let (firmware_version, bytes_read) = decode_identity_string(data, cursor)?;
     cursor += bytes_read;
 
     if data.len() < cursor + 10 {
@@ -179,6 +179,14 @@ fn decode_identity(data: &[u8]) -> Result<Identity, DecodeError> {
     })
 }
 
+fn decode_identity_string(data: &[u8], offset: usize) -> Result<(String, usize), DecodeError> {
+    match decode_string(data, offset) {
+        Ok(value) => Ok(value),
+        Err(DecodeError::TruncatedData) => decode_short_string(data, offset),
+        Err(err) => Err(err),
+    }
+}
+
 fn encode_variable_catalog_page(page: &VariableCatalogPage, buf: &mut Vec<u8>) {
     buf.extend_from_slice(&page.page.to_le_bytes());
     buf.extend_from_slice(&page.total_pages.to_le_bytes());
@@ -193,52 +201,8 @@ fn encode_variable_catalog_page(page: &VariableCatalogPage, buf: &mut Vec<u8>) {
 }
 
 fn decode_variable_catalog_page(data: &[u8]) -> Result<VariableCatalogPage, DecodeError> {
-    if data.len() < 5 {
-        return Err(DecodeError::TruncatedData);
-    }
-
-    let page = u16::from_le_bytes([data[0], data[1]]);
-    let total_pages = u16::from_le_bytes([data[2], data[3]]);
-    let count = data[4] as usize;
-    let mut cursor = 5;
-
-    let mut variables = Vec::with_capacity(count);
-    for _ in 0..count {
-        let (name, bytes_read) = decode_string(data, cursor)?;
-        cursor += bytes_read;
-
-        if data.len() < cursor + 3 {
-            return Err(DecodeError::TruncatedData);
-        }
-        let order = u16::from_le_bytes([data[cursor], data[cursor + 1]]);
-        cursor += 2;
-
-        let (unit, bytes_read) = decode_string(data, cursor)?;
-        cursor += bytes_read;
-
-        if data.len() < cursor + 2 {
-            return Err(DecodeError::TruncatedData);
-        }
-        let adjustable = data[cursor] != 0;
-        cursor += 1;
-
-        let value_type = decode_value_type(data[cursor])?;
-        cursor += 1;
-
-        variables.push(VariableDescriptor {
-            name,
-            order,
-            unit,
-            adjustable,
-            value_type,
-        });
-    }
-
-    Ok(VariableCatalogPage {
-        page,
-        total_pages,
-        variables,
-    })
+    decode_variable_catalog_page_with_mode(data, CatalogStringMode::Canonical)
+        .or_else(|_| decode_variable_catalog_page_with_mode(data, CatalogStringMode::Short))
 }
 
 fn encode_command_catalog_page(page: &CommandCatalogPage, buf: &mut Vec<u8>) {
@@ -253,56 +217,21 @@ fn encode_command_catalog_page(page: &CommandCatalogPage, buf: &mut Vec<u8>) {
 }
 
 fn decode_command_catalog_page(data: &[u8]) -> Result<CommandCatalogPage, DecodeError> {
-    if data.len() < 5 {
-        return Err(DecodeError::TruncatedData);
-    }
-
-    let page = u16::from_le_bytes([data[0], data[1]]);
-    let total_pages = u16::from_le_bytes([data[2], data[3]]);
-    let count = data[4] as usize;
-    let mut cursor = 5;
-
-    let mut commands = Vec::with_capacity(count);
-    for _ in 0..count {
-        let (id, bytes_read) = decode_string(data, cursor)?;
-        cursor += bytes_read;
-
-        let (params, bytes_read) = decode_string(data, cursor)?;
-        cursor += bytes_read;
-
-        let (docs, bytes_read) = decode_string(data, cursor)?;
-        cursor += bytes_read;
-
-        commands.push(CommandDescriptor { id, params, docs });
-    }
-
-    Ok(CommandCatalogPage {
-        page,
-        total_pages,
-        commands,
-    })
+    decode_command_catalog_page_with_mode(data, CatalogStringMode::Canonical)
+        .or_else(|_| decode_command_catalog_page_with_mode(data, CatalogStringMode::Short))
 }
 
 fn encode_host_ack(ack: &HostAck, buf: &mut Vec<u8>) {
     buf.push(ack_stage_to_u8(ack.stage));
-    buf.push(ack.status);
-    encode_string(&ack.message, buf);
 }
 
 fn decode_host_ack(data: &[u8]) -> Result<HostAck, DecodeError> {
-    if data.len() < 2 {
+    if data.len() < 1 {
         return Err(DecodeError::TruncatedData);
     }
 
     let stage = decode_ack_stage(data[0])?;
-    let status = data[1];
-    let (message, _) = decode_string(data, 2)?;
-
-    Ok(HostAck {
-        stage,
-        status,
-        message,
-    })
+    Ok(HostAck { stage })
 }
 
 fn encode_telemetry_sample(sample: &TelemetrySample, buf: &mut Vec<u8>) {
@@ -404,6 +333,126 @@ fn decode_string(data: &[u8], offset: usize) -> Result<(String, usize), DecodeEr
     Ok((s.to_string(), 2 + len))
 }
 
+#[derive(Clone, Copy)]
+enum CatalogStringMode {
+    Canonical,
+    Short,
+}
+
+fn decode_variable_catalog_page_with_mode(
+    data: &[u8],
+    mode: CatalogStringMode,
+) -> Result<VariableCatalogPage, DecodeError> {
+    if data.len() < 5 {
+        return Err(DecodeError::TruncatedData);
+    }
+
+    let page = u16::from_le_bytes([data[0], data[1]]);
+    let total_pages = u16::from_le_bytes([data[2], data[3]]);
+    let count = data[4] as usize;
+    let mut cursor = 5;
+
+    let mut variables = Vec::with_capacity(count);
+    for _ in 0..count {
+        let (name, bytes_read) = decode_catalog_string_with_mode(data, cursor, mode)?;
+        cursor += bytes_read;
+
+        if data.len() < cursor + 2 {
+            return Err(DecodeError::TruncatedData);
+        }
+        let order = u16::from_le_bytes([data[cursor], data[cursor + 1]]);
+        cursor += 2;
+
+        let (unit, bytes_read) = decode_catalog_string_with_mode(data, cursor, mode)?;
+        cursor += bytes_read;
+
+        if data.len() < cursor + 2 {
+            return Err(DecodeError::TruncatedData);
+        }
+        let adjustable = data[cursor] != 0;
+        cursor += 1;
+
+        let value_type = decode_value_type(data[cursor])?;
+        cursor += 1;
+
+        variables.push(VariableDescriptor {
+            name,
+            order,
+            unit,
+            adjustable,
+            value_type,
+        });
+    }
+
+    Ok(VariableCatalogPage {
+        page,
+        total_pages,
+        variables,
+    })
+}
+
+fn decode_command_catalog_page_with_mode(
+    data: &[u8],
+    mode: CatalogStringMode,
+) -> Result<CommandCatalogPage, DecodeError> {
+    if data.len() < 5 {
+        return Err(DecodeError::TruncatedData);
+    }
+
+    let page = u16::from_le_bytes([data[0], data[1]]);
+    let total_pages = u16::from_le_bytes([data[2], data[3]]);
+    let count = data[4] as usize;
+    let mut cursor = 5;
+
+    let mut commands = Vec::with_capacity(count);
+    for _ in 0..count {
+        let (id, bytes_read) = decode_catalog_string_with_mode(data, cursor, mode)?;
+        cursor += bytes_read;
+
+        let (params, bytes_read) = decode_catalog_string_with_mode(data, cursor, mode)?;
+        cursor += bytes_read;
+
+        let (docs, bytes_read) = decode_catalog_string_with_mode(data, cursor, mode)?;
+        cursor += bytes_read;
+
+        commands.push(CommandDescriptor { id, params, docs });
+    }
+
+    Ok(CommandCatalogPage {
+        page,
+        total_pages,
+        commands,
+    })
+}
+
+fn decode_catalog_string_with_mode(
+    data: &[u8],
+    offset: usize,
+    mode: CatalogStringMode,
+) -> Result<(String, usize), DecodeError> {
+    match mode {
+        CatalogStringMode::Canonical => decode_string(data, offset),
+        CatalogStringMode::Short => decode_short_string(data, offset),
+    }
+}
+
+fn decode_short_string(data: &[u8], offset: usize) -> Result<(String, usize), DecodeError> {
+    if data.len() < offset + 1 {
+        return Err(DecodeError::TruncatedData);
+    }
+
+    let len = data[offset] as usize;
+    let start = offset + 1;
+
+    if data.len() < start + len {
+        return Err(DecodeError::TruncatedData);
+    }
+
+    let s = std::str::from_utf8(&data[start..start + len]).map_err(|_| DecodeError::InvalidUtf8)?;
+
+    Ok((s.to_string(), 1 + len))
+}
+
 fn value_type_to_u8(vt: ValueType) -> u8 {
     match vt {
         ValueType::U8 => VALUE_TYPE_U8,
@@ -483,6 +532,29 @@ mod tests {
     }
 
     #[test]
+    fn test_identity_compatibility_with_short_string_lengths() {
+        let encoded = vec![
+            0x01, 0x01, 0x06, b'C', b'Y', b'T', b'4', b'B', b'B', 0x03, b'0', b'.', b'1',
+            0x64, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x04, 0x00, 0x3C, 0x00,
+        ];
+
+        let decoded = decode_frame(&encoded).expect("decode identity short-string payload");
+
+        match decoded {
+            Frame::Identity(identity) => {
+                assert_eq!(identity.protocol_version, 1);
+                assert_eq!(identity.device_name, "CYT4BB");
+                assert_eq!(identity.firmware_version, "0.1");
+                assert_eq!(identity.sample_rate_hz, 100);
+                assert_eq!(identity.variable_count, 30);
+                assert_eq!(identity.command_count, 4);
+                assert_eq!(identity.sample_payload_len, 60);
+            }
+            _ => panic!("expected identity frame"),
+        }
+    }
+
+    #[test]
     fn test_variable_catalog_page_roundtrip() {
         let page = VariableCatalogPage {
             page: 0,
@@ -556,8 +628,6 @@ mod tests {
     fn test_host_ack_roundtrip() {
         let ack = HostAck {
             stage: AckStage::VariableCatalog,
-            status: 0,
-            message: "OK".to_string(),
         };
 
         let frame = Frame::HostAck(ack);
@@ -567,11 +637,21 @@ mod tests {
         match decoded {
             Frame::HostAck(d) => {
                 assert_eq!(d.stage, AckStage::VariableCatalog);
-                assert_eq!(d.status, 0);
-                assert_eq!(d.message, "OK");
             }
             _ => panic!("expected host ack frame"),
         }
+    }
+
+    #[test]
+    fn test_host_ack_is_compact_two_bytes_on_wire() {
+        let ack = HostAck {
+            stage: AckStage::Identity,
+        };
+
+        let encoded = encode_frame(&Frame::HostAck(ack));
+
+        assert_eq!(encoded, vec![FRAME_TYPE_HOST_ACK, ACK_STAGE_IDENTITY]);
+        assert_eq!(encoded.len(), 2);
     }
 
     #[test]

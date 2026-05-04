@@ -157,10 +157,6 @@ impl HandshakeMachine {
     /// - `VariableCatalog` ack → valid once all variable pages are received (`WaitingHostAck`)
     /// - `Streaming` ack → valid once streaming is approved (`ReadyToStream`)
     pub fn on_host_ack(&mut self, ack: &HostAck) -> Result<(), String> {
-        if ack.status != 0 {
-            return Err(format!("host ack error: {}", ack.message));
-        }
-
         match ack.stage {
             AckStage::Identity => {
                 if self.state != HandshakeState::WaitingCommandCatalog {
@@ -314,8 +310,6 @@ mod tests {
         machine
             .on_host_ack(&HostAck {
                 stage: AckStage::VariableCatalog,
-                status: 0,
-                message: "OK".to_string(),
             })
             .unwrap();
         assert_eq!(*machine.state(), HandshakeState::ReadyToStream);
@@ -435,8 +429,6 @@ mod tests {
         machine
             .on_host_ack(&HostAck {
                 stage: AckStage::Identity,
-                status: 0,
-                message: "OK".to_string(),
             })
             .unwrap();
         // State should not change
@@ -451,8 +443,6 @@ mod tests {
             machine
                 .on_host_ack(&HostAck {
                     stage: AckStage::Identity,
-                    status: 0,
-                    message: "OK".to_string(),
                 })
                 .is_err()
         );
@@ -471,8 +461,6 @@ mod tests {
         machine
             .on_host_ack(&HostAck {
                 stage: AckStage::CommandCatalog,
-                status: 0,
-                message: "OK".to_string(),
             })
             .unwrap();
         // State should not change
@@ -488,15 +476,13 @@ mod tests {
             machine
                 .on_host_ack(&HostAck {
                     stage: AckStage::CommandCatalog,
-                    status: 0,
-                    message: "OK".to_string(),
                 })
                 .is_err()
         );
     }
 
     #[test]
-    fn test_host_ack_error_status() {
+    fn test_host_ack_wrong_stage_error() {
         let mut machine = HandshakeMachine::new();
         machine.on_identity(sample_identity()).unwrap();
         machine
@@ -506,16 +492,8 @@ mod tests {
             .on_variable_catalog_page(sample_variable_catalog_page())
             .unwrap();
 
-        // Host ack with error status should fail
-        assert!(
-            machine
-                .on_host_ack(&HostAck {
-                    stage: AckStage::VariableCatalog,
-                    status: 1,
-                    message: "rejected".to_string(),
-                })
-                .is_err()
-        );
+        // Host ack in the wrong stage should fail.
+        assert!(machine.on_host_ack(&HostAck { stage: AckStage::Identity }).is_err());
         // State should remain WaitingHostAck
         assert_eq!(*machine.state(), HandshakeState::WaitingHostAck);
     }
@@ -529,8 +507,6 @@ mod tests {
             machine
                 .on_host_ack(&HostAck {
                     stage: AckStage::Streaming,
-                    status: 0,
-                    message: "OK".to_string(),
                 })
                 .is_err()
         );

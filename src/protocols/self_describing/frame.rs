@@ -108,10 +108,6 @@ pub struct CommandCatalogPage {
 pub struct HostAck {
     /// Stage being acknowledged.
     pub stage: AckStage,
-    /// Acknowledgment status (0 = OK, non-zero = error).
-    pub status: u8,
-    /// Optional message.
-    pub message: String,
 }
 
 /// Stages that can be acknowledged.

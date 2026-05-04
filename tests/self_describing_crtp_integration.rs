@@ -229,8 +229,6 @@ fn test_handshake_flow_over_crtp() {
     // Simulate host acknowledgment
     let ack = HostAck {
         stage: AckStage::VariableCatalog,
-        status: 0,
-        message: "OK".to_string(),
     };
 
     machine.on_host_ack(&ack).unwrap();
