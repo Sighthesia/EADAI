@@ -39,7 +39,11 @@ fn run() -> Result<(), AppError> {
 fn send_once(config: &SendConfig) -> Result<(), AppError> {
     let mut port = serial::open_send_port(config)?;
     let payload = serial::payload_bytes(config);
-    serial::write_payload(&mut *port, &payload)?;
+    serial::write_serial_payload(
+        &mut *port,
+        &payload,
+        serial::serial_write_timeout(config.read_timeout),
+    )?;
     println!(
         "[send] port={} baud={} bytes={} payload={:?}",
         config.port,
@@ -56,7 +60,12 @@ fn run_loopback_test(config: &LoopbackConfig) -> Result<(), AppError> {
     let expected_text = config.send.payload.clone();
     let mut framer = LineFramer::new();
 
-    serial::write_payload(&mut *port, &payload)?;
+    serial::write_serial_payload(
+        &mut *port,
+        &payload,
+        serial::serial_write_timeout(config.send.read_timeout),
+    )?;
+    serial::set_port_timeout(&mut *port, config.send.read_timeout)?;
     let echoed = serial::read_expected_line(
         &mut *port,
         &mut framer,
@@ -85,6 +94,7 @@ fn run_interactive(config: &InteractiveConfig) -> Result<(), AppError> {
     let mut write_port = serial::open_interactive_port(config)?;
     let mut read_port = write_port.try_clone()?;
     let port_name = config.port.clone();
+    serial::set_port_timeout(&mut *read_port, config.read_timeout)?;
 
     let _reader = std::thread::spawn(move || -> Result<(), AppError> {
         let mut framer = LineFramer::new();
@@ -116,7 +126,11 @@ fn run_interactive(config: &InteractiveConfig) -> Result<(), AppError> {
         }
 
         let payload = serial::payload_bytes_for_text(&line, config.append_newline);
-        serial::write_payload(&mut *write_port, &payload)?;
+        serial::write_serial_payload(
+            &mut *write_port,
+            &payload,
+            serial::serial_write_timeout(config.read_timeout),
+        )?;
         println!(
             "[tx] port={} bytes={} text={}",
             config.port,

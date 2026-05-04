@@ -3,7 +3,7 @@ use eadai::message::{LinePayload, ParserStatus};
 use eadai::parser;
 use eadai::serial::{
     FrameStatus, FramedLine, LineFramer, payload_bytes, payload_bytes_for_text, read_expected_line,
-    write_payload,
+    serial_timeout_policy, serial_write_timeout, write_payload,
 };
 use std::io::{Cursor, Read, Result as IoResult, Write};
 use std::time::Duration;
@@ -37,6 +37,15 @@ fn preserves_payload_without_newline_when_requested() {
     };
 
     assert_eq!(payload_bytes(&config), b"ping:42");
+}
+
+#[test]
+fn write_timeout_uses_a_floor_without_changing_read_timeout() {
+    let policy = serial_timeout_policy(Duration::from_millis(50));
+
+    assert_eq!(policy.read_timeout, Duration::from_millis(50));
+    assert_eq!(policy.write_timeout, Duration::from_millis(1_000));
+    assert_eq!(serial_write_timeout(Duration::from_millis(1500)), Duration::from_millis(1500));
 }
 
 #[test]

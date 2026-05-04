@@ -181,10 +181,12 @@ pub fn run(config: DiagConfig) -> Result<(), AppError> {
         .parity(Parity::None)
         .stop_bits(StopBits::One)
         .flow_control(FlowControl::None)
-        .timeout(config.read_timeout)
+        .timeout(serial::serial_write_timeout(config.read_timeout))
         .open()?;
     let started_at = Instant::now();
     let mut state = RunState::new(config.max_frame_bytes);
+
+    serial::set_port_timeout(&mut *port, config.read_timeout)?;
 
     println!(
         "[open] port={} baud={} timeout_ms={} schema_wait_ms={} step_wait_ms={} total_ms={}",
@@ -212,8 +214,10 @@ pub fn run(config: DiagConfig) -> Result<(), AppError> {
             &mut *port,
             &mut state,
             HostCommand::Ack,
+            config.read_timeout,
             config.ascii_newline,
         )?;
+        serial::set_port_timeout(&mut *port, config.read_timeout)?;
         observe_budgeted(
             &mut *port,
             &mut state,
@@ -226,8 +230,10 @@ pub fn run(config: DiagConfig) -> Result<(), AppError> {
                 &mut *port,
                 &mut state,
                 HostCommand::Start,
+                config.read_timeout,
                 config.ascii_newline,
             )?;
+            serial::set_port_timeout(&mut *port, config.read_timeout)?;
             observe_budgeted(
                 &mut *port,
                 &mut state,
@@ -240,7 +246,8 @@ pub fn run(config: DiagConfig) -> Result<(), AppError> {
 
     if !config.listen_only && state.stats.sample_count == 0 {
         if state.schema.is_none() {
-            send_binary(&mut *port, &mut state, HostCommand::ReqSchema)?;
+            send_binary(&mut *port, &mut state, HostCommand::ReqSchema, config.read_timeout)?;
+            serial::set_port_timeout(&mut *port, config.read_timeout)?;
             observe_budgeted(
                 &mut *port,
                 &mut state,
@@ -251,7 +258,8 @@ pub fn run(config: DiagConfig) -> Result<(), AppError> {
         }
 
         if state.schema.is_some() && state.stats.sample_count == 0 {
-            send_binary(&mut *port, &mut state, HostCommand::Ack)?;
+            send_binary(&mut *port, &mut state, HostCommand::Ack, config.read_timeout)?;
+            serial::set_port_timeout(&mut *port, config.read_timeout)?;
             observe_budgeted(
                 &mut *port,
                 &mut state,
@@ -262,7 +270,8 @@ pub fn run(config: DiagConfig) -> Result<(), AppError> {
         }
 
         if state.schema.is_some() && state.stats.sample_count == 0 {
-            send_binary(&mut *port, &mut state, HostCommand::Start)?;
+            send_binary(&mut *port, &mut state, HostCommand::Start, config.read_timeout)?;
+            serial::set_port_timeout(&mut *port, config.read_timeout)?;
             observe_budgeted(
                 &mut *port,
                 &mut state,
@@ -473,10 +482,11 @@ fn send_ascii<T: serialport::SerialPort + ?Sized>(
     port: &mut T,
     state: &mut RunState,
     command: HostCommand,
+    write_timeout: Duration,
     newline_mode: NewlineMode,
 ) -> Result<(), AppError> {
     let payload = ascii_command_bytes(command, newline_mode);
-    serial::write_payload(port, &payload)?;
+    serial::write_serial_payload(port, &payload, serial::serial_write_timeout(write_timeout))?;
     state.last_command_path = Some(CommandPath::Ascii);
     println!(
         "[tx/ascii] cmd={} newline={} bytes={} payload={}",
@@ -492,11 +502,12 @@ fn send_binary<T: serialport::SerialPort + ?Sized>(
     port: &mut T,
     state: &mut RunState,
     command: HostCommand,
+    write_timeout: Duration,
 ) -> Result<(), AppError> {
     let seq = state.tx_seq;
     state.tx_seq = state.tx_seq.wrapping_add(1);
     let payload = encode_host_command(command, seq);
-    serial::write_payload(port, &payload)?;
+    serial::write_serial_payload(port, &payload, serial::serial_write_timeout(write_timeout))?;
     state.last_command_path = Some(CommandPath::Binary);
     println!(
         "[tx/bin] cmd={} seq={} bytes={} frame={}",

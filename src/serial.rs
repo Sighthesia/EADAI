@@ -3,10 +3,19 @@ use crate::error::AppError;
 use crate::message::LinePayload;
 use serde::Serialize;
 use serialport::{SerialPortInfo as NativeSerialPortInfo, SerialPortType};
+use std::cmp;
 use std::io::{ErrorKind, Read, Write};
 use std::time::{Duration, Instant};
 
 const READ_BUFFER_SIZE: usize = 1024;
+const DEFAULT_WRITE_TIMEOUT_MS: u64 = 1_000;
+
+/// Serial timeout policy used by open helpers and transports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SerialTimeoutPolicy {
+    pub read_timeout: Duration,
+    pub write_timeout: Duration,
+}
 
 /// Framing status for one emitted line payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,20 +101,50 @@ pub fn describe_visible_devices(ports: Vec<NativeSerialPortInfo>) -> Vec<SerialD
     devices
 }
 
-/// Opens a serial port with the configured timeout.
+/// Returns the write-friendly timeout floor used by serial entrypoints.
+pub fn serial_write_timeout(read_timeout: Duration) -> Duration {
+    cmp::max(read_timeout, Duration::from_millis(DEFAULT_WRITE_TIMEOUT_MS))
+}
+
+/// Builds the paired read/write timeout policy for serial entrypoints.
+pub fn serial_timeout_policy(read_timeout: Duration) -> SerialTimeoutPolicy {
+    SerialTimeoutPolicy {
+        read_timeout,
+        write_timeout: serial_write_timeout(read_timeout),
+    }
+}
+
+/// Applies a timeout to an opened serial port.
+///
+/// - `port`: opened serial port instance.
+/// - `timeout`: timeout to apply before the next I/O operation.
+pub fn set_port_timeout<T>(port: &mut T, timeout: Duration) -> Result<(), AppError>
+where
+    T: serialport::SerialPort + ?Sized,
+{
+    port.set_timeout(timeout)?;
+    Ok(())
+}
+
+/// Opens a serial port with the write-friendly timeout floor.
 ///
 /// - `config`: runtime serial configuration.
 pub fn open_port(config: &RunConfig) -> Result<Box<dyn serialport::SerialPort>, AppError> {
+    let policy = serial_timeout_policy(config.read_timeout);
     let port = serialport::new(&config.port, config.baud_rate)
-        .timeout(config.read_timeout)
+        .timeout(policy.write_timeout)
         .open()?;
     Ok(port)
 }
 
 /// Opens a serial port for sending or loopback verification.
+///
+/// The port starts with the write-friendly timeout floor; callers can switch
+/// back to the short polling timeout before reading.
 pub fn open_send_port(config: &SendConfig) -> Result<Box<dyn serialport::SerialPort>, AppError> {
+    let policy = serial_timeout_policy(config.read_timeout);
     let port = serialport::new(&config.port, config.baud_rate)
-        .timeout(config.read_timeout)
+        .timeout(policy.write_timeout)
         .open()?;
     Ok(port)
 }
@@ -114,8 +153,9 @@ pub fn open_send_port(config: &SendConfig) -> Result<Box<dyn serialport::SerialP
 pub fn open_interactive_port(
     config: &InteractiveConfig,
 ) -> Result<Box<dyn serialport::SerialPort>, AppError> {
+    let policy = serial_timeout_policy(config.read_timeout);
     let port = serialport::new(&config.port, config.baud_rate)
-        .timeout(config.read_timeout)
+        .timeout(policy.write_timeout)
         .open()?;
     Ok(port)
 }
@@ -216,6 +256,19 @@ where
     port.write_all(payload)?;
     port.flush()?;
     Ok(())
+}
+
+/// Writes bytes through a serial port after applying the write timeout floor.
+pub fn write_serial_payload<T>(
+    port: &mut T,
+    payload: &[u8],
+    timeout: Duration,
+) -> Result<(), AppError>
+where
+    T: serialport::SerialPort + ?Sized,
+{
+    set_port_timeout(port, timeout)?;
+    write_payload(port, payload)
 }
 
 /// Reads until the expected echoed line is received or timeout expires.
