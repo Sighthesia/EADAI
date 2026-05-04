@@ -1,6 +1,7 @@
 export type UiConnectionState = 'idle' | 'connecting' | 'connected' | 'waitingRetry' | 'stopped'
 export type UiTransportKind = 'serial' | 'fake'
 export type SourceKind = 'serial' | 'fake'
+export type ParserKind = 'auto' | 'bmi088' | 'mavlink' | 'crtp' | 'key_value' | 'measurements'
 export type ConsoleDisplayMode = 'ascii' | 'hex' | 'binary'
 
 export interface ConnectRequest {
@@ -10,6 +11,7 @@ export interface ConnectRequest {
   readTimeoutMs: number
   sourceKind: SourceKind
   fakeProfile?: string | null
+  parser?: ParserKind | null
 }
 
 export interface SendRequest {

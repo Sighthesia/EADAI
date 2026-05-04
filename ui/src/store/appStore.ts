@@ -225,6 +225,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     readTimeoutMs: 50,
     sourceKind: 'fake',
     fakeProfile: DEFAULT_FAKE_PROFILE,
+    parser: 'auto',
   },
   appendNewline: true,
   commandInput: '',
@@ -261,21 +262,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     samplerateHzInput: '',
     selectedChannelLabels: [],
   },
-  runtimeDevice: createRuntimeDeviceSnapshot(
-    { isRunning: false, connectionState: 'stopped' },
-    {
-      port: '',
-      baudRate: 115200,
-      retryMs: 1000,
-      readTimeoutMs: 50,
-      sourceKind: 'fake',
-      fakeProfile: DEFAULT_FAKE_PROFILE,
-    },
-    [],
-  ),
-  runtimeCatalog: createRuntimeCatalog(
-    defaultProtocolSnapshot(),
-    createRuntimeDeviceSnapshot(
+    runtimeDevice: createRuntimeDeviceSnapshot(
       { isRunning: false, connectionState: 'stopped' },
       {
         port: '',
@@ -284,9 +271,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
         readTimeoutMs: 50,
         sourceKind: 'fake',
         fakeProfile: DEFAULT_FAKE_PROFILE,
+        parser: 'auto',
       },
       [],
     ),
+  runtimeCatalog: createRuntimeCatalog(
+    defaultProtocolSnapshot(),
+    createRuntimeDeviceSnapshot(
+      { isRunning: false, connectionState: 'stopped' },
+        {
+          port: '',
+          baudRate: 115200,
+          retryMs: 1000,
+          readTimeoutMs: 50,
+          sourceKind: 'fake',
+          fakeProfile: DEFAULT_FAKE_PROFILE,
+          parser: 'auto',
+        },
+        [],
+      ),
   ),
   scriptDefinitions: createScriptDefinitions({}),
   status: defaultStatus(),
@@ -354,6 +357,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             : session.transport === 'serial'
               ? 'serial'
               : state.config.sourceKind,
+        parser: state.config.parser ?? 'auto',
       },
       status: session.isRunning
         ? {
@@ -466,8 +470,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
           ...config,
           port: fakePortLabel(config.fakeProfile ?? DEFAULT_FAKE_PROFILE),
           fakeProfile: config.fakeProfile ?? DEFAULT_FAKE_PROFILE,
+          parser: config.parser ?? 'auto',
         }
-        : config
+        : {
+          ...config,
+          parser: config.parser ?? 'auto',
+        }
 
     const session = await connectSerial(request)
     set({

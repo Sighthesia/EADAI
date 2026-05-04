@@ -206,7 +206,7 @@ fn runtime_config(request: &ConnectRequest) -> RuntimeSessionConfig {
                 Some("crtp") => ParserKind::Crtp,
                 Some("key_value") => ParserKind::KeyValue,
                 Some("measurements") => ParserKind::Measurements,
-                _ => ParserKind::Bmi088, // backward-compatible default
+                _ => ParserKind::Auto,
             };
             let transport = match request.transport.as_deref() {
                 Some("crazyradio") => {
@@ -332,5 +332,58 @@ fn lock_snapshot<'a>(snapshot: &'a Arc<Mutex<SessionSnapshot>>) -> MutexGuard<'a
     match snapshot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_config_defaults_missing_parser_to_auto() {
+        let request = ConnectRequest {
+            port: "/dev/ttyUSB0".to_string(),
+            baud_rate: 115_200,
+            retry_ms: 1_000,
+            read_timeout_ms: 50,
+            source_kind: SourceKind::Serial,
+            fake_profile: None,
+            parser: None,
+            transport: None,
+            radio_uri: None,
+        };
+
+        let config = runtime_config(&request);
+
+        match config {
+            RuntimeSessionConfig::Serial(run_config) => {
+                assert_eq!(run_config.parser, ParserKind::Auto);
+            }
+            _ => panic!("expected serial runtime config"),
+        }
+    }
+
+    #[test]
+    fn runtime_config_maps_explicit_parser_selection() {
+        let request = ConnectRequest {
+            port: "/dev/ttyUSB0".to_string(),
+            baud_rate: 115_200,
+            retry_ms: 1_000,
+            read_timeout_ms: 50,
+            source_kind: SourceKind::Serial,
+            fake_profile: None,
+            parser: Some("crtp".to_string()),
+            transport: None,
+            radio_uri: None,
+        };
+
+        let config = runtime_config(&request);
+
+        match config {
+            RuntimeSessionConfig::Serial(run_config) => {
+                assert_eq!(run_config.parser, ParserKind::Crtp);
+            }
+            _ => panic!("expected serial runtime config"),
+        }
     }
 }

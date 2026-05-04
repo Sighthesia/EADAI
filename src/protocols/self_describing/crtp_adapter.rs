@@ -7,6 +7,8 @@ use super::codec::{DecodeError, decode_frame, encode_frame};
 use super::frame::Frame;
 use crate::protocols::crtp::{CrtpPacket, CrtpPort};
 
+const RAW_PREVIEW_BYTES: usize = 24;
+
 /// CRTP port used for the self-describing protocol.
 /// Using Debug port (0x7) which is not heavily used by standard Crazyflie subsystems.
 pub const SELF_DESCRIBING_CRTP_PORT: u8 = 0x07;
@@ -76,6 +78,94 @@ pub fn encode_crtp_packet(frame: &Frame) -> CrtpPacket {
         channel: SELF_DESCRIBING_CRTP_CHANNEL,
         payload,
     }
+}
+
+/// Encode a self-describing protocol frame using the raw outer transport.
+pub fn encode_raw_transport_frame(frame: &Frame) -> Vec<u8> {
+    let payload = encode_frame(frame);
+    let mut raw = vec![0x73, payload.len() as u8];
+    raw.extend_from_slice(&payload);
+    raw
+}
+
+/// Streaming decoder for the raw self-describing outer transport.
+pub struct RawSelfDescribingDecoder {
+    buffer: Vec<u8>,
+    max_buffer_bytes: usize,
+}
+
+impl RawSelfDescribingDecoder {
+    /// Create a new decoder with bounded buffering.
+    pub fn new(max_buffer_bytes: usize) -> Self {
+        Self {
+            buffer: Vec::new(),
+            max_buffer_bytes: max_buffer_bytes.max(1),
+        }
+    }
+
+    /// Push raw transport bytes and return any decoded frames.
+    pub fn push(&mut self, chunk: &[u8]) -> Vec<Frame> {
+        self.buffer.extend_from_slice(chunk);
+        let mut frames = Vec::new();
+
+        loop {
+            if self.buffer.len() < 2 {
+                break;
+            }
+
+            if self.buffer[0] != 0x73 {
+                self.buffer.drain(..1);
+                if self.buffer.len() > self.max_buffer_bytes {
+                    let drain = self.buffer.len().saturating_sub(self.max_buffer_bytes);
+                    self.buffer.drain(..drain.max(1));
+                }
+                continue;
+            }
+
+            let payload_len = self.buffer[1] as usize;
+            let frame_len = 2 + payload_len;
+
+            if self.buffer.len() < frame_len {
+                break;
+            }
+
+            let payload = self.buffer[2..frame_len].to_vec();
+            match decode_frame(&payload) {
+                Ok(frame) => {
+                    frames.push(frame);
+                    self.buffer.drain(..frame_len);
+                }
+                Err(error) => {
+                    eprintln!(
+                        "[self-describing][raw] decode failed error={} payload_len={} preview={}",
+                        error,
+                        payload.len(),
+                        hex_preview(&payload, RAW_PREVIEW_BYTES),
+                    );
+                    self.buffer.drain(..1);
+                }
+            }
+
+            if self.buffer.len() > self.max_buffer_bytes {
+                let drain = self.buffer.len().saturating_sub(self.max_buffer_bytes);
+                self.buffer.drain(..drain.max(1));
+            }
+        }
+
+        frames
+    }
+}
+
+fn hex_preview(bytes: &[u8], limit: usize) -> String {
+    let mut parts = bytes
+        .iter()
+        .take(limit)
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>();
+    if bytes.len() > limit {
+        parts.push("...".to_string());
+    }
+    parts.join(" ")
 }
 
 /// Get the CRTP port label for the self-describing protocol.

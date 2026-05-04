@@ -3,6 +3,7 @@ export type {
   UiConnectionState,
   UiTransportKind,
   SourceKind,
+  ParserKind,
   ConsoleDisplayMode,
   SerialDevicePortType,
 } from './session'

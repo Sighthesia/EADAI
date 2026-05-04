@@ -14,7 +14,10 @@ use crate::parser;
 use crate::protocols::{
     ByteTransport, CrtpDecoder, MavlinkDecoder, SerialTransport,
     capability::{crtp_to_capabilities, mavlink_to_capabilities},
-    self_describing::{SelfDescribingSession, decode_crtp_packet, is_self_describing_packet},
+    self_describing::{
+        RawSelfDescribingDecoder, SelfDescribingSession, decode_crtp_packet,
+        encode_raw_transport_frame, is_self_describing_packet,
+    },
 };
 use std::sync::mpsc;
 
@@ -105,11 +108,13 @@ impl App {
                         bmi088::Bmi088StreamDecoder::new(self.config.max_frame_bytes);
                     let mut mavlink_decoder = MavlinkDecoder::new(self.config.max_frame_bytes);
                     let mut crtp_decoder = CrtpDecoder::new(self.config.max_frame_bytes);
+                    let mut raw_self_describing_decoder =
+                        RawSelfDescribingDecoder::new(self.config.max_frame_bytes);
                     let mut bmi088_session = Bmi088SessionState::new();
                     let mut self_describing_session = SelfDescribingSession::new();
                     let parser = self.config.parser;
 
-                    if parser == ParserKind::Bmi088 {
+                    if bmi088_startup_enabled(parser) {
                         for command in bmi088_session.boot_commands() {
                             send_bmi088_command(
                                 &self.bus,
@@ -136,7 +141,7 @@ impl App {
                             &source,
                             &mut transport,
                             &mut bmi088_session,
-                            parser == ParserKind::Bmi088,
+                            bmi088_startup_enabled(parser),
                         ) {
                             self.publish_retry(&source, attempt, error.to_string(), &reconnect);
                             break;
@@ -152,13 +157,14 @@ impl App {
                                 &mut bmi088_decoder,
                                 &mut mavlink_decoder,
                                 &mut crtp_decoder,
+                                &mut raw_self_describing_decoder,
                                 &mut bmi088_session,
                                 &mut self_describing_session,
                                 &mut transport,
                             )?;
                         }
 
-                        if parser == ParserKind::Bmi088
+                        if bmi088_startup_enabled(parser)
                             && bmi088_session.phase() == bmi088::Bmi088SessionPhase::AwaitingSchema
                         {
                             for command in bmi088_session.schema_retry_commands() {
@@ -194,8 +200,7 @@ impl App {
     fn open_transport(&self) -> Result<Box<dyn ByteTransport>, AppError> {
         match &self.config.transport {
             TransportSelection::Serial => {
-                let port = crate::serial::open_port(&self.config)?;
-                Ok(Box::new(SerialTransport::from_port(port, &self.config)))
+                Ok(Box::new(SerialTransport::from_config(&self.config)?))
             }
             TransportSelection::Crazyradio { uri } => {
                 use crate::protocols::{CrazyradioDatarate, CrazyradioTransport};
@@ -297,6 +302,7 @@ impl App {
         bmi088_decoder: &mut bmi088::Bmi088StreamDecoder,
         mavlink_decoder: &mut MavlinkDecoder,
         crtp_decoder: &mut CrtpDecoder,
+        raw_self_describing_decoder: &mut RawSelfDescribingDecoder,
         bmi088_session: &mut Bmi088SessionState,
         self_describing_session: &mut SelfDescribingSession,
         transport: &mut dyn ByteTransport,
@@ -365,6 +371,7 @@ impl App {
             }
             ParserKind::Auto => {
                 let mut any_protocol_detected = false;
+                let mut raw_self_describing_seen = false;
 
                 // Try BMI088 first — it has the strongest framing (TLV with CRC).
                 // Only run if no other protocol has been detected yet, to avoid
@@ -395,8 +402,40 @@ impl App {
                     }
                 }
 
+                // Try raw self-describing transport before CRTP so the canonical
+                // 0x73 + len + payload framing can reach the session path on real hardware.
+                for frame in raw_self_describing_decoder.push(chunk) {
+                    raw_self_describing_seen = true;
+                    if !any_protocol_detected {
+                        self.bus.publish(BusMessage::protocol_detected(
+                            source,
+                            "self_describing_raw",
+                        ));
+                        any_protocol_detected = true;
+                    }
+
+                    let responses = self_describing_session.on_frame(&frame);
+                    self.publish_self_describing_frame(source, &frame);
+
+                    for response in responses {
+                        self.publish_self_describing_frame(source, &response);
+                        if let Err(e) = self.send_raw_self_describing_frame(
+                            source,
+                            transport,
+                            &response,
+                        ) {
+                            eprintln!(
+                                "[self-describing][auto] failed to send raw response: {e}"
+                            );
+                        }
+                    }
+                }
+
                 // Try CRTP — has CRC-8 validation.
                 for packet in crtp_decoder.push(chunk) {
+                    if raw_self_describing_seen {
+                        continue;
+                    }
                     if !any_protocol_detected {
                         self.bus
                             .publish(BusMessage::protocol_detected(source, "crtp"));
@@ -558,10 +597,7 @@ impl App {
             }
             Frame::HostAck(ack) => {
                 // HostAck is a host-to-device message, log it but don't publish as a bus event
-                eprintln!(
-                    "[self-describing][app] tx HOST_ACK stage={:?} status={}",
-                    ack.stage, ack.status
-                );
+                eprintln!("[self-describing][app] tx HOST_ACK stage={:?}", ack.stage);
             }
         }
     }
@@ -599,6 +635,44 @@ impl App {
             .publish(BusMessage::tx_line(source, outbound_payload(&raw_frame)));
 
         Ok(())
+    }
+
+    /// Encode a self-describing frame using the raw outer transport and send it.
+    fn send_raw_self_describing_frame(
+        &self,
+        source: &MessageSource,
+        transport: &mut dyn ByteTransport,
+        frame: &crate::protocols::self_describing::Frame,
+    ) -> Result<(), AppError> {
+        let raw_frame = encode_raw_transport_frame(frame);
+        eprintln!(
+            "[self-describing][app] sending raw frame payload_len={}",
+            raw_frame.len().saturating_sub(2)
+        );
+
+        transport.write_all(&raw_frame)?;
+        transport.flush()?;
+
+        self.bus
+            .publish(BusMessage::tx_line(source, outbound_payload(&raw_frame)));
+
+        Ok(())
+    }
+}
+
+fn bmi088_startup_enabled(parser: ParserKind) -> bool {
+    parser == ParserKind::Bmi088
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bmi088_startup_is_only_enabled_for_explicit_bmi088_parser() {
+        assert!(bmi088_startup_enabled(ParserKind::Bmi088));
+        assert!(!bmi088_startup_enabled(ParserKind::Auto));
+        assert!(!bmi088_startup_enabled(ParserKind::Crtp));
     }
 }
 

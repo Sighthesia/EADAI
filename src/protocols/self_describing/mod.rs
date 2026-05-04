@@ -14,8 +14,9 @@ pub mod state;
 pub use bitmap::BitmapCodec;
 pub use codec::{DecodeError, decode_frame, encode_frame};
 pub use crtp_adapter::{
-    CrtpAdapterError, SELF_DESCRIBING_CRTP_CHANNEL, SELF_DESCRIBING_CRTP_PORT, decode_crtp_packet,
-    encode_crtp_packet, is_self_describing_packet, self_describing_port_label,
+    CrtpAdapterError, RawSelfDescribingDecoder, SELF_DESCRIBING_CRTP_CHANNEL,
+    SELF_DESCRIBING_CRTP_PORT, decode_crtp_packet, encode_crtp_packet,
+    encode_raw_transport_frame, is_self_describing_packet, self_describing_port_label,
 };
 pub use frame::*;
 pub use session::SelfDescribingSession;

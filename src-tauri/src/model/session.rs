@@ -21,7 +21,7 @@ pub struct ConnectRequest {
     #[serde(default)]
     pub fake_profile: Option<String>,
     /// Parser selection: "auto", "bmi088", "mavlink", "crtp", "key_value", "measurements".
-    /// Defaults to "bmi088" for backward compatibility.
+    /// Defaults to "auto" for safer multi-protocol startup behavior.
     #[serde(default)]
     pub parser: Option<String>,
     /// Transport selection: "serial" (default) or "crazyradio".

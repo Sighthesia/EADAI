@@ -8,6 +8,15 @@ const FAKE_PROFILES = [
   { value: 'imu-lab', label: 'IMU Lab' },
 ]
 
+const PARSER_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'bmi088', label: 'BMI088' },
+  { value: 'mavlink', label: 'MAVLink' },
+  { value: 'crtp', label: 'CRTP' },
+  { value: 'key_value', label: 'Key Value' },
+  { value: 'measurements', label: 'Measurements' },
+] as const
+
 const DEVICE_META_STORAGE_KEY = 'eadai.connection.device-meta.v1'
 
 type DeviceCardKind = 'serial' | 'logic'
@@ -240,6 +249,7 @@ export function ConnectionPanel() {
                       sourceKind: card.sourceKind ?? 'serial',
                       port: card.port ?? '',
                       fakeProfile: card.sourceKind === 'fake' ? card.fakeProfile ?? null : null,
+                      parser: config.parser ?? 'auto',
                     })
                   }
                 }}
@@ -374,12 +384,14 @@ function SerialConnectionDetail({
         sourceKind: 'fake',
         port: selectedCard.port ?? selectedCard.id,
         fakeProfile: selectedCard.fakeProfile ?? null,
+        parser: config.parser ?? 'auto',
       })
     } else if (selectedCard?.port) {
       patchConfig({
         sourceKind: 'serial',
         port: selectedCard.port,
         fakeProfile: null,
+        parser: config.parser ?? 'auto',
       })
     }
 
@@ -414,6 +426,16 @@ function SerialConnectionDetail({
         <label>
           <span>Read timeout ms</span>
           <input type="number" value={config.readTimeoutMs} onChange={(event) => patchConfig({ readTimeoutMs: Number(event.target.value) || 50 })} />
+        </label>
+        <label>
+          <span>Parser</span>
+          <select value={config.parser ?? 'auto'} onChange={(event) => patchConfig({ parser: event.target.value as ConnectRequest['parser'] })}>
+            {PARSER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
       <div className="toolbar-row">
