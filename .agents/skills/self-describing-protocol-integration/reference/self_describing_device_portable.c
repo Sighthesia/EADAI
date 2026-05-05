@@ -1,5 +1,6 @@
 #include "self_describing_device_portable.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define SDP_FRAME_HEADER 0x73u
@@ -94,6 +95,14 @@ static int sdp_put_string_u16(uint8_t *buf, size_t cap, size_t *cursor, const ch
         memcpy(&buf[*cursor], s, len);
         *cursor += len;
     }
+    return 0;
+}
+
+static int sdp_put_byte(uint8_t *buf, size_t cap, size_t *cursor, uint8_t v) {
+    if (*cursor + 1u > cap) {
+        return -1;
+    }
+    buf[(*cursor)++] = v;
     return 0;
 }
 
@@ -351,6 +360,7 @@ int sdp_enter_streaming(sdp_device_t *dev) {
 int sdp_send_sample_frame(sdp_device_t *dev, const uint8_t *bitmap, size_t bitmap_len, const uint8_t *changed_values, size_t changed_len) {
     uint8_t payload[255];
     size_t cursor = 0;
+    char debug_msg[128];
 
     if (dev == NULL || (bitmap_len > 0u && bitmap == NULL) || (changed_len > 0u && changed_values == NULL)) {
         return -1;
@@ -359,7 +369,9 @@ int sdp_send_sample_frame(sdp_device_t *dev, const uint8_t *bitmap, size_t bitma
         return -1;
     }
 
-    payload[cursor++] = SDP_FRAME_TYPE_TELEMETRY_SAMPLE;
+    if (sdp_put_byte(payload, sizeof(payload), &cursor, SDP_FRAME_TYPE_TELEMETRY_SAMPLE) != 0) {
+        return -1;
+    }
     if (sdp_put_u32(payload, sizeof(payload), &cursor, dev->sample_seq++) != 0) {
         return -1;
     }
@@ -381,5 +393,19 @@ int sdp_send_sample_frame(sdp_device_t *dev, const uint8_t *bitmap, size_t bitma
         cursor += changed_len;
     }
 
-    return sdp_tx_frame(dev, payload, cursor);
+    if (sdp_tx_frame(dev, payload, cursor) != 0) {
+        return -1;
+    }
+
+    if (dev->driver.debug) {
+        (void)snprintf(debug_msg,
+                       sizeof(debug_msg),
+                       "sdp: sample sent type=0x05 seq=%lu bitmap_len=%lu payload_len=%lu",
+                       (unsigned long)(dev->sample_seq - 1u),
+                       (unsigned long)bitmap_len,
+                       (unsigned long)cursor);
+        dev->driver.debug(dev->driver.user, debug_msg);
+    }
+
+    return 0;
 }

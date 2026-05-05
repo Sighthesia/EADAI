@@ -79,6 +79,7 @@ The protocol support is organized into four explicit layers:
   - `MessageKind::TelemetrySample`
   - `MessageKind::MavlinkPacket`
   - `MessageKind::CrtpPacket`
+  - `MessageKind::SelfDescribingVerdict`
   - `MessageKind::ProtocolDetected { protocol }`
   - `MessageKind::Capability` (new)
 - Tauri/UI event kinds:
@@ -87,6 +88,7 @@ The protocol support is organized into four explicit layers:
   - `UiBusEvent::TelemetrySample`
   - `UiBusEvent::MavlinkPacket`
   - `UiBusEvent::CrtpPacket`
+  - `UiBusEvent::SelfDescribingVerdict`
   - `UiBusEvent::ProtocolDetected { protocol }`
   - `UiBusEvent::Capability` (new)
 
@@ -150,6 +152,13 @@ The protocol support is organized into four explicit layers:
   - `channel`
   - `payload_len`
   - `fields`
+- Self-describing streaming verdict UI shape must include:
+  - `reason_code`
+  - `evidence.phase`
+  - `evidence.consecutive_hit_count`
+  - `evidence.first_payload_byte`
+  - `evidence.payload_len`
+  - `evidence.hint`
 - Protocol-detected UI events must include:
   - `protocol`
 - Capability events include `source_protocol` field to identify the originating protocol.
@@ -217,6 +226,23 @@ The protocol support is organized into four explicit layers:
 - Command and variable catalog pages must begin with the host codec's canonical `Frame::CommandCatalogPage` / `Frame::VariableCatalogPage` layout.
 - If a device emits `F3` fragment wrappers or u8 page headers, that is contract drift and should be fixed on the device side.
 
+### Self-describing streaming drift verdict contract
+
+- Host runtime remains strict: it must not decode bare sample bodies as valid `TelemetrySample` frames.
+- Canonical self-describing telemetry samples still require raw payload `0x05 + seq(u32 LE) + bitmap_len(u16 LE) + bitmap + changed values`.
+- When post-handshake raw decode failures repeatedly indicate the same non-canonical streaming envelope, the session may emit a structured drift verdict instead of silently relying on logs alone.
+- Verdict reason code is currently fixed to `non_canonical_streaming_frame_envelope`.
+- Verdict evidence payload must include:
+  - `phase`
+  - `consecutive_hit_count`
+  - `first_payload_byte`
+  - `payload_len`
+  - `hint`
+- Verdict threshold is currently three consecutive matching post-handshake failures of the same evidence signature.
+- Matching signature means the same phase, first payload byte, payload length, and hint.
+- Verdict emission is diagnostic-only; it must not loosen decode rules or auto-normalize the non-canonical stream.
+- Verdict must be published through `MessageKind::SelfDescribingVerdict` and projected into `UiBusEvent::SelfDescribingVerdict` unchanged.
+
 ### Portable device reference pattern
 
 - When adding a firmware reference implementation for this protocol, keep it at the application layer and route all platform specifics through a driver adapter vtable or function pointers.
@@ -230,6 +256,7 @@ The protocol support is organized into four explicit layers:
 - Invalid or truncated MAVLink frame -> drop/resync at decoder level, never panic.
 - Invalid or truncated CRTP-over-serial frame -> drop/resync at decoder level, never panic.
 - Self-describing raw payload that is not a canonical frame -> drop/resync at the adapter level; do not try to recover a private catalog dialect.
+- Repeated post-handshake raw failures with the same bare-sample evidence -> emit `SelfDescribingVerdict` after the third consecutive hit; do not decode the payload as telemetry.
 - Unknown MAVLink message ID without known CRC extra -> packet may be surfaced as untyped/weakly validated, but must not masquerade as a different protocol.
 - Garbage bytes before a valid binary frame -> skipped until sync is re-established.
 - Auto mode receives ordinary text -> must fall through to text parsing instead of inventing protocol packets.
@@ -247,13 +274,16 @@ The protocol support is organized into four explicit layers:
 - Good: `--parser auto --transport serial` on a CRTP-over-serial stream emits `CrtpPacket` + `Capability` events.
 - Good: `--parser auto` on a self-describing CRTP stream emits `ProtocolDetected`, raw `CrtpPacket`, and self-describing events without requiring a parser switch.
 - Good: self-describing catalog pages are decoded directly by the canonical host codec; no transitional `F3` wrapper is required on the wire.
+- Good: after three consecutive post-handshake bare-sample failures, the runtime emits `SelfDescribingVerdict { reason_code: "non_canonical_streaming_frame_envelope", ... }` while keeping decode strict.
 - Good: `--transport crazyradio --radio-uri radio://0/60/2M/E7E7E7E7E7` connects via Crazyradio dongle.
 - Good: `--parser auto` on legacy text telemetry still emits text line events and analysis.
 - Base: `--parser mavlink` and `--parser crtp` are explicit framing modes, not promises about outbound control features.
 - Base: `ProtocolDetected` is informative for UI/debug state; packet and capability events remain the authoritative data path.
+- Base: a single post-handshake raw failure is diagnostic noise until the same evidence repeats enough times to reach the verdict threshold.
 - Bad: describe `crtp` support as "Crazyflie supported" without stating transport scope.
 - Bad: move MAVLink or CRTP decode logic into the frontend.
 - Bad: let auto mode greedily claim arbitrary text as binary packets without CRC or framing evidence.
+- Bad: silently treat a bare sample body missing frame type `0x05` as a valid telemetry sample.
 
 ---
 
@@ -261,6 +291,11 @@ The protocol support is organized into four explicit layers:
 
 - Decoder tests must cover good frames, bad CRC/checksum, garbage before sync, and partial chunk assembly for both MAVLink and CRTP.
 - Self-describing protocol tests must cover canonical raw transport framing, direct catalog page decoding, and rejection of transitional fragment wrappers.
+- Self-describing streaming drift tests must cover:
+  - no verdict before the threshold
+  - verdict on the third consecutive matching post-handshake failure
+  - reset when evidence signature changes
+  - message-bus and Tauri projection preserving the verdict payload unchanged
 - Capability tests must verify MAVLink-to-capability mapping for attitude, battery, GPS, IMU, and system status.
 - Runtime tests should preserve existing text parser behavior in auto mode.
 - Cross-layer tests should assert new bus event kinds serialize through Tauri models without shape drift.
@@ -302,4 +337,9 @@ match config.transport {
 
 // Correct: self-describing catalog pages are canonical frames; do not add a private F3 wrapper dialect.
 decode_crtp_packet(&packet)?;
+
+// Correct: repeated bare sample drift becomes a structured verdict, not a compatibility decode.
+if let Some(verdict) = session.observe_streaming_drift(&failure) {
+    bus.publish(BusMessage::self_describing_verdict(source, verdict));
+}
 ```

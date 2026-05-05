@@ -101,13 +101,17 @@ description: Use when implementing firmware for the repo's shared UART4 self-des
 ### Sample contract
 
 - Sample type is `0x05`.
+- Sample envelope is canonical raw transport on the wire: `0x73 + len + payload`, and the payload starts with `0x05`.
 - Sample payload is bitmap-compressed:
+  - `type = 0x05`
   - `seq (u32 LE)`
   - `bitmap_len (u16 LE)`
   - `bitmap`
   - changed values in variable order
 - Bitmap bit order matches variable order.
 - Values are serialized as raw little-endian bytes for the changed variables only.
+- Sending only the sample body without the `0x05` frame type is contract drift.
+- Portable references should expose an optional debug hook that logs the frame type, sequence, bitmap length, and emitted byte count after each send.
 
 ## 3) Firmware entry points
 
