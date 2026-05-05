@@ -14,10 +14,15 @@ pub mod state;
 pub use bitmap::BitmapCodec;
 pub use codec::{DecodeError, decode_frame, encode_frame};
 pub use crtp_adapter::{
-    CrtpAdapterError, RawSelfDescribingDecoder, SELF_DESCRIBING_CRTP_CHANNEL,
-    SELF_DESCRIBING_CRTP_PORT, decode_crtp_packet, encode_crtp_packet,
-    encode_raw_transport_frame, is_self_describing_packet, self_describing_port_label,
+    CrtpAdapterError, RawSelfDescribingDecodeContext, RawSelfDescribingDecodeFailure,
+    RawSelfDescribingDecodeOutcome, RawSelfDescribingDecoder, SELF_DESCRIBING_CRTP_CHANNEL,
+    SELF_DESCRIBING_CRTP_PORT, classify_raw_self_describing_decode_failure, decode_crtp_packet,
+    encode_crtp_packet, encode_raw_transport_frame, is_self_describing_packet,
+    self_describing_port_label,
 };
 pub use frame::*;
-pub use session::SelfDescribingSession;
+pub use session::{
+    SelfDescribingSession, SelfDescribingStreamingDriftEvidence,
+    SelfDescribingStreamingDriftVerdict,
+};
 pub use state::{HandshakeMachine, HandshakeState};

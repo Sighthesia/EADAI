@@ -791,6 +791,34 @@ impl AiContextState {
                     trigger: None,
                 });
             }
+            MessageKind::SelfDescribingVerdict(verdict) => {
+                self.push_event(AiRecentEvent {
+                    timestamp_ms,
+                    source,
+                    kind: AiRecentEventKind::Line,
+                    connection: None,
+                    line: Some(AiLineEventRecord {
+                        direction: crate::message::LineDirection::Rx,
+                        text: format!(
+                            "self_describing verdict reason={} phase={} hits={} first_byte={} payload_len={} hint={}",
+                            verdict.reason_code,
+                            verdict.evidence.phase,
+                            verdict.evidence.consecutive_hit_count,
+                            verdict
+                                .evidence
+                                .first_payload_byte
+                                .map(|byte| format!("0x{byte:02X}"))
+                                .unwrap_or_else(|| "none".to_string()),
+                            verdict.evidence.payload_len,
+                            verdict.evidence.hint.unwrap_or("none"),
+                        ),
+                        raw_length: 0,
+                        parser: crate::message::ParserMeta::parsed("self_describing", [].into()),
+                    }),
+                    analysis: None,
+                    trigger: None,
+                });
+            }
             MessageKind::ProtocolDetected(event) => {
                 self.push_event(AiRecentEvent {
                     timestamp_ms,

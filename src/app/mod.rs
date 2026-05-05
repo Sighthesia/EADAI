@@ -15,6 +15,7 @@ use crate::protocols::{
     ByteTransport, CrtpDecoder, MavlinkDecoder, SerialTransport,
     capability::{crtp_to_capabilities, mavlink_to_capabilities},
     self_describing::{
+        RawSelfDescribingDecodeContext, RawSelfDescribingDecodeOutcome,
         RawSelfDescribingDecoder, SelfDescribingSession, decode_crtp_packet,
         encode_raw_transport_frame, is_self_describing_packet,
     },
@@ -404,7 +405,11 @@ impl App {
 
                 // Try raw self-describing transport before CRTP so the canonical
                 // 0x73 + len + payload framing can reach the session path on real hardware.
-                for frame in raw_self_describing_decoder.push(chunk) {
+                let raw_context = RawSelfDescribingDecodeContext {
+                    handshake_state: self_describing_session.handshake_state().clone(),
+                    is_streaming: self_describing_session.is_streaming(),
+                };
+                for outcome in raw_self_describing_decoder.push_with_context(chunk, Some(&raw_context)) {
                     raw_self_describing_seen = true;
                     if !any_protocol_detected {
                         self.bus.publish(BusMessage::protocol_detected(
@@ -414,26 +419,50 @@ impl App {
                         any_protocol_detected = true;
                     }
 
-                    let responses = self_describing_session.on_frame(&frame);
-                    self.publish_self_describing_frame(source, &frame);
+                    match outcome {
+                        RawSelfDescribingDecodeOutcome::Frame(frame) => {
+                            let responses = self_describing_session.on_frame(&frame);
+                            self.publish_self_describing_frame(source, &frame);
 
-                    for response in responses {
-                        self.publish_self_describing_frame(source, &response);
-                        if let Err(e) = self.send_raw_self_describing_frame(
-                            source,
-                            transport,
-                            &response,
-                        ) {
-                            eprintln!(
-                                "[self-describing][auto] failed to send raw response: {e}"
-                            );
+                            for response in responses {
+                                self.publish_self_describing_frame(source, &response);
+                                if let Err(e) = self.send_raw_self_describing_frame(
+                                    source,
+                                    transport,
+                                    &response,
+                                ) {
+                                    eprintln!(
+                                        "[self-describing][auto] failed to send raw response: {e}"
+                                    );
+                                }
+                            }
+                        }
+                        RawSelfDescribingDecodeOutcome::Failure(failure) => {
+                            if let Some(verdict) =
+                                self_describing_session.observe_streaming_drift(&failure)
+                            {
+                                eprintln!(
+                                    "[self-describing][auto][verdict] reason={} phase={} hits={} first_byte={} payload_len={} hint={}",
+                                    verdict.reason_code,
+                                    verdict.evidence.phase,
+                                    verdict.evidence.consecutive_hit_count,
+                                    verdict
+                                        .evidence
+                                        .first_payload_byte
+                                        .map(|byte| format!("0x{byte:02X}"))
+                                        .unwrap_or_else(|| "none".to_string()),
+                                    verdict.evidence.payload_len,
+                                    verdict.evidence.hint.unwrap_or("none"),
+                                );
+                                self.bus.publish(BusMessage::self_describing_verdict(source, verdict));
+                            }
                         }
                     }
                 }
 
                 // Try CRTP — has CRC-8 validation.
                 for packet in crtp_decoder.push(chunk) {
-                    if raw_self_describing_seen {
+                    if should_skip_crtp_packet(raw_self_describing_seen, &packet) {
                         continue;
                     }
                     if !any_protocol_detected {
@@ -477,7 +506,7 @@ impl App {
                 }
 
                 // If no binary protocol claimed the data, fall back to text parsing.
-                if !any_protocol_detected {
+                if !any_protocol_detected && !raw_self_describing_seen {
                     let framed = crate::serial::FramedLine {
                         payload: crate::message::LinePayload {
                             text: String::from_utf8_lossy(chunk).into_owned(),
@@ -674,6 +703,39 @@ mod tests {
         assert!(!bmi088_startup_enabled(ParserKind::Auto));
         assert!(!bmi088_startup_enabled(ParserKind::Crtp));
     }
+
+    #[test]
+    fn auto_should_only_skip_duplicate_self_describing_crtp_packets() {
+        let raw_packet = crate::protocols::crtp::CrtpPacket {
+            port: crate::protocols::crtp::CrtpPort::Debug,
+            channel: crate::protocols::self_describing::SELF_DESCRIBING_CRTP_CHANNEL,
+            payload: vec![0x73, 0x00],
+        };
+        let normal_packet = crate::protocols::crtp::CrtpPacket {
+            port: crate::protocols::crtp::CrtpPort::Console,
+            channel: 0,
+            payload: vec![0x01, 0x02],
+        };
+
+        assert!(should_skip_crtp_packet(true, &raw_packet));
+        assert!(!should_skip_crtp_packet(true, &normal_packet));
+        assert!(!should_skip_crtp_packet(false, &raw_packet));
+    }
+
+    #[test]
+    fn raw_self_describing_session_lock_should_reflect_active_handshake_state() {
+        use crate::protocols::self_describing::state::HandshakeState;
+
+        let session = crate::protocols::self_describing::SelfDescribingSession::new();
+        assert!(matches!(session.handshake_state(), HandshakeState::WaitingIdentity));
+    }
+}
+
+fn should_skip_crtp_packet(
+    raw_self_describing_seen: bool,
+    packet: &crate::protocols::crtp::CrtpPacket,
+) -> bool {
+    raw_self_describing_seen && is_self_describing_packet(packet)
 }
 
 /// CRC-8/SAE-J1850 used by CRTP.

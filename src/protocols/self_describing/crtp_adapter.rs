@@ -5,9 +5,97 @@
 /// CRTP links while keeping the protocol model transport-agnostic.
 use super::codec::{DecodeError, decode_frame, encode_frame};
 use super::frame::Frame;
+use super::state::HandshakeState;
 use crate::protocols::crtp::{CrtpPacket, CrtpPort};
 
 const RAW_PREVIEW_BYTES: usize = 24;
+
+/// Optional runtime context for classifying raw self-describing decode failures.
+#[derive(Clone, Debug)]
+pub struct RawSelfDescribingDecodeContext {
+    /// Current handshake state, if known.
+    pub handshake_state: HandshakeState,
+    /// Whether the session has already entered streaming.
+    pub is_streaming: bool,
+}
+
+impl RawSelfDescribingDecodeContext {
+    /// Return a bounded phase label for log output.
+    pub fn phase_label(&self) -> &'static str {
+        match self.handshake_state {
+            HandshakeState::WaitingIdentity => "before-handshake",
+            HandshakeState::WaitingCommandCatalog
+            | HandshakeState::WaitingVariableCatalog
+            | HandshakeState::WaitingHostAck
+            | HandshakeState::ReadyToStream => "post-handshake",
+            HandshakeState::Streaming => "streaming",
+            HandshakeState::Error(_) => "handshake-error",
+        }
+    }
+
+    /// Return whether a failure happened after the canonical handshake.
+    pub fn is_post_handshake(&self) -> bool {
+        matches!(
+            self.handshake_state,
+            HandshakeState::WaitingCommandCatalog
+                | HandshakeState::WaitingVariableCatalog
+                | HandshakeState::WaitingHostAck
+                | HandshakeState::ReadyToStream
+                | HandshakeState::Streaming
+        ) || self.is_streaming
+    }
+}
+
+/// Compact diagnosis for raw self-describing decode failures.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawSelfDescribingDecodeFailure {
+    /// Log phase label.
+    pub phase: &'static str,
+    /// First payload byte, if any.
+    pub first_payload_byte: Option<u8>,
+    /// Payload length in bytes.
+    pub payload_len: usize,
+    /// Optional bounded hint string.
+    pub hint: Option<&'static str>,
+}
+
+/// Streaming outcome produced by the raw self-describing decoder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RawSelfDescribingDecodeOutcome {
+    /// A decoded frame.
+    Frame(Frame),
+    /// A bounded decode failure with diagnostic context.
+    Failure(RawSelfDescribingDecodeFailure),
+}
+
+/// Classify a raw self-describing decode failure for logs.
+pub fn classify_raw_self_describing_decode_failure(
+    payload: &[u8],
+    context: Option<&RawSelfDescribingDecodeContext>,
+    error: &DecodeError,
+) -> RawSelfDescribingDecodeFailure {
+    let phase = context.map(|ctx| ctx.phase_label()).unwrap_or("unscoped");
+    let first_payload_byte = payload.first().copied();
+    let hint = match (context, payload.first(), error) {
+        (Some(ctx), Some(0x00), DecodeError::InvalidFrameType(0)) if ctx.is_post_handshake() => {
+            Some("likely bare telemetry sample payload missing frame type 0x05")
+        }
+        (Some(ctx), Some(0x01..=0x03), DecodeError::InvalidFrameType(_)) if ctx.is_post_handshake() => {
+            Some("likely repeated identity or catalog retransmit after ACK")
+        }
+        (Some(ctx), Some(0x05), DecodeError::TruncatedData) if ctx.is_post_handshake() => {
+            Some("likely truncated telemetry sample payload after frame type 0x05")
+        }
+        _ => None,
+    };
+
+    RawSelfDescribingDecodeFailure {
+        phase,
+        first_payload_byte,
+        payload_len: payload.len(),
+        hint,
+    }
+}
 
 /// CRTP port used for the self-describing protocol.
 /// Using Debug port (0x7) which is not heavily used by standard Crazyflie subsystems.
@@ -105,8 +193,23 @@ impl RawSelfDescribingDecoder {
 
     /// Push raw transport bytes and return any decoded frames.
     pub fn push(&mut self, chunk: &[u8]) -> Vec<Frame> {
+        self.push_with_context(chunk, None)
+            .into_iter()
+            .filter_map(|outcome| match outcome {
+                RawSelfDescribingDecodeOutcome::Frame(frame) => Some(frame),
+                RawSelfDescribingDecodeOutcome::Failure(_) => None,
+            })
+            .collect()
+    }
+
+    /// Push raw transport bytes with optional runtime context for diagnostics.
+    pub fn push_with_context(
+        &mut self,
+        chunk: &[u8],
+        context: Option<&RawSelfDescribingDecodeContext>,
+    ) -> Vec<RawSelfDescribingDecodeOutcome> {
         self.buffer.extend_from_slice(chunk);
-        let mut frames = Vec::new();
+        let mut outcomes = Vec::new();
 
         loop {
             if self.buffer.len() < 2 {
@@ -132,17 +235,28 @@ impl RawSelfDescribingDecoder {
             let payload = self.buffer[2..frame_len].to_vec();
             match decode_frame(&payload) {
                 Ok(frame) => {
-                    frames.push(frame);
+                    outcomes.push(RawSelfDescribingDecodeOutcome::Frame(frame));
                     self.buffer.drain(..frame_len);
                 }
                 Err(error) => {
+                    let diagnosis = classify_raw_self_describing_decode_failure(
+                        &payload,
+                        context,
+                        &error,
+                    );
                     eprintln!(
-                        "[self-describing][raw] decode failed error={} payload_len={} preview={}",
+                        "[self-describing][raw][{}] decode failed error={} payload_len={} preview={}{}",
+                        diagnosis.phase,
                         error,
                         payload.len(),
                         hex_preview(&payload, RAW_PREVIEW_BYTES),
+                        diagnosis
+                            .hint
+                            .map(|hint| format!(" hint={hint}"))
+                            .unwrap_or_default(),
                     );
-                    self.buffer.drain(..1);
+                    outcomes.push(RawSelfDescribingDecodeOutcome::Failure(diagnosis));
+                    self.buffer.drain(..frame_len);
                 }
             }
 
@@ -152,7 +266,7 @@ impl RawSelfDescribingDecoder {
             }
         }
 
-        frames
+        outcomes
     }
 }
 
@@ -249,5 +363,56 @@ mod tests {
             decode_crtp_packet(&packet),
             Err(CrtpAdapterError::PayloadTooShort)
         ));
+    }
+
+    #[test]
+    fn test_raw_decoder_drops_entire_invalid_frame_before_resyncing() {
+        let mut decoder = RawSelfDescribingDecoder::new(64);
+
+        let invalid = vec![0x73, 0x03, 0x00, 0xAA, 0xBB];
+        let valid = encode_raw_transport_frame(&Frame::HostAck(HostAck {
+            stage: AckStage::Identity,
+        }));
+
+        let mut chunk = invalid;
+        chunk.extend_from_slice(&valid);
+
+        let frames = decoder.push(&chunk);
+        assert_eq!(frames.len(), 1);
+        assert!(matches!(frames[0], Frame::HostAck(HostAck { stage: AckStage::Identity })));
+    }
+
+    #[test]
+    fn test_raw_decode_failure_classification_flags_bare_sample_payloads() {
+        let context = RawSelfDescribingDecodeContext {
+            handshake_state: HandshakeState::Streaming,
+            is_streaming: true,
+        };
+        let diagnosis = classify_raw_self_describing_decode_failure(
+            &[0x00, 0x83, 0x00],
+            Some(&context),
+            &DecodeError::InvalidFrameType(0),
+        );
+
+        assert_eq!(diagnosis.phase, "streaming");
+        assert_eq!(diagnosis.first_payload_byte, Some(0x00));
+        assert_eq!(diagnosis.payload_len, 3);
+        assert_eq!(diagnosis.hint, Some("likely bare telemetry sample payload missing frame type 0x05"));
+    }
+
+    #[test]
+    fn test_raw_decode_failure_classification_flags_retransmits_after_ack() {
+        let context = RawSelfDescribingDecodeContext {
+            handshake_state: HandshakeState::WaitingHostAck,
+            is_streaming: false,
+        };
+        let diagnosis = classify_raw_self_describing_decode_failure(
+            &[0x03, 0x00, 0x01],
+            Some(&context),
+            &DecodeError::InvalidFrameType(3),
+        );
+
+        assert_eq!(diagnosis.phase, "post-handshake");
+        assert_eq!(diagnosis.hint, Some("likely repeated identity or catalog retransmit after ACK"));
     }
 }

@@ -292,6 +292,21 @@ fn print_messages(subscription: BusSubscription) {
                     result.seq, result.code, result.message
                 );
             }
+            MessageKind::SelfDescribingVerdict(verdict) => {
+                println!(
+                    "[self-describing-verdict] reason={} phase={} hits={} first_byte={} payload_len={} hint={}",
+                    verdict.reason_code,
+                    verdict.evidence.phase,
+                    verdict.evidence.consecutive_hit_count,
+                    verdict
+                        .evidence
+                        .first_payload_byte
+                        .map(|byte| format!("0x{byte:02X}"))
+                        .unwrap_or_else(|| "none".to_string()),
+                    verdict.evidence.payload_len,
+                    verdict.evidence.hint.unwrap_or("none"),
+                );
+            }
             MessageKind::ProtocolDetected(event) => {
                 println!("[protocol] detected: {}", event.protocol);
             }

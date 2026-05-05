@@ -7,6 +7,7 @@ use eadai::protocols::self_describing::frame::{
     AckResult, CommandCatalogPage, Identity as SelfDescribingIdentity, SetVariable,
     TelemetrySample as SelfDescribingSample, VariableCatalogPage,
 };
+use eadai::protocols::self_describing::SelfDescribingStreamingDriftVerdict;
 use eadai::protocols::{CapabilityEvent, CrtpPacket, MavlinkPacket};
 use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -114,6 +115,11 @@ pub enum UiBusEvent {
         timestamp_ms: u64,
         source: UiSource,
         result: AckResult,
+    },
+    SelfDescribingVerdict {
+        timestamp_ms: u64,
+        source: UiSource,
+        verdict: SelfDescribingStreamingDriftVerdict,
     },
     ProtocolDetected {
         timestamp_ms: u64,
@@ -286,6 +292,11 @@ impl From<BusMessage> for UiBusEvent {
                 timestamp_ms,
                 source,
                 result,
+            },
+            MessageKind::SelfDescribingVerdict(verdict) => Self::SelfDescribingVerdict {
+                timestamp_ms,
+                source,
+                verdict,
             },
             MessageKind::ProtocolDetected(event) => Self::ProtocolDetected {
                 timestamp_ms,

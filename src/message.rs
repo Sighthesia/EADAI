@@ -4,6 +4,7 @@ use crate::protocols::self_describing::frame::{
     AckResult, CommandCatalogPage, Identity as SelfDescribingIdentity, SetVariable,
     TelemetrySample as SelfDescribingSample, VariableCatalogPage,
 };
+use crate::protocols::self_describing::SelfDescribingStreamingDriftVerdict;
 use crate::protocols::{CapabilityEvent, CrtpPacket, MavlinkPacket};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -149,6 +150,8 @@ pub enum MessageKind {
     SelfDescribingSetVariable(SetVariable),
     /// Self-describing protocol: acknowledgment/result from device.
     SelfDescribingAckResult(AckResult),
+    /// Self-describing protocol: structured runtime verdict.
+    SelfDescribingVerdict(SelfDescribingStreamingDriftVerdict),
     /// Auto-detect: protocol identified by the runtime.
     ProtocolDetected(ProtocolDetectedEvent),
 }
@@ -353,6 +356,18 @@ impl BusMessage {
             timestamp: SystemTime::now(),
             source: source.clone(),
             kind: MessageKind::SelfDescribingAckResult(result),
+            parser: ParserMeta::default(),
+        }
+    }
+
+    pub fn self_describing_verdict(
+        source: &MessageSource,
+        verdict: SelfDescribingStreamingDriftVerdict,
+    ) -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            source: source.clone(),
+            kind: MessageKind::SelfDescribingVerdict(verdict),
             parser: ParserMeta::default(),
         }
     }
