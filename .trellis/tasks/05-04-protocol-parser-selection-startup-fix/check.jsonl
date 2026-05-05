@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index for validating parser/runtime changes."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Validates parser default and self-describing startup behavior against protocol contract."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Checks that the backend change remains minimal and verified."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend spec index for validating the connection panel adjustment."}
+{"file": ".trellis/spec/frontend/workbench-visual-language.md", "reason": "Checks that the new selector does not bloat the existing connection UI."}

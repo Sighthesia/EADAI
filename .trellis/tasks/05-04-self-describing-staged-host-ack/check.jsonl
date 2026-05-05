@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index for validating the selected protocol and quality rules."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Validates that handshake changes still honor the self-describing framing and auto-detect contract."}
+{"file": ".trellis/spec/backend/bmi088-host-protocol.md", "reason": "Validates regression boundaries on the host-side protocol behavior."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Checks that the change remains small, explicit, and covered by focused tests."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Checks that new logs stay within project logging expectations."}

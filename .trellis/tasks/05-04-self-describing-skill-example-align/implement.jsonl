@@ -1,0 +1,3 @@
+{"file": ".agents/skills/self-describing-protocol-integration/SKILL.md", "reason": "Primary device-side protocol contract that must be tightened to the canonical string-length rules."}
+{"file": ".agents/skills/self-describing-protocol-integration/reference/README.md", "reason": "Reference overview that should stay consistent with the contract and example."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Cross-check the documented self-describing transport contract from the backend side."}

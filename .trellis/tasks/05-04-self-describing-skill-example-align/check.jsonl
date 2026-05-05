@@ -1,0 +1,3 @@
+{"file": ".agents/skills/self-describing-protocol-integration/SKILL.md", "reason": "Validate that the updated skill text matches the intended device-side contract."}
+{"file": ".agents/skills/self-describing-protocol-integration/reference/README.md", "reason": "Validate consistency between the skill and the reference docs."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Verify the example aligns with the backend's self-describing transport contract."}

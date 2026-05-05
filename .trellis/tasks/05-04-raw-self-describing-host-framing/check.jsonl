@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index for validating raw self-describing framing changes."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Validates the raw self-describing transport contract against the implementation."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Checks that the framing fix remains focused and regression-covered."}

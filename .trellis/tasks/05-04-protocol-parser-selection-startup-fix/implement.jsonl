@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index for protocol/runtime quality rules relevant to parser selection and startup gating."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Defines parser options, auto-detect expectations, and self-describing CRTP handling boundaries."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Keeps the backend change small, explicit, and test-backed."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend spec index for connection panel changes."}
+{"file": ".trellis/spec/frontend/workbench-visual-language.md", "reason": "Constrains the new protocol selector to fit the existing compact connection panel UI."}

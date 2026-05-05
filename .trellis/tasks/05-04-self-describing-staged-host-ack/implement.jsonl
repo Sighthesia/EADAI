@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index for the relevant protocol, logging, and quality rules."}
+{"file": ".trellis/spec/backend/serial-multi-protocol.md", "reason": "Defines the self-describing catalog framing contract and auto-detect/backend projection rules."}
+{"file": ".trellis/spec/backend/bmi088-host-protocol.md", "reason": "Cross-checks executable host protocol expectations and regression boundaries for staged handshake behavior."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Constrains the fix to stay small, explicit, and test-backed."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Guides the additional handshake-stage diagnostic logging requested in this task."}
